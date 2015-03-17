@@ -9,7 +9,7 @@ function start-workday {
 
 function work-context {
     # only highland is supported for now
-    cd $ORG_DIR/docker/highland
+    cd ~/source/docker/highland
     source venv/bin/activate
 }
 
