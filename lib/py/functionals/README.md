@@ -6,7 +6,7 @@ More Higher-order functions for python callables
 Create a virtual environment with python3 and install nose and flake8 (I should put dependencies in a requirements.txt file)
 
 ## testing
-
+Run "run_tests.sh" (I should consider using tox or something that can test in multiple environments)
 
 ## Potential Additions
 
