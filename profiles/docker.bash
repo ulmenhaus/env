@@ -33,9 +33,13 @@ function test-context {
 }
 
 function build-yoyobrawlah {
-    fablib-cli build --source_url https://github.com/caervs/yoyobrawlah --docker_repo caervs --docker_tag caervs/yoyobrawlah
+    # fablib-cli build --source_url https://github.com/caervs/yoyobrawlah --docker_repo caervs --docker_tag caervs/yoyobrawlah
+    fab cli_build:https://github.com/caervs/yoyobrawlah,caervs/yoyobrawlah,latest
 }
 
+function docker-daemon-connect {
+    eval $(docker-machine env osxdock)
+}
 # expose port 80 on docker VM with
 # boot2docker ssh -L 8000:localhost:80
 
