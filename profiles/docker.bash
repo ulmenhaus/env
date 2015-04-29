@@ -69,3 +69,6 @@ function docker-daemon-connect {
 # pull new highland from registry
 # fab h:test-1 pull:staging worker api manager
 
+function set-mail-shortcuts {
+    defaults write com.apple.mail NSUserKeyEquivalents '{"Office Notifications"="^o"; "Company Notifications"="^c";}'; killall Mail; open /Applications/Mail.app
+}
