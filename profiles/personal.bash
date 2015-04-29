@@ -107,3 +107,7 @@ fi
 
 
 alias blender='~/Downloads/Blender/blender.app/Contents/MacOS/blender'
+
+function bootstrap {
+    ln -s ~/source/caervs/personal/profiles/emacs.el ~/.emacs
+}
