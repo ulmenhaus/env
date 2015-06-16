@@ -1,10 +1,14 @@
 function start-workday {
-    add-keypairs docker-ssh
+    keypairs-add
     open $PRIVATE_DIR/kdbs/master.kdbx
     for app in Google\ Chrome Mail Slack Spotify
     do
 	open "/Applications/$app.app";
     done
+}
+
+function keypairs-add {
+    add-keypair docker.cluster docker/rsa/cluster
 }
 
 function work-context {
@@ -70,5 +74,5 @@ function docker-daemon-connect {
 # fab h:test-1 pull:staging worker api manager
 
 function set-mail-shortcuts {
-    defaults write com.apple.mail NSUserKeyEquivalents '{"Office Notifications"="^o"; "Company Notifications"="^c";}'; killall Mail; open /Applications/Mail.app
+    defaults write com.apple.mail NSUserKeyEquivalents '{"Office Notifications"="^o"; "Company Notifications"="^c"; "Birthdays"="^b"; "Welcomes"="^w";}'; killall Mail; open /Applications/Mail.app
 }

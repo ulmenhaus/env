@@ -1,14 +1,14 @@
-export PATH=$HOME/source/caervs/personal/exe:$PATH
+export PATH=$HOME/source/caervs/personal/bin:$PATH
 export EDITOR=emacs
 
 function devmode {
-    export PYTHONPATH=~/source/caervs/public/
+    # TODO should include lib/py by default
+    export PYTHONPATH=~/source/caervs/public/:~/source/caervs/personal/lib/py/
 }
 
 # TODO reconcile all of my context logic
 
 function pass-context {
-    rm -f ~/.password-store
     context="$1"
     mode="$2"
     storepath=""
@@ -16,7 +16,9 @@ function pass-context {
     if [ "$context" == "" ];
     then
 	cat ~/.pass-context;
+	return
     fi;
+
     if [ "$context" == "docker" ];
     then
 	storepath="$HOME/source/docker-infra/pass-store";
@@ -39,19 +41,36 @@ function pass-context {
 	storepath=$tmppath
 	gitpath=$tmppath
     fi;
-    if [ "$storepath" ];
+
+    if [ "" == "$storepath" ];
     then
+	echo "Unknown pass-context: $context"
+	return 1
+    fi;
+
+    if [ "$mode" == "-e" ];
+    then
+	export PASSWORD_STORE_DIR=$storepath
+	export PASSWORD_STORE_GIT=$gitpath
+    else
+	rm -f ~/.password-store
 	unset PASSWORD_STORE_DIR
 	unset PASSWORD_STORE_GIT
 
 	ln -s $storepath ~/.password-store
 	echo $1 > ~/.pass-context
     fi;
-    if [ "$mode" == "-e" ];
-    then
-	export PASSWORD_STORE_DIR=$storepath
-	export PASSWORD_STORE_GIT=$gitpath
-    fi;
+}
+
+function pass-context2 {
+    IFS='
+'
+    for line in $(python3 -m passtools.context $*); do eval $line; done
+}
+function password-fill {
+    IFS='
+'
+    for line in $(python3 -m passtools.chrome $*); do eval $line; done
 }
 
 function gpg-context {
@@ -92,10 +111,10 @@ function pass-gen-ssh-key {
 }
 
 function add-keypair {
-    old_context=$(pass-context)
-    pass-context peripheral
+    pass-context peripheral -e
     keyname=$1
-    ssh-add-with-password $HOME/source/caervs/local/standard_context/ssh/$keyname $(pass show rsa/$keyname)
+    pass_reference=$2
+    ssh-add-with-password $HOME/source/caervs/local/rsa/$keyname $pass_reference
     pass-context $old_context
 }
 
