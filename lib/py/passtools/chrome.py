@@ -7,6 +7,8 @@ from passtools.context import ContextManager
 PASSWORDS = {
     'hub.docker.com': ('personal', 'docker/dockerhub'),
     'docker.atlassian.net': ('personal', 'docker/atlassian'),
+    # TODO should support multiple passwords
+    'www.amazon.com': ('docker', 'dev/teams/highland/aws/console/aws-highland@docker.com'),
 }
 
 GET_ACTIVE_PAGE_URL_SCRIPT = """
