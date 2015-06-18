@@ -52,3 +52,4 @@
   )
 
 (global-set-key [?\C-t] 'term-in-split-window)
+(electric-indent-mode -1)
