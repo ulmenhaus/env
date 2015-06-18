@@ -130,3 +130,6 @@ alias blender='~/Downloads/Blender/blender.app/Contents/MacOS/blender'
 function bootstrap {
     ln -s ~/source/caervs/personal/profiles/emacs.el ~/.emacs
 }
+
+alias euler_env='cd ~/source/caervs/miniprojects; . ./project-euler/activate'
+alias ee=euler_env
