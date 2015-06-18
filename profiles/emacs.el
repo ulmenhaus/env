@@ -42,3 +42,13 @@
 
 
 ; TODO write docstring folder
+
+(defun term-in-split-window()
+  (interactive)
+  (split-window-right)
+  (other-window 1)
+  (term "bash")
+  (term-send-raw-string ". ~/.profile\n")
+  )
+
+(global-set-key [?\C-t] 'term-in-split-window)
