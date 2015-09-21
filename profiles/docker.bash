@@ -76,3 +76,7 @@ function docker-daemon-connect {
 function set-mail-shortcuts {
     defaults write com.apple.mail NSUserKeyEquivalents '{"Office Notifications"="^o"; "Company Notifications"="^c"; "Birthdays"="^b"; "Welcomes"="^w";}'; killall Mail; open /Applications/Mail.app
 }
+
+function highland_dev {
+    docker run -it -v ~/source/docker/highland:/highland highland_dev
+}

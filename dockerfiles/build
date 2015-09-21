@@ -1,0 +1,1 @@
+docker build -t highland_dev -f highland_dev.Dockerfile .
