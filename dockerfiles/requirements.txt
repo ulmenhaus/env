@@ -1,0 +1,19 @@
+apache-libcloud
+boto
+celery
+coverage
+docker-py
+DynectDNS
+fablib
+fabric
+M2Crypto
+mock
+nose
+paramiko
+pyvbox
+pylint
+pyyaml
+semver
+-e git://github.com/caervs/sshuttle.git@master#egg=sshuttle
+tabulate
+yapf

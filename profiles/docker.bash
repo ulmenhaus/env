@@ -78,5 +78,5 @@ function set-mail-shortcuts {
 }
 
 function highland_dev {
-    docker run -it -v ~/source/docker/highland:/highland highland_dev
+    docker run -it -v ~/source/docker/highland:/highland -v ~/.gnupg:/root/.gnupg -v ~/.password-store:/root/.password-store -v /var/run/docker.sock:/var/run/docker.sock --privileged -v /usr/local/bin/docker:/usr/local/bin/docker -v ~/.ssh:/root/.ssh -v ~/.dockercfg:/root/.dockercfg -v ~/.highland-certs/:/root/.highland-certs highland_dev
 }
