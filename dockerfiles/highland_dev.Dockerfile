@@ -12,4 +12,8 @@ RUN pip install --upgrade six
 
 RUN echo "eval \$(gpg-agent --daemon --pinentry-program /usr/bin/pinentry); cd /highland" > /bash_init
 
+COPY highland-client /highland-client
+
+RUN pip install -e /highland-client
+
 ENTRYPOINT ["bash", "--init-file", "/bash_init"]
