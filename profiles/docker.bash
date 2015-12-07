@@ -78,5 +78,17 @@ function set-mail-shortcuts {
 }
 
 function highland_dev {
-    docker run -it -v ~/source/docker/highland:/highland -v ~/.gnupg:/root/.gnupg -v ~/.password-store:/root/.password-store -v /var/run/docker.sock:/var/run/docker.sock --privileged -v /usr/local/bin/docker:/usr/local/bin/docker -v ~/.ssh:/root/.ssh -v ~/.dockercfg:/root/.dockercfg -v ~/.highland-certs/:/root/.highland-certs highland_dev
+    # docker run -it -v ~/source/docker/highland:/highland -v ~/.gnupg:/root/.gnupg -v ~/.password-store:/root/.password-store -v /var/run/docker.sock:/var/run/docker.sock --privileged -v /usr/local/bin/docker:/usr/local/bin/docker -v ~/.ssh:/root/.ssh -v ~/.dockercfg:/root/.dockercfg -v ~/.highland-certs/:/root/.highland-certs highland_dev
+    docker run -it --net host -v /var/run/docker.sock:/var/run/docker.sock --privileged -v /usr/local/bin/docker:/usr/local/bin/docker -v /Users/rabrams:/root -v /Users/rabrams:/rabrams -v /Users/rabrams/source/docker/highland/:/highland/ highland_dev
+}
+
+
+function prod-ak {
+    token=$(curl -X POST -H "Authorization: authtoken $(pass show dev/teams/hub/apps/index/prod/dockerio/notification/secret)" https://hub.docker.com/v2/users/rabrams/accesskey/ | jq .secret)
+    echo "export ACCESSKEY=$token" | pbcopy
+}
+
+function stage-ak {
+    token=$(curl -X POST -H "Authorization: authtoken $(pass show dev/teams/hub/apps/index/stage/dockerio/token)" https://hub-stage.docker.com/v2/users/rabrams/accesskey/ | jq .secret)
+    echo "export ACCESSKEY=$token" | pbcopy
 }
