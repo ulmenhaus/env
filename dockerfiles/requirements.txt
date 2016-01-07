@@ -17,3 +17,11 @@ semver
 -e git://github.com/caervs/sshuttle.git@master#egg=sshuttle
 tabulate
 yapf
+
+Django==1.8.3
+djangorestframework==3.1.3
+dj_database_url
+bugsnag
+shortuuid
+
+gevent

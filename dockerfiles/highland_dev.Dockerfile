@@ -18,4 +18,6 @@ COPY highland /highland-static
 
 RUN pip install -e /highland-client
 
+RUN easy_install python-dateutil
+
 ENTRYPOINT ["bash", "--init-file", "/bash_init"]
