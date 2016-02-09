@@ -84,11 +84,27 @@ function highland_dev {
 
 
 function prod-ak {
-    token=$(curl -X POST -H "Authorization: authtoken $(pass show dev/teams/hub/apps/index/prod/dockerio/notification/secret)" https://hub.docker.com/v2/users/rabrams/accesskey/ | jq .secret)
-    echo "export ACCESSKEY=$token" | pbcopy
+    password=$(pass show docker/dockerhub)
+    token=$(curl -X POST -H "content-type: application/json" -d "{\"username\": \"rabrams\", \"password\": \"$password\"}" https://hub.docker.com/v2/users/login/ | jq -r .token)
+    accesskey=$(curl -X POST -H "Authorization: JWT $token" https://hub.docker.com/v2/users/rabrams/accesskeys/ | jq .secret)
+    echo "export ACCESSKEY=$accesskey" | pbcopy
 }
 
 function stage-ak {
-    token=$(curl -X POST -H "Authorization: authtoken $(pass show dev/teams/hub/apps/index/stage/dockerio/token)" https://hub-stage.docker.com/v2/users/rabrams/accesskey/ | jq .secret)
-    echo "export ACCESSKEY=$token" | pbcopy
+    password=$(pass show docker/dockerhub-staging)
+    token=$(curl -X POST -H "content-type: application/json" -d "{\"username\": \"rabrams\", \"password\": \"$password\"}" https://hub-stage.docker.com/v2/users/login/ | jq -r .token)
+    accesskey=$(curl -X POST -H "Authorization: JWT $token" https://hub-stage.docker.com/v2/users/rabrams/accesskeys/ | jq .secret)
+    echo "export ACCESSKEY=$accesskey" | pbcopy
+}
+
+function pass-cache {
+    for password_location in $(find ~/.password-store/$1 | grep 'gpg$');
+    do
+	pass_entry=$(echo $password_location | sed 's/.*\.password-store\///' | sed 's/\.gpg$//')
+	echo $pass_entry
+	target_dir=/tmp/$(dirname $pass_entry)
+	mkdir -p $target_dir
+	pass_name=$(basename $pass_entry)
+	pass show $pass_entry > $target_dir/$pass_name
+    done
 }
