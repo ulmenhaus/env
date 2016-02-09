@@ -29,6 +29,11 @@ function pass-context {
 	storepath="$HOME/source/caervs/private/password-store";
 	gitpath="$HOME/source/caervs/private/";
     fi;
+    if [ "$context" == "uhaus" ];
+    then
+	storepath="$HOME/source/ulmenhaus/private/password-store";
+	gitpath="$HOME/source/ulmenhaus/private/";
+    fi;
     if [ "$context" == "peripheral" ];
     then
 	storepath="/Volumes/Key/password-store";
