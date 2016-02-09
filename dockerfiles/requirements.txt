@@ -1,5 +1,4 @@
 apache-libcloud
-boto
 celery
 coverage
 docker-py
