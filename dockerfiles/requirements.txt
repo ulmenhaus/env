@@ -13,7 +13,6 @@ pyvbox
 pylint
 pyyaml
 semver
--e git://github.com/caervs/sshuttle.git@master#egg=sshuttle
 tabulate
 yapf
 

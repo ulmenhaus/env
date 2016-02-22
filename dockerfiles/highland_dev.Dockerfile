@@ -2,8 +2,6 @@ FROM ubuntu:14.04
 
 RUN apt-get update && apt-get install -y python-dev python-m2crypto python-pip iptables pass python-psycopg2
 
-RUN cd / && git clone https://github.com/apenwarr/sshuttle
-
 COPY /requirements.txt /requirements.txt
 
 RUN pip install -r /requirements.txt
@@ -22,6 +20,9 @@ RUN pip install requests==2.9.1
 
 RUN easy_install python-dateutil
 
-RUN cd / && pip install -e git://github.com/caervs/boto.git@subnet_attribute#egg=boto
+RUN echo 1345
+RUN cd / && pip install -e git://github.com/caervs/boto.git@subnet_attribute#egg=boto && pip install -e git://github.com/caervs/sshuttle.git@master#egg=sshuttle
+
+RUN cd /src/boto && git checkout -b subnet_attribute origin/subnet_attribute
 
 ENTRYPOINT ["bash", "--init-file", "/bash_init"]
