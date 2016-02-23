@@ -78,7 +78,7 @@ function set-mail-shortcuts {
 }
 
 function highland_dev {
-    docker run -it --net host -v /var/run/docker.sock:/var/run/docker.sock --privileged -v /usr/local/bin/docker:/usr/local/bin/docker -v ~/.gnupg-root:/root/.gnupg -v ~/source/docker-infra/pass-store:/root/.password-store -v ~/source/docker/highland/:/highland/ highland_dev
+    docker run -it --net host -v /var/run/docker.sock:/var/run/docker.sock --privileged -v /usr/local/bin/docker:/usr/local/bin/docker -v ~/.gnupg-root:/root/.gnupg -v ~/source/docker-infra/pass-store:/root/.password-store -v ~/source/docker/highland/:/highland/ -v /Users/rabrams:/rabrams highland_dev
 }
 
 

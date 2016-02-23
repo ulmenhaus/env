@@ -25,4 +25,6 @@ RUN cd / && pip install -e git://github.com/caervs/boto.git@subnet_attribute#egg
 
 RUN cd /src/boto && git checkout -b subnet_attribute origin/subnet_attribute
 
+RUN echo "ln -s /rabrams/.dockercfg /root/.dockercfg" >> /bash_init
+
 ENTRYPOINT ["bash", "--init-file", "/bash_init"]
