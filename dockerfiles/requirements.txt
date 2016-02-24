@@ -23,3 +23,9 @@ bugsnag
 shortuuid
 
 gevent
+
+pykafka
+protobuf
+
+-e git://github.com/caervs/boto.git@subnet_attribute#egg=boto
+-e git://github.com/caervs/sshuttle.git@master#egg=sshuttle
