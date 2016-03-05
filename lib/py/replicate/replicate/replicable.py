@@ -123,6 +123,9 @@ class Replicable(object, metaclass=GloballyIdentifiedClass):
     def __eq__(self, other):
         return type(self) == type(other) and self.parts == other.parts
 
+    def __hash__(self):
+        return hash(frozenset(self.parts.items()))
+
     @parts.setter
     def parts(self, parts):
         self._parts = parts
