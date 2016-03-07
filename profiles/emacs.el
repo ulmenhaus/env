@@ -26,17 +26,17 @@
   (interactive)
   (term-send-raw-string "select build_code, server_name, status from build_requests where status > 0 and status < 10;\n"))
 
-(defun fail-build()
+(defun show-builders()
   (interactive)
-  (term-send-raw-string "UPDATE build_requests SET status=-2 WHERE build_code='';"))
+  (term-send-raw-string "select region, \"group\", status, server_name, last_updated from builds_builder where status in (0, 1) order by last_updated;\n"))
 
 (defun db-client ()
   (interactive)
   (term "bash")
   (rename-buffer "production-db")
-  (term-send-raw-string "psql $(pass dev/teams/highland/production/db_url)\n")
+  (term-send-raw-string "psql $(pass dev/teams/highland/legacy/production/db_url)\n")
   (define-key term-raw-map "\C-f" 'show-stuck-builds)
-  (define-key term-raw-map "\C-u" 'fail-build)
+  (define-key term-raw-map "\C-u" 'show-builders)
   (define-key term-raw-map "\C-b" 'show-active-builds)
   )
 

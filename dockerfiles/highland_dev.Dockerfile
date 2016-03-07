@@ -20,5 +20,6 @@ RUN echo "ln -s /rabrams/.dockercfg /root/.dockercfg" >> /bash_init
 
 COPY highland-client /highland-client
 RUN pip install -e /highland-client
+RUN pip install --upgrade requests
 
 ENTRYPOINT ["bash", "--init-file", "/bash_init"]
