@@ -8,7 +8,7 @@ RUN pip install -r /requirements.txt
 
 RUN pip install --upgrade six
 
-RUN echo "eval \$(gpg-agent --daemon --pinentry-program /usr/bin/pinentry); cd /highland; export all=api,agent,newrelic,nginx,builder,heka,hekasink,logbahn" > /bash_init
+RUN echo "eval \$(gpg-agent --daemon --pinentry-program /usr/bin/pinentry); cd /highland; export all=api,agent,newrelic,nginx,builder,heka,hekasink,logbahn,docs" > /bash_init
 
 COPY highland /highland-static
 
