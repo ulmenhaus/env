@@ -1,5 +1,0 @@
-# docker build --no-cache -t highland_dev -f highland_dev.Dockerfile .
-docker build -t highland_dev -f highland_dev.Dockerfile .
-
-# TODO install the highland_client with (should point to origin)
-# pip install -e git+ssh://git@github.com/caervs/highland-client.git@master#egg=highland_client
