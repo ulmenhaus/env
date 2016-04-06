@@ -81,6 +81,10 @@ function highland_dev {
     docker run -it --net host -v /var/run/docker.sock:/var/run/docker.sock --privileged -v /usr/local/bin/docker:/usr/local/bin/docker -v ~/.gnupg-root:/root/.gnupg -v ~/source/docker-infra/pass-store:/root/.password-store -v ~/source/docker/highland/:/highland/ -v /Users/rabrams:/rabrams highland_dev
 }
 
+function highland_dev2 {
+    docker run -it --net host -v /var/run/docker.sock:/var/run/docker.sock --privileged -v /usr/local/bin/docker:/usr/local/bin/docker -v ~/.gnupg-root:/root/.gnupg -v ~/source/docker-infra/pass-store:/root/.password-store -v ~/source/docker/highland/:/highland/ -v /Users/rabrams:/rabrams docker/highland_dev
+}
+
 
 function prod-ak {
     password=$(pass show docker/dockerhub)
@@ -89,10 +93,24 @@ function prod-ak {
     echo "export ACCESSKEY=$accesskey" | pbcopy
 }
 
+function prod-ak-highland {
+    password=$(pass show dev/teams/highland/production/hub/pass)
+    token=$(curl -X POST -H "content-type: application/json" -d "{\"username\": \"highland\", \"password\": \"$password\"}" https://hub.docker.com/v2/users/login/ | jq -r .token)
+    accesskey=$(curl -X POST -H "Authorization: JWT $token" https://hub.docker.com/v2/users/highland/accesskeys/ | jq .secret)
+    echo "export ACCESSKEY=$accesskey" | pbcopy
+}
+
 function stage-ak {
     password=$(pass show docker/dockerhub-staging)
     token=$(curl -X POST -H "content-type: application/json" -d "{\"username\": \"rabrams\", \"password\": \"$password\"}" https://hub-stage.docker.com/v2/users/login/ | jq -r .token)
     accesskey=$(curl -X POST -H "Authorization: JWT $token" https://hub-stage.docker.com/v2/users/rabrams/accesskeys/ | jq .secret)
+    echo "export ACCESSKEY=$accesskey" | pbcopy
+}
+
+function stage-ak-highland {
+    password=$(pass show dev/teams/highland/staging/hub/pass)
+    token=$(curl -X POST -H "content-type: application/json" -d "{\"username\": \"highland\", \"password\": \"$password\"}" https://hub-stage.docker.com/v2/users/login/ | jq -r .token)
+    accesskey=$(curl -X POST -H "Authorization: JWT $token" https://hub-stage.docker.com/v2/users/highland/accesskeys/ | jq .secret)
     echo "export ACCESSKEY=$accesskey" | pbcopy
 }
 
