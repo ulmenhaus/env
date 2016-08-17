@@ -4,12 +4,17 @@ function work-context {
     source venv/bin/activate
 }
 
+function mega-context {
+    # only highland is supported for now
+    cd ~/source/src/github.com/docker/saas-mega
+}
+
 function set-mail-shortcuts {
     defaults write com.apple.mail NSUserKeyEquivalents '{"Office Notifications"="^o"; "Company Notifications"="^c"; "Birthdays"="^b"; "Welcomes"="^w";}'; killall Mail; open /Applications/Mail.app
 }
 
 function highland_dev {
-    docker run --rm -it --net host -v /var/run/docker.sock:/var/run/docker.sock --privileged -v ~/.gnupg-root:/root/.gnupg -v ~/.dockercfg:/root/.dockercfg -v ~/source/docker-infra/pass-store:/root/.password-store -v ~/source/docker/highland/:/highland/ -v /Users/rabrams:/rabrams highland_dev
+    docker run --rm -it --net host -v /var/run/docker.sock:/var/run/docker.sock --privileged -v ~/.gnupg-root:/root/.gpg -v ~/.dockercfg:/root/.dockercfg -v ~/source/docker-infra/pass-store:/root/.password-store -v ~/source/docker/highland/:/highland/ -v ~/source/docker/saas-mega/:/saas-mega/ -v /Users/rabrams:/rabrams highland_dev
 }
 
 function prod-ak {
