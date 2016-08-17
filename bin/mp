@@ -1,0 +1,88 @@
+#! /usr/local/bin/python
+"""
+Meta-pass (mp) adds some useful tools on top of unix pass like:
+- automated login to websites from credentials in pass
+"""
+
+# TODO add ability to manage pass contexts
+
+import json
+import subprocess
+import sys
+
+OSA_TEMPLATE = """
+tell application "Google Chrome"
+   tell window 1
+       tell active tab
+           open location "{formurl}"
+       end tell
+   end tell
+
+   delay 3
+   tell window 1
+       tell active tab
+           {javascript}
+       end tell
+   end tell
+end tell
+"""
+
+JS_INDENT = " " * 11
+SET_LINE = JS_INDENT + '''execute javascript ("document.getElementById('{objid}').value = '{value}'")'''
+SUBMIT_LINE = JS_INDENT + '''execute javascript ("document.getElementById('{buttonid}').click()")'''
+
+
+def browser_submit(url, fields, buttonid):
+    """
+    Use osascript to log into a website using encrypted credentials
+    """
+    javascript = "{}\n{}".format("\n".join(SET_LINE.format(objid=objid,
+                                                           value=value)
+                                           for objid, value in fields.items()),
+                                 SUBMIT_LINE.format(buttonid=buttonid))
+
+    osascript = OSA_TEMPLATE.format(formurl=url, javascript=javascript)
+    proc = subprocess.Popen(['osascript'],
+                            stdin=subprocess.PIPE,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE)
+    proc.communicate(osascript)
+    proc.wait()
+
+
+def do(action_name, **params):
+    """
+    Do the action encoded in a pass object
+    """
+    actions = {'browser.submit': browser_submit, }
+    if action_name not in actions:
+        print >> sys.stderr, 'Invalid action'
+        return 1
+    else:
+        actions[action_name](**params)
+
+
+def main():
+    args = sys.argv[1:]
+    # TODO proper CLI with argparse
+    if args[0] != "do":
+        print >> sys.stderr, "Unknown command"
+        exit(1)
+    for entry_name in args[1:]:
+        decrypt = subprocess.Popen(
+            ['pass', 'show', entry_name],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE)
+        decrypted, err = decrypt.communicate()
+        status = decrypt.wait()
+        if status:
+            if "No secret key" in err:
+                print >> sys.stderr, "Please insert yubikey"
+            else:
+                print err
+            exit(1)
+        do(**json.loads(decrypted))
+
+
+if __name__ == "__main__":
+    main()
