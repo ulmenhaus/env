@@ -1,9 +1,9 @@
-export PATH=$HOME/source/caervs/personal/bin:$PATH
+export PATH=$HOME/src/github.com//caervs/personal/bin:$PATH
 export EDITOR=emacs
 
 function devmode {
     # TODO should include lib/py by default
-    export PYTHONPATH=~/source/caervs/public/:~/source/caervs/personal/lib/py/
+    export PYTHONPATH=~/src/github.com//caervs/public/:~/src/github.com//caervs/personal/lib/py/
 }
 
 # TODO reconcile all of my context logic
@@ -21,18 +21,18 @@ function pass-context {
 
     if [ "$context" == "docker" ];
     then
-	storepath="$HOME/source/docker-infra/pass-store";
-	gitpath="$HOME/source/docker-infra/pass-store";
+	storepath="$HOME/src/github.com//docker-infra/pass-store";
+	gitpath="$HOME/src/github.com//docker-infra/pass-store";
     fi;
     if [ "$context" == "personal" ];
     then
-	storepath="$HOME/source/caervs/private/password-store";
-	gitpath="$HOME/source/caervs/private/";
+	storepath="$HOME/src/github.com//caervs/private/password-store";
+	gitpath="$HOME/src/github.com//caervs/private/";
     fi;
     if [ "$context" == "uhaus" ];
     then
-	storepath="$HOME/source/ulmenhaus/private/password-store";
-	gitpath="$HOME/source/ulmenhaus/private/";
+	storepath="$HOME/src/github.com//ulmenhaus/private/password-store";
+	gitpath="$HOME/src/github.com//ulmenhaus/private/";
     fi;
     if [ "$context" == "peripheral" ];
     then
@@ -82,14 +82,14 @@ function gpg-context {
     rm -f ~/.gnupg ~/.ssh
 
     context="$1"
-    sshdir="$HOME/source/caervs/local/standard_context/ssh";
+    sshdir="$HOME/src/github.com//caervs/local/standard_context/ssh";
     if [ "$context" == "standard" ];
     then
-	gpgdir="$HOME/source/caervs/local/standard_context/gnupg";
+	gpgdir="$HOME/src/github.com//caervs/local/standard_context/gnupg";
     fi;
     if [ "$context" == "setup" ];
     then
-	gpgdir="$HOME/source/caervs/local/setup_context/gnupg";
+	gpgdir="$HOME/src/github.com//caervs/local/setup_context/gnupg";
     fi;
     if [ "$context" == "peripheral" ];
     then
@@ -103,7 +103,7 @@ function gpg-context {
 
 function fab-context {
     rm -f ~/.highland
-    ln -s $HOME/source/caervs/local/standard_context/fab/highland ~/.highland
+    ln -s $HOME/src/github.com//caervs/local/standard_context/fab/highland ~/.highland
 }
 
 function pass-gen-ssh-key {
@@ -111,7 +111,7 @@ function pass-gen-ssh-key {
     pass-context peripheral -e
     keyname=$1
     pass generate --no-symbols rsa/$keyname 40
-    ssh-keygen -f $HOME/source/caervs/local/standard_context/ssh/$keyname -P $(pass show rsa/$keyname)
+    ssh-keygen -f $HOME/src/github.com//caervs/local/standard_context/ssh/$keyname -P $(pass show rsa/$keyname)
     pass-context $old_context
 }
 
@@ -119,11 +119,11 @@ function add-keypair {
     pass-context peripheral -e
     keyname=$1
     pass_reference=$2
-    ssh-add-with-password $HOME/source/caervs/local/rsa/$keyname $pass_reference
+    ssh-add-with-password $HOME/src/github.com//caervs/local/rsa/$keyname $pass_reference
     pass-context $old_context
 }
 
-. ~/source/zx2c4/password-store/src/completion/pass.bash-completion
+. ~/src/github.com//zx2c4/password-store/src/completion/pass.bash-completion
 
 if [ -f `brew --prefix`/etc/bash_completion ]; then
     . `brew --prefix`/etc/bash_completion
@@ -133,8 +133,8 @@ fi
 alias blender='~/Downloads/Blender/blender.app/Contents/MacOS/blender'
 
 function bootstrap {
-    ln -s ~/source/caervs/personal/profiles/emacs.el ~/.emacs
+    ln -s ~/src/github.com//caervs/personal/profiles/emacs.el ~/.emacs
 }
 
-alias euler_env='cd ~/source/caervs/miniprojects; . ./project-euler/activate'
+alias euler_env='cd ~/src/github.com//caervs/miniprojects; . ./project-euler/activate'
 alias ee=euler_env

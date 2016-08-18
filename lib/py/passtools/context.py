@@ -4,10 +4,10 @@ from passtools.interface import BashInterface
 
 
 CONTEXTS = {
-    'docker': ("$HOME/source/docker-infra/pass-store",
-               "$HOME/source/docker-infra/pass-store"),
-    'personal': ("$HOME/source/caervs/private/password-store",
-                 "$HOME/source/caervs/private/"),
+    'docker': ("$HOME/src/github.com/docker-infra/pass-store",
+               "$HOME/src/github.com/docker-infra/pass-store"),
+    'personal': ("$HOME/src/github.com/caervs/private/password-store",
+                 "$HOME/src/github.com/caervs/private/"),
     'peripheral': ("/Volumes/Key/password-store",
                    "/Volumes/Key/password-store"),
     }
