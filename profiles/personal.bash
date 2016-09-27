@@ -138,3 +138,13 @@ function bootstrap {
 
 alias euler_env='cd ~/src/github.com//caervs/miniprojects; . ./project-euler/activate'
 alias ee=euler_env
+
+
+# HACK until jex can be used
+function trackit-env {
+    export TRACKIT_SLACK_TOKEN=$(pass show network/slack-token)
+    export TRACKIT_BOT_MASTER="rabrams"
+    export TRACKIT_USERS="rabrams"
+    export TRACKIT_CHANNEL="#hackyducks"
+    export TRACKIT_PUBLIC_ENDPOINT="https://trackit.ulmenhaus.com"
+}
