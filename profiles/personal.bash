@@ -134,6 +134,7 @@ alias blender='~/Downloads/Blender/blender.app/Contents/MacOS/blender'
 
 function bootstrap {
     ln -s ~/src/github.com//caervs/personal/profiles/emacs.el ~/.emacs
+    ln -s ~/src/github.com/caervs/personal/dotfiles/xonshrc.py ~/.xonshrc
 }
 
 alias euler_env='cd ~/src/github.com//caervs/miniprojects; . ./project-euler/activate'
