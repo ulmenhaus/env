@@ -1,11 +1,34 @@
 import json
 import os
 import subprocess
+import tempfile
 
 from xonshlib import ENV
 
+OSA_TEMPLATE = """
+tell application "Google Chrome"
+   tell window 1
+       tell active tab
+           open location "{formurl}"
+       end tell
+   end tell
 
-class PassContextManager(object):
+   delay 3
+   tell window 1
+       tell active tab
+           {javascript}
+       end tell
+   end tell
+end tell
+"""
+
+JS_INDENT = " " * 11
+# TODO these templates don't support some special characters
+SET_LINE = JS_INDENT + '''execute javascript ("document.getElementById('{objid}').value = '{value}'")'''
+SUBMIT_LINE = JS_INDENT + '''execute javascript ("document.getElementById('{buttonid}').click()")'''
+
+
+class PasswordManager(object):
     def __init__(self, pass_stores):
         self.pass_stores = pass_stores
         self.reverse_stores = {self.combine(value): key
@@ -53,6 +76,45 @@ class PassContextManager(object):
         completions = map(process_filename, filter(is_match, all_files))
         return {os.path.join(path_so_far, completion)
                 for completion in completions}
+
+    def _get_entry(self, args, is_json=True):
+        os.environ['PASSWORD_STORE_DIR'] = ENV['PASSWORD_STORE_DIR']
+        os.environ['PASSWORD_STORE_GIT'] = ENV['PASSWORD_STORE_GIT']
+        path, = args
+        output = subprocess.check_output(["pass", "show", path]).decode(
+            "utf-8")
+        return json.loads(output) if is_json else output
+
+    def get_env(self, args, stdin=None):
+        ENV.update(self._get_entry(args))
+
+    def submit_data(self, args, stdin=None):
+        params = self._get_entry(args)
+        javascript = "{}\n{}".format(
+            "\n".join(SET_LINE.format(objid=objid,
+                                      value=value)
+                      for objid, value in params['fields'].items()),
+            SUBMIT_LINE.format(buttonid=params['buttonid']))
+
+        osascript = OSA_TEMPLATE.format(formurl=params['url'],
+                                        javascript=javascript)
+        proc = subprocess.Popen(['osascript'],
+                                stdin=subprocess.PIPE,
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE)
+        proc.communicate(osascript.encode('utf-8'))
+        proc.wait()
+
+    def add_ssh_key(self, args, stdin=None):
+        key_body = self._get_entry(args, False)
+        # TODO file should be given same name as pass entry so
+        # ssh-add -l is meaningful
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            f.write(key_body.encode('utf-8'))
+        try:
+            subprocess.check_call(["ssh-add", f.name])
+        finally:
+            os.remove(f.name)
 
 
 def docker_machine_env(args, stdin=None):
