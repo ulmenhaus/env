@@ -17,11 +17,14 @@ PASS_STORES = {
     "uhaus": (os.path.join(GH, "ulmenhaus", "private"), "password-store"),
 }
 
-PASS_MANAGER = xonshlib.utils.PassContextManager(PASS_STORES)
+PASS_MANAGER = xonshlib.utils.PasswordManager(PASS_STORES)
 PASS_COMPLETE = PASS_MANAGER.complete_line
 
 aliases.update({
     'pc': PASS_MANAGER.set_context,
+    'pass-env': PASS_MANAGER.get_env,
+    'pass-add-key': PASS_MANAGER.add_ssh_key,
+    'pass-submit': PASS_MANAGER.submit_data,
     'dm': xonshlib.utils.docker_machine_env,
     'set_completers': "completer add pass PASS_COMPLETE start",
     # TODO make src parametrically take in a project name
