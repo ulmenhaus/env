@@ -177,3 +177,26 @@ def git_clean(args, stdin=None):
         return
     else:
         subprocess.call(["git", "branch", "-d"] + other_branches)
+
+
+class PythonPathSetter(object):
+    def __init__(self, paths):
+        self.paths = dict(paths)
+
+    def set_paths(self, args, stdin=None):
+        if args == []:
+            paths = list(self.paths.values())
+            antipaths = []
+        elif args == ["-"]:
+            paths = []
+            antipaths = list(self.paths.values())
+        else:
+            antipaths = [self.paths[arg[1:]]
+                         for arg in args if arg.startswith("-")]
+            paths = [self.paths[arg] for arg in args
+                     if not arg.startswith("-")]
+
+        current_paths = ENV["PYTHONPATH"]
+        cleaned = [path
+                   for path in current_paths if path not in paths + antipaths]
+        ENV["PYTHONPATH"] = paths + cleaned
