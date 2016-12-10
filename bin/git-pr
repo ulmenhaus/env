@@ -1,0 +1,62 @@
+#! /usr/local/bin/python
+
+import subprocess
+
+from github import Github
+
+COMMAND = ["pass", "show", "hybrid/github_accesskey"]
+
+
+def get_remote(name):
+    # TODO proper parsing of url
+    entry = subprocess.check_output(["git", "remote", "get-url", name]).strip()
+    if entry.endswith(".git"):
+        entry = entry[:-4]
+    fullname = entry.split(":")[-1]
+    if fullname.startswith("/"):
+        fullname = fullname[1:]
+    return fullname
+
+
+def get_pr(origin, fork, ref):
+    user = subprocess.check_output(["git", "config", "user.email"]).strip()
+    password = subprocess.check_output(COMMAND).strip()
+    user, repo = origin.split("/")
+    g = Github(user, password)
+    repo = g.get_user(user).get_repo(repo)
+    pulls = list(repo.get_pulls(state='open'))
+    for pull in pulls:
+        if pull.head.repo.full_name == fork and \
+           pull.head.ref == ref:
+            return pull
+
+
+def main():
+    origin = get_remote("origin")
+    ref = subprocess.check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"
+                                   ]).strip()
+    try:
+        fork = get_remote("fork")
+    # TODO filter right exception
+    except Exception:
+        fork = origin
+    pr = get_pr(origin, fork, ref)
+    if pr is not None:
+        subprocess.check_call(["open", pr.html_url])
+    else:
+        if origin == fork:
+            subprocess.check_call(["git", "push", "origin", ref])
+        else:
+            subprocess.check_call(["git", "push", "fork", ref])
+
+        if origin == fork:
+            url = "https://github.com/{}/compare/{}?expand=1".format(origin,
+                                                                     ref)
+        else:
+            url = "https://github.com/{}/compare/master...{}:{}?expand=1".format(
+                origin, fork.split("/")[0], ref)
+        subprocess.check_call(["open", url])
+
+
+if __name__ == "__main__":
+    main()
