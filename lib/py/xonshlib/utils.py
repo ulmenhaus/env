@@ -87,7 +87,10 @@ class PasswordManager(object):
                            if not filename.endswith(".gpg") \
                            else filename[:-4]
         is_match = lambda filename: filename.startswith(parts[-1])
-        completions = map(process_filename, filter(is_match, all_files))
+        is_candidate = lambda filename: os.path.isdir(os.path.join(subdir, filename)) or \
+                       filename.endswith(".gpg")
+        completions = map(process_filename,
+                          filter(is_candidate, filter(is_match, all_files)))
         return {os.path.join(path_so_far, completion)
                 for completion in completions}
 
