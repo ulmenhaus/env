@@ -171,12 +171,17 @@ def command_for_container_config(config):
 
 
 def docker_clean(args, stdin=None):
-    output = subprocess.check_output(['docker', 'ps', '-aq'])
-    cids = list(output.decode("utf-8").split("\n")[:-1])
-    if not cids:
-        return
-    command = ["docker", "rm", "-f"] + cids
-    subprocess.check_output(command)
+    for art_type in ['service', 'plugin', 'container']:
+        ls_flag = "-aq" if art_type == 'container' else '-q'
+        output = subprocess.check_output(['docker', art_type, 'ls', ls_flag])
+        ids = list(output.decode("utf-8").split("\n")[:-1])
+        if not ids:
+            print("No {}s".format(art_type))
+            continue
+        print("Cleaning {}s".format(art_type))
+        rm_flag = [] if art_type == 'service' else ['-f']
+        command = ["docker", art_type, "rm"] + rm_flag + ids
+        subprocess.check_output(command)
 
 
 # TODO make into a binary so that "git br-clean" will also work and can be invoked en
