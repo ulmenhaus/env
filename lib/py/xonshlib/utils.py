@@ -45,8 +45,10 @@ SUBMIT_LINE = JS_INDENT + '''execute javascript ("document.getElementById('{butt
 class PasswordManager(object):
     def __init__(self, pass_stores):
         self.pass_stores = pass_stores
-        self.reverse_stores = {self.combine(value): key
-                               for key, value in pass_stores.items()}
+        self.reverse_stores = {
+            self.combine(value): key
+            for key, value in pass_stores.items()
+        }
 
     @staticmethod
     def combine(pathish):
@@ -91,15 +93,17 @@ class PasswordManager(object):
                        filename.endswith(".gpg")
         completions = map(process_filename,
                           filter(is_candidate, filter(is_match, all_files)))
-        return {os.path.join(path_so_far, completion)
-                for completion in completions}
+        return {
+            os.path.join(path_so_far, completion)
+            for completion in completions
+        }
 
     def get_entry(self, args, is_json=True):
         os.environ['PASSWORD_STORE_DIR'] = ENV['PASSWORD_STORE_DIR']
         os.environ['PASSWORD_STORE_GIT'] = ENV['PASSWORD_STORE_GIT']
         path, = args
-        output = subprocess.check_output(["pass", "show", path]).decode(
-            "utf-8")
+        output = subprocess.check_output(
+            ["pass", "show", path]).decode("utf-8")
         return json.loads(output) if is_json else output
 
     def get_env(self, args, stdin=None):
@@ -108,17 +112,19 @@ class PasswordManager(object):
     def submit_data(self, args, stdin=None):
         params = self.get_entry(args)
         javascript = "{}\n{}".format(
-            "\n".join(SET_LINE.format(objid=objid,
-                                      value=value)
-                      for objid, value in params['fields'].items()),
+            "\n".join(
+                SET_LINE.format(
+                    objid=objid, value=value)
+                for objid, value in params['fields'].items()),
             SUBMIT_LINE.format(buttonid=params['buttonid']))
 
-        osascript = OSA_TEMPLATE.format(formurl=params['url'],
-                                        javascript=javascript)
-        proc = subprocess.Popen(['osascript'],
-                                stdin=subprocess.PIPE,
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE)
+        osascript = OSA_TEMPLATE.format(
+            formurl=params['url'], javascript=javascript)
+        proc = subprocess.Popen(
+            ['osascript'],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE)
         proc.communicate(osascript.encode('utf-8'))
         proc.wait()
 
@@ -154,11 +160,12 @@ def docker_machine_env(args, stdin=None):
 def command_for_container_config(config):
     volumes = " ".join("-v {}:{}".format(key, value)
                        for key, value in config.get("volumes", {}).items())
-    return "docker run {it} {rm} {privileged} {net} {volumes} {image}".format(
+    return "docker run {wd} {it} {rm} {privileged} {net} {volumes} {image}".format(
         it=("-it" if config.get("it") else ""),
         rm=("--rm" if config.get("rm") else ""),
         net=("--net {}".format(config['net']) if "net" in config else ""),
         privileged=("--privileged" if config.get("privileged") else ""),
+        wd=("-w {}".format(config['workdir']) if "workdir" in config else ""),
         volumes=volumes,
         image=config['image'], )
 
@@ -175,8 +182,8 @@ def docker_clean(args, stdin=None):
 # TODO make into a binary so that "git br-clean" will also work and can be invoked en
 # masse using gr
 def git_clean(args, stdin=None):
-    branches = subprocess.check_output(["git", "branch"]).decode(
-        "utf-8").split("\n")
+    branches = subprocess.check_output(
+        ["git", "branch"]).decode("utf-8").split("\n")
     other_branches = []
     current_branch = None
     for branchline in branches:
@@ -208,14 +215,17 @@ class PythonPathSetter(object):
             paths = []
             antipaths = list(self.paths.values())
         else:
-            antipaths = [self.paths[arg[1:]]
-                         for arg in args if arg.startswith("-")]
-            paths = [self.paths[arg] for arg in args
-                     if not arg.startswith("-")]
+            antipaths = [
+                self.paths[arg[1:]] for arg in args if arg.startswith("-")
+            ]
+            paths = [
+                self.paths[arg] for arg in args if not arg.startswith("-")
+            ]
 
         current_paths = ENV["PYTHONPATH"]
-        cleaned = [path
-                   for path in current_paths if path not in paths + antipaths]
+        cleaned = [
+            path for path in current_paths if path not in paths + antipaths
+        ]
         ENV["PYTHONPATH"] = paths + cleaned
 
 
@@ -251,11 +261,9 @@ class GmailBackend(TaskBackend):
     @contextlib.contextmanager
     def _get_service(self):
         secret_body = self.pass_manager.get_entry(
-            ["{}.secret".format(self.token_root)],
-            is_json=False)
+            ["{}.secret".format(self.token_root)], is_json=False)
         token_body = self.pass_manager.get_entry(
-            ["{}.token".format(self.token_root)],
-            is_json=False)
+            ["{}.token".format(self.token_root)], is_json=False)
         with tempfile.NamedTemporaryFile(delete=False) as secret_file:
             secret_file.write(secret_body.encode('utf-8'))
         with tempfile.NamedTemporaryFile(delete=False) as token_file:
@@ -279,8 +287,8 @@ class GmailBackend(TaskBackend):
         return credentials
 
     def _get_messages_with_query(self, service, query):
-        response = service.users().messages().list(userId='me',
-                                                   q=query).execute()
+        response = service.users().messages().list(
+            userId='me', q=query).execute()
         messages = []
         if 'messages' in response:
             messages.extend(response['messages'])
@@ -288,17 +296,17 @@ class GmailBackend(TaskBackend):
         while 'nextPageToken' in response:
             page_token = response['nextPageToken']
             response = service.users().messages().list(
-                userId='me',
-                q=query,
-                pageToken=page_token).execute()
+                userId='me', q=query, pageToken=page_token).execute()
             messages.extend(response['messages'])
         return messages
 
     def _get_messages(self, service):
         queries = ["is:unread", "label:inbox"]
         get = functools.partial(self._get_messages_with_query, service)
-        return {message_meta['id']
-                for message_meta in itertools.chain(*map(get, queries))}
+        return {
+            message_meta['id']
+            for message_meta in itertools.chain(*map(get, queries))
+        }
 
     def get_tasks(self):
         with self._get_service() as service:
@@ -307,8 +315,10 @@ class GmailBackend(TaskBackend):
     def _get_tasks_with_service(self, service):
         mids = self._get_messages(service)
         response = service.users().labels().list(userId='me').execute()
-        label_names = {label['id']: label['name']
-                       for label in response['labels']}
+        label_names = {
+            label['id']: label['name']
+            for label in response['labels']
+        }
 
         for mid in mids:
             message = service.users().messages().get(userId='me',
@@ -324,10 +334,11 @@ class GmailBackend(TaskBackend):
             mlabels = tuple(lname for lname in mlabels
                             if lname.upper() != lname)
             driver_label = "source/{}".format(self.address)
-            yield Task(taskid=mid,
-                       description=subject,
-                       user_labels=mlabels,
-                       driver_labels=(driver_label, ))
+            yield Task(
+                taskid=mid,
+                description=subject,
+                user_labels=mlabels,
+                driver_labels=(driver_label, ))
 
 
 class GitHubBackend(TaskBackend):
@@ -338,18 +349,18 @@ class GitHubBackend(TaskBackend):
 
     def get_tasks(self):
         token = self.pass_manager.get_entry(
-            [self.pass_location],
-            is_json=False).strip()
+            [self.pass_location], is_json=False).strip()
         response = requests.get('https://api.github.com/issues',
                                 auth=HTTPBasicAuth(self.username, token))
         for issue in response.json():
             driver_label = 'source/github.com/{}'.format(issue['repository'][
                 'full_name'])
             user_labels = [label['name'] for label in issue['labels']]
-            yield Task(taskid=issue['id'],
-                       description=issue['title'],
-                       user_labels=tuple(user_labels),
-                       driver_labels=(driver_label, ))
+            yield Task(
+                taskid=issue['id'],
+                description=issue['title'],
+                user_labels=tuple(user_labels),
+                driver_labels=(driver_label, ))
 
 
 class ChromeBackend(TaskBackend):
@@ -378,10 +389,11 @@ class ChromeBackend(TaskBackend):
                         user_labels=(dirname, ),
                         driver_labels=("source/chrome", ))
                 elif dirname == self.inbox_label:
-                    yield Task(taskid=child['id'],
-                               description=child['name'],
-                               user_labels=(),
-                               driver_labels=("source/chrome", ))
+                    yield Task(
+                        taskid=child['id'],
+                        description=child['name'],
+                        user_labels=(),
+                        driver_labels=("source/chrome", ))
 
             else:
                 subdirname = "/".join([dirname, child['name']])
@@ -408,7 +420,10 @@ class TaskManager(object):
         self._display_tasks(by_label)
 
     def _display_tasks(self, by_label):
-        red_labels = {'priority/p0': 'Active', None: 'Inbox', }
+        red_labels = {
+            'priority/p0': 'Active',
+            None: 'Inbox',
+        }
         red_tasks = {}
         yellow_tasks = {}
         for label, tasks in by_label.items():
