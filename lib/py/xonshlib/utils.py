@@ -147,7 +147,12 @@ class DockerClusterManager(object):
 
     def get_cluster_env(self, args, stdin=None):
         name, = args
-        if name not in self.clusters:
+        if name == '-':
+            for key in list(ENV):
+                if key.startswith("DOCKER_"):
+                    del ENV[key]
+            return
+        elif name not in self.clusters:
             self.docker_machine_env(name)
         else:
             params = self.clusters[name]
@@ -160,16 +165,11 @@ class DockerClusterManager(object):
                     del ENV["DOCKER_CERT_PATH"]
                 if "DOCKER_TLS_VERIFY" in ENV:
                     del ENV["DOCKER_TLS_VERIFY"]
+
         ENV["DOCKER_MACHINE"] = name
 
     @staticmethod
     def docker_machine_env(name):
-        if name == '-':
-            for key in list(ENV):
-                if key.startswith("DOCKER_"):
-                    del ENV[key]
-            return
-
         output = subprocess.check_output(['docker-machine', 'env', name])
         for line in output.decode('utf-8').split("\n"):
             if line.startswith("export "):
