@@ -102,8 +102,8 @@ class PasswordManager(object):
         os.environ['PASSWORD_STORE_DIR'] = ENV['PASSWORD_STORE_DIR']
         os.environ['PASSWORD_STORE_GIT'] = ENV['PASSWORD_STORE_GIT']
         path, = args
-        output = subprocess.check_output(
-            ["pass", "show", path]).decode("utf-8")
+        output = subprocess.check_output(["pass", "show",
+                                          path]).decode("utf-8")
         return json.loads(output) if is_json else output
 
     def get_env(self, args, stdin=None):
@@ -113,8 +113,7 @@ class PasswordManager(object):
         params = self.get_entry(args)
         javascript = "{}\n{}".format(
             "\n".join(
-                SET_LINE.format(
-                    objid=objid, value=value)
+                SET_LINE.format(objid=objid, value=value)
                 for objid, value in params['fields'].items()),
             SUBMIT_LINE.format(buttonid=params['buttonid']))
 
@@ -147,11 +146,13 @@ class DockerClusterManager(object):
 
     def get_cluster_env(self, args, stdin=None):
         name, = args
+        for key in list(ENV):
+            if key.startswith("DOCKER_"):
+                del ENV[key]
         if name == '-':
-            for key in list(ENV):
-                if key.startswith("DOCKER_"):
-                    del ENV[key]
             return
+        elif "/" in name:
+            self.cloud_swarm_env(name)
         elif name not in self.clusters:
             self.docker_machine_env(name)
         else:
@@ -176,6 +177,29 @@ class DockerClusterManager(object):
                 cmd = line[len("export "):]
                 key, value = cmd.split("=")
                 ENV[key] = json.loads(value)
+
+    @staticmethod
+    def _existing_swarm_env(namespace, cluster):
+        inspect = subprocess.check_output([
+            'docker', 'inspect', "client_proxy_{}_{}".format(
+                namespace, cluster)
+        ])
+        attrs = json.loads(inspect.decode("utf-8"))
+        port = list(
+            attrs[0]['NetworkSettings']['Ports'].values())[0][0]['HostPort']
+        ENV["DOCKER_HOST"] = "tcp://localhost:{}".format(port)
+
+    def cloud_swarm_env(self, name):
+        namespace, cluster = name.split("/")
+        try:
+            return self._existing_swarm_env(namespace, cluster)
+        except subprocess.CalledProcessError:
+            subprocess.check_output([
+                'docker', 'run', '-it', '--rm', '-v',
+                '/var/run/docker.sock:/var/run/docker.sock',
+                'dockercloud/client', '--swarm', name
+            ])
+            return self._existing_swarm_env(namespace, cluster)
 
 
 def command_for_container_config(config):
@@ -208,8 +232,8 @@ def docker_clean(args, stdin=None):
 # TODO make into a binary so that "git br-clean" will also work and can be invoked en
 # masse using gr
 def git_clean(args, stdin=None):
-    branches = subprocess.check_output(
-        ["git", "branch"]).decode("utf-8").split("\n")
+    branches = subprocess.check_output(["git",
+                                        "branch"]).decode("utf-8").split("\n")
     other_branches = []
     current_branch = None
     for branchline in branches:
@@ -347,8 +371,8 @@ class GmailBackend(TaskBackend):
         }
 
         for mid in mids:
-            message = service.users().messages().get(userId='me',
-                                                     id=mid).execute()
+            message = service.users().messages().get(
+                userId='me', id=mid).execute()
             labels = message['labelIds']
             headers = message['payload']['headers']
             subject = ""
@@ -376,11 +400,12 @@ class GitHubBackend(TaskBackend):
     def get_tasks(self):
         token = self.pass_manager.get_entry(
             [self.pass_location], is_json=False).strip()
-        response = requests.get('https://api.github.com/issues',
-                                auth=HTTPBasicAuth(self.username, token))
+        response = requests.get(
+            'https://api.github.com/issues',
+            auth=HTTPBasicAuth(self.username, token))
         for issue in response.json():
-            driver_label = 'source/github.com/{}'.format(issue['repository'][
-                'full_name'])
+            driver_label = 'source/github.com/{}'.format(
+                issue['repository']['full_name'])
             user_labels = [label['name'] for label in issue['labels']]
             yield Task(
                 taskid=issue['id'],
