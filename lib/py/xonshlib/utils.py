@@ -41,6 +41,24 @@ JS_INDENT = " " * 11
 SET_LINE = JS_INDENT + '''execute javascript ("document.getElementById('{objid}').value = '{value}'")'''
 SUBMIT_LINE = JS_INDENT + '''execute javascript ("document.getElementById('{buttonid}').click()")'''
 
+VPN_OSA_TEMPLATE = """
+on run args
+    set connection to "{connection}"
+    tell application "Tunnelblick"
+        if connection = "-"
+            disconnect All
+        else
+            connect connection
+            get state of first configuration where name = connection
+            repeat until result = "CONNECTED"
+                delay 1
+                get state of first configuration where name = connection
+            end repeat
+        end if
+    end tell
+end run
+"""
+
 
 class PasswordManager(object):
     def __init__(self, pass_stores):
@@ -158,14 +176,11 @@ class DockerClusterManager(object):
         else:
             params = self.clusters[name]
             ENV["DOCKER_HOST"] = params['host']
+            if "vpn" in params:
+                vpn((params['vpn'], ))
             if 'certs' in params:
                 ENV["DOCKER_CERT_PATH"] = params['certs']
                 ENV["DOCKER_TLS_VERIFY"] = "1"
-            else:
-                if "DOCKER_CERT_PATH" in ENV:
-                    del ENV["DOCKER_CERT_PATH"]
-                if "DOCKER_TLS_VERIFY" in ENV:
-                    del ENV["DOCKER_TLS_VERIFY"]
 
         ENV["DOCKER_MACHINE"] = name
 
@@ -507,3 +522,15 @@ class TaskManager(object):
     @staticmethod
     def _sort_by_value_desc(d):
         return reversed(sorted(d.items(), key=lambda item: item[1]))
+
+
+def vpn(args, stdin=None):
+    connection, = args
+    osascript = VPN_OSA_TEMPLATE.format(connection=connection)
+    proc = subprocess.Popen(
+        ['osascript'],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE)
+    proc.communicate(osascript.encode('utf-8'))
+    proc.wait()
