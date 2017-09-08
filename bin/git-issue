@@ -1,0 +1,55 @@
+#! /usr/local/bin/python
+
+import subprocess
+import sys
+
+from github import Github
+
+COMMAND = ["pass", "show", "hybrid/github_accesskey"]
+
+
+def get_remote(name):
+    # TODO proper parsing of url
+    entry = subprocess.check_output(["git", "remote", "get-url", name]).strip()
+    if entry.endswith(".git"):
+        entry = entry[:-4]
+    fullname = entry.split(":")[-1]
+    if fullname.startswith("/"):
+        fullname = fullname[1:]
+    return fullname
+
+
+def create_issue(title, body, milestone_id, label_names):
+    origin = get_remote("origin")
+    user = subprocess.check_output(["git", "config", "user.email"]).strip()
+    password = subprocess.check_output(COMMAND).strip()
+    username, repo = origin.split("/")
+    g = Github(username, password)
+    user = g.get_user(username)
+    repo = user.get_repo(repo)
+    all_labels = repo.get_labels()
+    labels = [label for label in all_labels if label.name in label_names]
+    if len(labels) != len(label_names):
+        raise Exception("unknown labels")
+    repo.create_issue(
+        title=title,
+        body=body,
+        milestone=repo.get_milestone(int(milestone_id)),
+        labels=labels,
+        assignee=user)
+
+
+def main():
+    origin = get_remote("origin")
+    ref = subprocess.check_output(["git", "rev-parse", "--abbrev-ref",
+                                   "HEAD"]).strip()
+    args = sys.argv[1:]
+    # TODO use cli library and expand functionality
+    if len(args) != 5 or args[0] != 'create':
+        raise NotImplementedError
+
+    create_issue(args[1], args[2], int(args[3]), args[4].split(","))
+
+
+if __name__ == "__main__":
+    main()
