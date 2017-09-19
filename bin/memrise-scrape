@@ -1,0 +1,85 @@
+#! /usr/local/bin/python3
+
+import json
+import sys
+
+import click
+import html.parser
+import requests
+
+COURSE_URL = "http://www.memrise.com/course/{}/"
+
+
+class MemriseScraper(html.parser.HTMLParser):
+    def __init__(self, course_url):
+        super().__init__()
+        self.in_text_div = False
+        self.active_index = -1
+        self.course_url = course_url
+
+    def handle_starttag(self, tag, attrs):
+        div_class_attrs = [value for key, value in attrs if key == 'class']
+        is_text_div = div_class_attrs == ["text"]
+
+        if tag == "div" and is_text_div:
+            self.in_text_div = True
+            self.active_index += 1
+            self.text_div_data = self.text_div_data + [""]
+        else:
+            self.in_text_div = False
+
+    def handle_data(self, data):
+        if self.in_text_div:
+            new_text = self.text_div_data[self.active_index] + data
+            self.text_div_data[self.active_index] = new_text
+
+    def handle_charref(self, name):
+        if self.in_text_div:
+            new_text = self.text_div_data[self.active_index] + chr(int(name))
+            self.text_div_data[self.active_index] = new_text
+
+    def scrape(self, level):
+        print("Level:", level, file=sys.stderr)
+        self.text_div_data = []
+        self.active_index = -1
+        url = "%s/%s/" % (self.course_url, level)
+
+        page_text = requests.get(url).text
+
+        self.feed(page_text)
+        words = {}
+        for index, target in enumerate(self.text_div_data[::2]):
+            source = self.text_div_data[index * 2 + 1]
+            words[source] = target
+        return words
+
+
+class CourseAccumulator(object):
+    def __init__(self, course_url, level_count):
+        self.course_url = course_url
+        self.level_count = level_count
+        self.scraper = MemriseScraper(self.course_url)
+
+    def scrape(self):
+        entries = {}
+        for level_index in range(1, self.level_count + 1):
+            entries[level_index] = self.scraper.scrape(level_index)
+        return entries
+
+
+@click.command()
+@click.argument('course')
+def cli(course):
+    """
+    COURSE is the suffix to the course -- should be <id>/<name>
+    """
+    accumulator = CourseAccumulator(COURSE_URL.format(course), 100)
+    print(json.dumps(accumulator.scrape(), indent=4))
+
+
+def main():
+    cli(obj={})
+
+
+if __name__ == "__main__":
+    main()
