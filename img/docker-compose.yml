@@ -1,0 +1,16 @@
+version: '3.3'
+
+services:
+  # A basic app for getting an oauth token
+  oauthapp:
+    image: ulmenhaus/oauthapp:${DOCKER_TAG:-latest}
+    build:
+      context: oauthapp
+    environment:
+      AUTHORIZATION_BASE_URL: $AUTHORIZATION_BASE_URL
+      DEST_URL: $DEST_URL
+      CLIENT_ID: $CLIENT_ID
+      CLIENT_SECRET: $CLIENT_SECRET
+      TOKEN_URL: $TOKEN_URL
+    ports:
+      - "127.0.0.1:5000:5000"
