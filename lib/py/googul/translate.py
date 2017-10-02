@@ -55,12 +55,11 @@ class AudioGenerator(object):
             shutil.copyfileobj(result.raw, f)
 
 
-@click.command()
 @click.argument('src')
 @click.argument('target')
 @click.argument('phrase')
 @click.argument('translation')
-def cli(src, target, phrase, translation):
+def translate(src, target, phrase, translation):
     """
     SRC is the source language code
     TARGET is the target language code
