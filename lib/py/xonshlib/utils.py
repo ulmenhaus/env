@@ -1,3 +1,4 @@
+import builtins
 import collections
 import contextlib
 import functools
@@ -7,7 +8,10 @@ import json
 import os
 import subprocess
 import tempfile
+import threading
+import time
 
+import xonsh.ansi_colors
 import requests
 
 from apiclient import discovery
@@ -227,7 +231,8 @@ def command_for_container_config(config):
         privileged=("--privileged" if config.get("privileged") else ""),
         wd=("-w {}".format(config['workdir']) if "workdir" in config else ""),
         volumes=volumes,
-        image=config['image'], )
+        image=config['image'],
+    )
 
 
 def docker_clean(args, stdin=None):
@@ -396,8 +401,8 @@ class GmailBackend(TaskBackend):
                     subject = header['value']
                     break
             mlabels = tuple(label_names[label] for label in labels)
-            mlabels = tuple(lname for lname in mlabels
-                            if lname.upper() != lname)
+            mlabels = tuple(
+                lname for lname in mlabels if lname.upper() != lname)
             driver_label = "source/{}".format(self.address)
             yield Task(
                 taskid=mid,
@@ -499,14 +504,15 @@ class TaskManager(object):
         if not (red_tasks or yellow_tasks):
             return
 
-        largest_group = max(0, *itertools.chain(red_tasks.values(),
-                                                yellow_tasks.values()))
+        largest_group = max(
+            0, *itertools.chain(red_tasks.values(), yellow_tasks.values()))
         column_width = len(str(largest_group))
         for red_label, tcount in self._sort_by_value_desc(red_tasks):
             buffer_width = column_width - len(str(tcount))
             col_buffer = " " * buffer_width
-            print(colored("{}{} {}".format(col_buffer, tcount, red_labels[
-                red_label]), 'red'))
+            print(
+                colored("{}{} {}".format(col_buffer, tcount,
+                                         red_labels[red_label]), 'red'))
             breakdown = collections.defaultdict(int)
             for task in by_label[red_label]:
                 breakdown[task.driver_labels[0]] += 1
@@ -516,8 +522,9 @@ class TaskManager(object):
         for yellow_label, tcount in self._sort_by_value_desc(yellow_tasks):
             buffer_width = column_width - len(str(tcount))
             col_buffer = " " * buffer_width
-            print(colored("{}{} {}".format(col_buffer, tcount, yellow_label),
-                          'yellow'))
+            print(
+                colored("{}{} {}".format(col_buffer, tcount, yellow_label),
+                        'yellow'))
 
     @staticmethod
     def _sort_by_value_desc(d):
@@ -534,3 +541,62 @@ def vpn(args, stdin=None):
         stderr=subprocess.PIPE)
     proc.communicate(osascript.encode('utf-8'))
     proc.wait()
+
+
+class NavigationManager(object):
+    def __init__(self, startdir, percentage=25, before=True, horizantal=True):
+        self.startdir = startdir
+        self.percentage = percentage
+        self.before = before
+        self.horizantal = horizantal
+
+    def _watch_for_changes(self, tail_proc):
+        for line in tail_proc.stdout:
+            path = line.decode("utf8").strip()
+            if os.path.isdir(path):
+                os.chdir(path)
+                ENV["PWD"] = path
+                prompt = builtins.__xonsh_shell__.prompt_formatter(
+                    ENV["PROMPT"])
+                print(
+                    '\r{}\033[K'.format(
+                        xonsh.ansi_colors.ansi_partial_color_format(prompt)),
+                    end='')
+            else:
+                editor = os.environ.get("EDITOR", "emacs")
+                # creating a subproc from a thread seems to break xonsh
+                # unfortunately so write a command to xonsh instead
+                subprocess.check_call([
+                    "tmux", "send", "-t", os.environ["TMUX_PANE"],
+                    "{} {}".format(editor, path), "ENTER"
+                ])
+                # could also check to see if emacs is open and send a C-x C-f to it
+
+    def _sidebar_navigate(self):
+        tmux_args = ['tmux', 'split-window', '-p', str(self.percentage)]
+        if self.before:
+            tmux_args.append('-b')
+        if self.horizantal:
+            tmux_args.append('-h')
+        fifo_path = tempfile.NamedTemporaryFile(delete=False).name
+        tmux_args.extend([
+            "bash", "-c",
+            "PATH={} EDITOR=write-to-fifo WRITE_FIFO_PATH={} NNN_USE_EDITOR=1 NNN_DE_FILE_MANAGER=write-to-fifo nnn {}".
+            format(os.environ.get("PATH", ""), fifo_path, self.startdir)
+        ])
+        subprocess.check_call(tmux_args)
+        tail_proc = subprocess.Popen(
+            ["tail", "-F", fifo_path], stdout=subprocess.PIPE)
+        t = threading.Thread(
+            target=self._watch_for_changes, args=(tail_proc, ), daemon=True)
+        # HACK Difficult to tell when the corresponding nnn proc has ended so just kill
+        # after two hours
+        t.start()
+        time.sleep(2 * 60 * 60)
+        tail_proc.kill()
+        # TODO exception handling
+        os.remove(fifo_path)
+
+    def sidebar_navigate(self, args, stdin=None):
+        t = threading.Thread(target=self._sidebar_navigate, daemon=True)
+        t.start()
