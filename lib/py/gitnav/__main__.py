@@ -36,34 +36,42 @@ class GitView(object):
         pass
 
     def branch_chosen(self, button, choice):
-        subprocess.check_output([
-            "tmux",
-            "send",
-            "-t",
-            self.target_pane,
-            "git checkout {}".format(str(choice)),
-            "ENTER",
-        ])
+        self._send_cmd("git checkout {}".format(str(choice)))
         raise urwid.ExitMainLoop()
 
     def global_input(self, key):
         if key in ('q', 'Q'):
             raise urwid.ExitMainLoop()
+        # HACK 2 is the number of header elements?
+        branch = self.branches[self.main_view.get_focus()[1] - 2]
         if key == 't':
-            # HACK 2 is the number of header elements?
-            choice = self.branches[self.main_view.get_focus()[1] - 2]
-            subprocess.check_output([
-                "tmux",
-                "send",
-                "-t",
-                self.target_pane,
-                "tig {}; tmux select-pane -t {}".format(
-                    str(choice), os.environ["TMUX_PANE"]),
-                "ENTER",
-            ])
-            subprocess.check_output([
-                "tmux", "select-pane", "-t", self.target_pane
-            ])
+            self._send_cmd("tig {}; tmux select-pane -t {}".format(
+                branch.name, os.environ["TMUX_PANE"]))
+            subprocess.check_call(
+                ["tmux", "select-pane", "-t", self.target_pane])
+        elif key == 's':
+            self.sync_branch(branch)
+        elif key == 'c':
+            self._send_cmd("git checkout {}".format(branch.name))
+        elif key == 'd':
+            self._send_cmd("git branch -d {}".format(branch.name))
+
+    def _send_cmd(self, cmd):
+        subprocess.check_call(
+            ["tmux", "send", "-t", self.target_pane, cmd, "ENTER"])
+
+    def sync_branch(self, branch):
+        # assumes the user's remote fork of the repo is called 'fork'
+        tracking = branch.tracking_branch()
+        if not tracking:
+            self._send_cmd("git push --set-upstream fork {}".format(
+                branch.name))
+            return
+        self._send_cmd(
+            "git fetch {remote} {branch} && git rebase {remote}/{branch} {branch}".
+            format(remote=tracking.remote_name, branch=branch.name))
+        if tracking.remote_name == 'fork':
+            self._send_cmd("git push fork {}".format(branch.name))
 
     def exit_program(button):
         raise urwid.ExitMainLoop()
@@ -80,7 +88,7 @@ def _find_git_repo(wd):
 def main():
     if "GITNAV_PANE" not in os.environ:
         pane = os.environ["TMUX_PANE"]
-        subprocess.check_output([
+        subprocess.check_call([
             "tmux", "split-window", "-p", "20", "-b", "-h", "bash", "-c",
             "cd {} && PYTHONPATH={} GITNAV_PANE={} python -m gitnav || sleep 30".
             format(os.getcwd(), os.environ.get("PYTHONPATH", ""), pane)
