@@ -54,7 +54,9 @@ class GitView(object):
         elif key == 'c':
             self._send_cmd("git checkout {}".format(branch.name))
         elif key == 'd':
-            self._send_cmd("git branch -d {}".format(branch.name))
+            self.delete_with_remote(branch)
+        elif key == 'D':
+            self.delete_with_remote(branch, force=True)
 
     def _send_cmd(self, cmd):
         subprocess.check_call(
@@ -72,6 +74,17 @@ class GitView(object):
             format(remote=tracking.remote_name, branch=branch.name))
         if tracking.remote_name == 'fork':
             self._send_cmd("git push fork {}".format(branch.name))
+
+    def delete_with_remote(self, branch, force=False):
+        # TODO refresh head list
+        tracking = branch.tracking_branch()
+        option = "-D" if force else "-d"
+        if not tracking or tracking.remote_name != 'fork':
+            self._send_cmd("git branch {} {}".format(option, branch.name))
+        else:
+            self._send_cmd(
+                "git branch {} {} && git push fork --delete {}".format(
+                    option, branch.name, branch.name))
 
     def exit_program(button):
         raise urwid.ExitMainLoop()
