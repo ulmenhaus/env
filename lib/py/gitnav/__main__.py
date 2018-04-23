@@ -28,9 +28,9 @@ class GitView(object):
             urwid.connect_signal(button, 'click', self.branch_chosen, ref)
             body.append(button)
 
-        walker = urwid.SimpleListWalker(body)
-        self.main_view = urwid.ListBox(walker)
-        urwid.connect_signal(walker, "modified", self.cursor_moved)
+        self.walker = urwid.SimpleListWalker(body)
+        self.main_view = urwid.ListBox(self.walker)
+        urwid.connect_signal(self.walker, "modified", self.cursor_moved)
 
     def cursor_moved(self):
         pass
@@ -42,8 +42,10 @@ class GitView(object):
     def global_input(self, key):
         if key in ('q', 'Q'):
             raise urwid.ExitMainLoop()
+        index = self.main_view.get_focus()[1]
         # HACK 2 is the number of header elements?
-        branch = self.branches[self.main_view.get_focus()[1] - 2]
+        br_index = index - 2
+        branch = self.branches[br_index]
         if key == 't':
             self._send_cmd("tig {}; tmux select-pane -t {}".format(
                 branch.name, os.environ["TMUX_PANE"]))
@@ -55,8 +57,12 @@ class GitView(object):
             self._send_cmd("git checkout {}".format(branch.name))
         elif key == 'd':
             self.delete_with_remote(branch)
+            del self.branches[br_index]
+            del self.walker[index]
         elif key == 'D':
             self.delete_with_remote(branch, force=True)
+            del self.branches[br_index]
+            del self.walker[index ]
 
     def _send_cmd(self, cmd):
         subprocess.check_call(
