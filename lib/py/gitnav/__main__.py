@@ -10,6 +10,26 @@ import urwid
 from git import Repo
 
 
+def _tabulate(items, column_count):
+    # extend items to have length that is multiple of column count
+    items = items + [''] * (column_count - (len(items) % column_count))
+    columns = [[] for _ in range(column_count)]
+    for i in range(len(items)):
+        columns[i % column_count].append(items[i])
+    spacing = {
+        i: max(len(item) for item in columns[i]) + 5
+        for i in range(column_count)
+    }
+    s = ""
+    for i in range(len(items)):
+        ci = i % column_count
+        val = columns[ci][i // column_count]
+        s += val + " " * (spacing[ci] - len(val))
+        if (i % column_count) == column_count - 1:
+            s += "\n"
+    return s
+
+
 class GitView(object):
     def __init__(self, repo, target_pane):
         self.repo = repo
@@ -27,6 +47,15 @@ class GitView(object):
             button = urwid.Button(str(ref))
             urwid.connect_signal(button, 'click', self.branch_chosen, ref)
             body.append(button)
+        text = _tabulate([
+            "(q)uit",
+            "(c)heckout",
+            "(t)ig",
+            "(s)ync",
+            "(d)elete",
+            "(D)elete",
+        ], 2)
+        body += [urwid.Divider(), urwid.Text(text)]
 
         self.walker = urwid.SimpleListWalker(body)
         self.main_view = urwid.ListBox(self.walker)
@@ -57,12 +86,13 @@ class GitView(object):
             self._send_cmd("git checkout {}".format(branch.name))
         elif key == 'd':
             self.delete_with_remote(branch)
+            # TODO don't remove if deleting will fail
             del self.branches[br_index]
             del self.walker[index]
         elif key == 'D':
             self.delete_with_remote(branch, force=True)
             del self.branches[br_index]
-            del self.walker[index ]
+            del self.walker[index]
 
     def _send_cmd(self, cmd):
         subprocess.check_call(
