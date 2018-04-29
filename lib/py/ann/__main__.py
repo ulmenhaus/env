@@ -13,6 +13,7 @@ Potential future features:
 import base64
 import hashlib
 import os
+import shutil
 import subprocess
 import sys
 
@@ -53,7 +54,8 @@ def ed(url):
     wd = os.path.join(os.environ['ANN_DIR'], long_name)
     if not os.path.exists(wd):
         os.mkdir(wd)
-    short_name = "s{}".format(hashlib.sha256(url.encode("utf-8")).hexdigest()[:6])
+    short_name = "s{}".format(
+        hashlib.sha256(url.encode("utf-8")).hexdigest()[:6])
     sd = os.path.join(os.environ['ANN_DIR'], short_name)
     if not os.path.exists(sd):
         os.symlink(long_name, sd)
@@ -61,9 +63,23 @@ def ed(url):
     subprocess.call([editor, os.path.join(sd, "README.md")])
 
 
+@click.argument('url')
+def rm(url):
+    long_name = encode_key(url).decode("ascii")
+    wd = os.path.join(os.environ['ANN_DIR'], long_name)
+    if os.path.exists(wd):
+        shutil.rmtree(wd)
+    short_name = "s{}".format(
+        hashlib.sha256(url.encode("utf-8")).hexdigest()[:6])
+    sd = os.path.join(os.environ['ANN_DIR'], short_name)
+    if os.path.exists(sd):
+        shutil.rmtree(sd)
+
+
 def main():
     cli.command(name='ed')(ed)
     cli.command(name='ls')(ls)
+    cli.command(name='rm')(rm)
     cli(obj={})
 
 
