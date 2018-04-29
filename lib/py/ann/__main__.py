@@ -11,6 +11,7 @@ Potential future features:
 """
 
 import base64
+import hashlib
 import os
 import subprocess
 import sys
@@ -39,16 +40,25 @@ def cli():
 def ls():
     # TODO support tagging (maybe with sfs)
     for folder in os.listdir(os.environ['ANN_DIR']):
+        if folder.startswith("s"):
+            # ignore short names
+            continue
         print(decode_key(folder.encode('ascii')))
 
 
 @click.argument('url')
 def ed(url):
     editor = os.environ.get("EDITOR", "emacs")
-    wd = os.path.join(os.environ['ANN_DIR'], encode_key(url).decode("ascii"))
-    os.mkdir(wd)
+    long_name = encode_key(url).decode("ascii")
+    wd = os.path.join(os.environ['ANN_DIR'], long_name)
+    if not os.path.exists(wd):
+        os.mkdir(wd)
+    short_name = "s{}".format(hashlib.sha256(url.encode("utf-8")).hexdigest()[:6])
+    sd = os.path.join(os.environ['ANN_DIR'], short_name)
+    if not os.path.exists(sd):
+        os.symlink(long_name, sd)
     # would be good to do an execv here instead
-    subprocess.call([editor, os.path.join(wd, "README.md")])
+    subprocess.call([editor, os.path.join(sd, "README.md")])
 
 
 def main():
