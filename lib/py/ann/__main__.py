@@ -76,10 +76,25 @@ def rm(url):
         shutil.rmtree(sd)
 
 
+@click.argument('url')
+def wd(url):
+    long_name = encode_key(url).decode("ascii")
+    wd = os.path.join(os.environ['ANN_DIR'], long_name)
+    if not os.path.exists(wd):
+        os.mkdir(wd)
+    short_name = "s{}".format(
+        hashlib.sha256(url.encode("utf-8")).hexdigest()[:6])
+    sd = os.path.join(os.environ['ANN_DIR'], short_name)
+    if not os.path.exists(sd):
+        os.symlink(long_name, sd)
+    print(sd)
+
+
 def main():
     cli.command(name='ed')(ed)
     cli.command(name='ls')(ls)
     cli.command(name='rm')(rm)
+    cli.command(name='wd')(wd)
     cli(obj={})
 
 
