@@ -139,7 +139,7 @@ def main():
         pane = os.environ["TMUX_PANE"]
         subprocess.check_call([
             "tmux", "split-window", "-p", "20", "-b", "-h", "bash", "-c",
-            "cd {} && PYTHONPATH={} GITNAV_PANE={} python -m gitnav || sleep 30".
+            "cd {} && PYTHONPATH={} GITNAV_PANE={} python3 -m gitnav || sleep 30".
             format(os.getcwd(), os.environ.get("PYTHONPATH", ""), pane)
         ])
     else:
