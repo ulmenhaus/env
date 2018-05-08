@@ -171,6 +171,8 @@ class DockerClusterManager(object):
         for key in list(ENV):
             if key.startswith("DOCKER_"):
                 del ENV[key]
+        if "KUBECONFIG" in ENV:
+            del ENV["KUBECONFIG"]
         if name == '-':
             return
         elif "/" in name:
@@ -231,8 +233,7 @@ def command_for_container_config(config):
         privileged=("--privileged" if config.get("privileged") else ""),
         wd=("-w {}".format(config['workdir']) if "workdir" in config else ""),
         volumes=volumes,
-        image=config['image'],
-    )
+        image=config['image'], )
 
 
 def docker_clean(args, stdin=None):
@@ -401,8 +402,8 @@ class GmailBackend(TaskBackend):
                     subject = header['value']
                     break
             mlabels = tuple(label_names[label] for label in labels)
-            mlabels = tuple(
-                lname for lname in mlabels if lname.upper() != lname)
+            mlabels = tuple(lname for lname in mlabels
+                            if lname.upper() != lname)
             driver_label = "source/{}".format(self.address)
             yield Task(
                 taskid=mid,
@@ -504,15 +505,14 @@ class TaskManager(object):
         if not (red_tasks or yellow_tasks):
             return
 
-        largest_group = max(
-            0, *itertools.chain(red_tasks.values(), yellow_tasks.values()))
+        largest_group = max(0, *itertools.chain(red_tasks.values(),
+                                                yellow_tasks.values()))
         column_width = len(str(largest_group))
         for red_label, tcount in self._sort_by_value_desc(red_tasks):
             buffer_width = column_width - len(str(tcount))
             col_buffer = " " * buffer_width
-            print(
-                colored("{}{} {}".format(col_buffer, tcount,
-                                         red_labels[red_label]), 'red'))
+            print(colored("{}{} {}".format(col_buffer, tcount, red_labels[
+                red_label]), 'red'))
             breakdown = collections.defaultdict(int)
             for task in by_label[red_label]:
                 breakdown[task.driver_labels[0]] += 1
@@ -522,9 +522,8 @@ class TaskManager(object):
         for yellow_label, tcount in self._sort_by_value_desc(yellow_tasks):
             buffer_width = column_width - len(str(tcount))
             col_buffer = " " * buffer_width
-            print(
-                colored("{}{} {}".format(col_buffer, tcount, yellow_label),
-                        'yellow'))
+            print(colored("{}{} {}".format(col_buffer, tcount, yellow_label),
+                          'yellow'))
 
     @staticmethod
     def _sort_by_value_desc(d):
