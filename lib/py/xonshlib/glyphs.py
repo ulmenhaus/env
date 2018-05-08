@@ -1,9 +1,10 @@
 class Animals(object):
-    WHALE = b"\xF0\x9F\x90\xB3".decode("utf-8")
+    WHALE = b"\xF0\x9F\x90\xB3 ".decode("utf-8")
 
 
 class Objects(object):
     LOCK = b"\xF0\x9F\x94\x92".decode("utf-8")
+    HELM = "\u2388 "
 
 
 class Words(object):

@@ -17,6 +17,8 @@ class Prompter(object):
             lock_glyph=xonshlib.glyphs.Objects.LOCK,
             pass_context=self.pass_context_manager.get_context(),
             docker_color="{BLUE}",
+            kube_active=(xonshlib.glyphs.Objects.HELM
+                         if "KUBECONFIG" in ENV else ""),
             whale_glyph=xonshlib.glyphs.Animals.WHALE,
             docker_machine=ENV.get("DOCKER_MACHINE",
                                    xonshlib.glyphs.Words.PINATA),
@@ -25,8 +27,9 @@ class Prompter(object):
             end="{NO_COLOR} {prompt_end} ", )
 
     def _shorten_dir(self, fulldir):
-        prefixes = [os.path.join(trunc_dir, "")
-                    for trunc_dir in self.truncated_dirs]
+        prefixes = [
+            os.path.join(trunc_dir, "") for trunc_dir in self.truncated_dirs
+        ]
         for prefix in prefixes:
             if fulldir.startswith(prefix):
                 return fulldir[len(prefix):]
