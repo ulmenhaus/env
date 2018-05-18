@@ -599,3 +599,23 @@ class NavigationManager(object):
     def sidebar_navigate(self, args, stdin=None):
         t = threading.Thread(target=self._sidebar_navigate, daemon=True)
         t.start()
+
+
+def goto_ann_dir(args, stdin=None):
+    url, = args
+    env = dict(os.environ)
+    env.update({
+        "ANN_DIR": ENV["ANN_DIR"],
+        "PYTHONPATH": ':'.join(ENV["PYTHONPATH"]),
+    })
+    p = subprocess.Popen(
+        ["/usr/local/bin/python3", "-m", "ann", "wd", url],
+        stdout=subprocess.PIPE,
+        env=env, )
+    out, _ = p.communicate()
+    if p.wait():
+        raise Exception("non-zero exit code")
+    target = out.decode("utf-8").strip()
+    os.chdir(target)
+    # TODO Prompter._shorten_dir should support shortening ann dirs
+    ENV["PWD"] = target
