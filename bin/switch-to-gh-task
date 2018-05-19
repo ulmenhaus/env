@@ -21,10 +21,9 @@ git -C "$HOME/src/github.com/$fullrepo" rev-parse "$br_name" > /dev/null 2>&1
 
 if [ "$?" -ne "0" ]
 then
-    tmux send -t "$window" "git checkout -b $br_name master" ENTER
+    tmux send -t "$window" "git checkout -b $br_name master; git branch -vv" ENTER
 else
-    tmux send -t "$window" "git checkout $br_name" ENTER
+    tmux send -t "$window" "git checkout $br_name; git branch -vv" ENTER
 fi
 
-tmux send -t "$window" "git status; git branch -vv" ENTER
 tmux select-window -t "$window"
