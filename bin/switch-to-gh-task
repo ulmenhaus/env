@@ -1,0 +1,30 @@
+#! /bin/bash
+
+url=$1
+
+fullrepo=$(echo $url | sed 's/https:\/\///' | sed 's/github\.com//' | cut -f 2-3 -d '/')
+repo=$(echo $fullrepo | cut -f 2 -d '/')
+number=$(echo $url | sed 's/.*issues\///')
+
+exists=$(tmux list-windows | grep " $repo-\? ")
+if [ "$exists" = "" ]
+then
+    tmux new-window -d -c "$fullrepo" -n "$repo"
+fi
+
+window=$(tmux list-windows | grep " $repo-\? " | cut -f 1 -d ':')
+
+tmux send -t "$window" "C-l" ENTER
+
+br_name="ISS-$number"
+git -C "$HOME/src/github.com/$fullrepo" rev-parse "$br_name" > /dev/null 2>&1
+
+if [ "$?" -ne "0" ]
+then
+    tmux send -t "$window" "git checkout -b $br_name master" ENTER
+else
+    tmux send -t "$window" "git checkout $br_name" ENTER
+fi
+
+tmux send -t "$window" "git status; git branch -vv" ENTER
+tmux select-window -t "$window"
