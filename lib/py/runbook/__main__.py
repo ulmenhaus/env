@@ -83,12 +83,20 @@ def _parse_md_file(path):
 
 def main():
     if "RUNBOOK_PANE" not in os.environ:
+        # TODO use cli lib
+        args = list(sys.argv[1:])
+        split_flag = "-h"
+        if "-v" in args:
+            split_flag = "-v"
+            args.remove("-v")
+
+        book = args[0] if args else "README.md"
+
         pane = os.environ["TMUX_PANE"]
         subprocess.check_call([
-            "tmux", "split-window", "-p", "20", "-b", "-h", "bash", "-c",
+            "tmux", "split-window", "-p", "20", "-b", split_flag, "bash", "-c",
             "cd {} && PYTHONPATH={} RUNBOOK_PANE={} python3 -m runbook {} || sleep 30".
-            format(os.getcwd(),
-                   os.environ.get("PYTHONPATH", ""), pane, sys.argv[1])
+            format(os.getcwd(), os.environ.get("PYTHONPATH", ""), pane, book)
         ])
     else:
         title, ixns = _parse_md_file(sys.argv[1])
