@@ -617,5 +617,4 @@ def goto_ann_dir(args, stdin=None):
         raise Exception("non-zero exit code")
     target = out.decode("utf-8").strip()
     os.chdir(target)
-    # TODO Prompter._shorten_dir should support shortening ann dirs
     ENV["PWD"] = target

@@ -13,11 +13,18 @@ Potential future features:
 import base64
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import sys
 
 import click
+
+from git import Repo
+
+
+def shortname(url):
+    return "s{}".format(hashlib.sha256(url.encode("utf-8")).hexdigest()[:6])
 
 
 def encode_key(key):
@@ -54,9 +61,7 @@ def ed(url):
     wd = os.path.join(os.environ['ANN_DIR'], long_name)
     if not os.path.exists(wd):
         os.mkdir(wd)
-    short_name = "s{}".format(
-        hashlib.sha256(url.encode("utf-8")).hexdigest()[:6])
-    sd = os.path.join(os.environ['ANN_DIR'], short_name)
+    sd = os.path.join(os.environ['ANN_DIR'], shortname(url))
     if not os.path.exists(sd):
         os.symlink(long_name, sd)
     # would be good to do an execv here instead
@@ -69,9 +74,7 @@ def rm(url):
     wd = os.path.join(os.environ['ANN_DIR'], long_name)
     if os.path.exists(wd):
         shutil.rmtree(wd)
-    short_name = "s{}".format(
-        hashlib.sha256(url.encode("utf-8")).hexdigest()[:6])
-    sd = os.path.join(os.environ['ANN_DIR'], short_name)
+    sd = os.path.join(os.environ['ANN_DIR'], shortname(url))
     if os.path.exists(sd):
         shutil.rmtree(sd)
 
@@ -82,19 +85,43 @@ def wd(url):
     wd = os.path.join(os.environ['ANN_DIR'], long_name)
     if not os.path.exists(wd):
         os.mkdir(wd)
-    short_name = "s{}".format(
-        hashlib.sha256(url.encode("utf-8")).hexdigest()[:6])
-    sd = os.path.join(os.environ['ANN_DIR'], short_name)
+    sd = os.path.join(os.environ['ANN_DIR'], shortname(url))
     if not os.path.exists(sd):
         os.symlink(long_name, sd)
     print(sd)
 
 
+def this():
+    """
+    assuming the current directory is for a github repo and it's
+    on a branch ISS-<num> where github.com/<namespace>/<repo>/issues/<num>
+    is the corresponding issue for the branch, output the issue URL
+    """
+    wd = os.getcwd()
+    loc, shortwd = wd.split("github.com", 1)
+    # XXX not for windows
+    parts = shortwd.split("/")
+    namespace, reponame = parts[1:3]
+    rootpath = os.path.join(loc, "github.com", namespace, reponame)
+    repo = Repo(rootpath)
+    branch = repo.head.ref
+    match = re.compile("^ISS-(\d+)$").match(branch.name)
+    if not match:
+        print("branch does not have a known pattern", file=sys.stderr)
+        exit(1)
+    number, = match.groups()
+    print("https://github.com/{}/{}/issues/{}".format(namespace, reponame,
+                                                      number))
+
+
 def main():
+    # TODO urls to local files should be normalized by adding abspath
+    # and stripping machine specific prefixes
     cli.command(name='ed')(ed)
     cli.command(name='ls')(ls)
     cli.command(name='rm')(rm)
     cli.command(name='wd')(wd)
+    cli.command(name='this')(this)
     cli(obj={})
 
 
