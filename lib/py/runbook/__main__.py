@@ -63,18 +63,20 @@ def _parse_md_file(path):
     last_line = ""
     ixns = []
     with open(path) as f:
-        for line in f:
+        for raw in f:
+            line = raw.strip()
             if line.startswith("# ") and not title_set:
-                title = line[2:].strip()
+                title = line[2:]
                 title_set = True
             elif line.startswith("```"):
                 contents = ""
-                for next_line in f:
+                for raw2 in f:
+                    next_line = raw2.strip()
                     if next_line.startswith("```"):
                         break
                     contents += next_line
                 # TODO reduce multiple newlines to a single one
-                contents = contents.strip().replace("\n", " && ")
+                contents = contents.replace("\n", " && ")
                 ixns.append(Interaction(last_line, contents))
             else:
                 last_line = line.strip()
@@ -91,7 +93,6 @@ def main():
             args.remove("-v")
 
         book = args[0] if args else "README.md"
-
         pane = os.environ["TMUX_PANE"]
         subprocess.check_call([
             "tmux", "split-window", "-p", "20", "-b", split_flag, "bash", "-c",
