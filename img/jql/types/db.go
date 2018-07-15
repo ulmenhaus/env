@@ -53,11 +53,22 @@ type Database map[string]*Table
 // TODO this should filter on rows
 type Filter func(Entry) bool
 
+// QueryParams are the parameters to a table's Query method
+type QueryParams struct {
+	// Filters are the filters to apply (conjunctively) to
+	// the rows
+	Filters []Filter
+	// OrderBy is the name of the field by which to order the data
+	OrderBy string
+	// Dec is true iff the order should be decending
+	Dec bool
+}
+
 // Query takes in a set of filters, and the name of a column to order by
 // as well as a bool which is true iff the ordering shoud be decending.
 // It returns a sub-table of just the filtered items
-func (t *Table) Query(filters []Filter, orderBy string, dec bool) ([][]Entry, error) {
-	if len(filters) != 0 {
+func (t *Table) Query(params QueryParams) ([][]Entry, error) {
+	if len(params.Filters) != 0 {
 		return nil, fmt.Errorf("filtered querying not implemented")
 	}
 
@@ -66,13 +77,13 @@ func (t *Table) Query(filters []Filter, orderBy string, dec bool) ([][]Entry, er
 		entries = append(entries, row)
 	}
 	xor := func(b1, b2 bool) bool { return (b1 || b2) && !(b1 && b2) }
-	if orderBy != "" {
-		col, ok := t.columnsByName[orderBy]
+	if params.OrderBy != "" {
+		col, ok := t.columnsByName[params.OrderBy]
 		if !ok {
-			return nil, fmt.Errorf("Unknown column for ordering: %s", orderBy)
+			return nil, fmt.Errorf("Unknown column for ordering: %s", params.OrderBy)
 		}
 		sort.Slice(entries, func(i, j int) bool {
-			return xor(dec, entries[i][col].Compare(entries[j][col]))
+			return xor(params.Dec, entries[i][col].Compare(entries[j][col]))
 		})
 	}
 	return entries, nil

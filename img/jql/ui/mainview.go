@@ -3,8 +3,10 @@ package ui
 import (
 	"fmt"
 	"os/exec"
+	"strings"
 
 	"github.com/jroimartin/gocui"
+	"github.com/ulmenhaus/env/img/jql/types"
 )
 
 // MainViewMode is the current mode of the MainView.
@@ -27,12 +29,43 @@ const (
 // prompts, &c. It will also be responsible for managing differnt
 // interaction modes if jql supports those.
 type MainView struct {
+	Table   *types.Table
+	Params  types.QueryParams
+	columns []string
+	// TODO map[string]types.Entry and []types.Entry could both
+	// be higher-level types (e.g. VerboseRow and Row)
+	entries [][]types.Entry
+
 	TableView     *TableView
 	PromptHandler *PromptHandler
 	Mode          MainViewMode
 
 	switching bool // on when transitioning modes has not yet been acknowleged by Layout
 	alert     string
+}
+
+// NewMainView returns a MainView initialized with a given Table
+func NewMainView(t *types.Table) (*MainView, error) {
+	columns := []string{}
+	widths := []int{}
+	for _, column := range t.Columns {
+		if strings.HasPrefix(column, "_") {
+			// TODO note these to skip the values as well
+			continue
+		}
+		widths = append(widths, 20)
+		columns = append(columns, column)
+	}
+
+	mv := &MainView{
+		Table: t,
+		TableView: &TableView{
+			Values: [][]string{},
+			Widths: widths,
+		},
+		columns: columns,
+	}
+	return mv, mv.updateTableViewContents()
 }
 
 // Layout returns the gocui object
@@ -103,6 +136,12 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 	}
 
 	var err error
+	defer func() {
+		if err != nil {
+			mv.alert = err.Error()
+			mv.switchMode(MainViewModeAlert)
+		}
+	}()
 
 	switch key {
 	case gocui.KeyArrowRight:
@@ -115,16 +154,76 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		mv.TableView.Move(DirectionDown)
 	}
 
+	primary := mv.Table.Primary()
+
 	switch ch {
 	case 'b':
 		row, column := mv.TableView.GetSelected()
 		_, err = exec.Command("open", mv.TableView.Values[row][column]).CombinedOutput()
 	case ':':
 		mv.switchMode(MainViewModePrompt)
+	case 'o':
+		_, col := mv.TableView.GetSelected()
+		mv.Params.OrderBy = mv.columns[col]
+		mv.Params.Dec = false
+		err = mv.updateTableViewContents()
+	case 'O':
+		_, col := mv.TableView.GetSelected()
+		mv.Params.OrderBy = mv.columns[col]
+		mv.Params.Dec = true
+		err = mv.updateTableViewContents()
+	case 'i':
+		row, col := mv.TableView.GetSelected()
+		key := mv.entries[row][primary].Format("")
+		// TODO should use an Update so table can modify any necessary internals
+		new, err := mv.Table.Entries[key][col].Add(1)
+		if err != nil {
+			return
+		}
+		mv.Table.Entries[key][col] = new
+		err = mv.updateTableViewContents()
+	case 'I':
+		row, col := mv.TableView.GetSelected()
+		key := mv.entries[row][primary].Format("")
+		// TODO should use an Update so table can modify any necessary internals
+		new, err := mv.Table.Entries[key][col].Add(-1)
+		if err != nil {
+			return
+		}
+		mv.Table.Entries[key][col] = new
+		err = mv.updateTableViewContents()
 	}
+}
 
-	if err != nil {
-		mv.alert = err.Error()
-		mv.switchMode(MainViewModeAlert)
+func (mv *MainView) updateTableViewContents() error {
+	mv.TableView.Values = [][]string{}
+	// NOTE putting this here to support swapping columns later
+	header := []string{}
+	for _, col := range mv.columns {
+		if mv.Params.OrderBy == col {
+			if mv.Params.Dec {
+				col += " ^"
+			} else {
+				col += " v"
+			}
+		}
+		header = append(header, col)
 	}
+	mv.TableView.Header = header
+
+	entries, err := mv.Table.Query(mv.Params)
+	if err != nil {
+		return err
+	}
+	mv.entries = entries
+	for _, row := range mv.entries {
+		// TODO ignore hidden columns
+		formatted := []string{}
+		for _, entry := range row {
+			// TODO extract actual formatting
+			formatted = append(formatted, entry.Format(""))
+		}
+		mv.TableView.Values = append(mv.TableView.Values, formatted)
+	}
+	return nil
 }
