@@ -66,7 +66,9 @@ func TestLoad(t *testing.T) {
 						"https://www.zoidberg.com": {
 							types.String("https://www.zoidberg.com"),
 						},
-					}),
+					},
+					"url",
+				),
 				"tags": types.NewTable(
 					[]string{"desc", "id", "url"},
 					map[string][]types.Entry{
@@ -75,7 +77,9 @@ func TestLoad(t *testing.T) {
 							types.String("6149c1fe-e9ea-4afc-af7d-542e09af83e7"),
 							types.String("https://www.zoidberg.com"),
 						},
-					}),
+					},
+					"id",
+				),
 			},
 		},
 	}

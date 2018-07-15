@@ -15,6 +15,7 @@ type fieldValueConstructor func(interface{}) (types.Entry, error)
 var (
 	constructors = map[string]fieldValueConstructor{
 		"string": types.NewString,
+		"date":   types.NewDate,
 	}
 )
 
@@ -99,14 +100,14 @@ func (osm *ObjectStoreMapper) Load(src io.Reader) (types.Database, error) {
 	delete(raw, "_schemata")
 	db := types.Database{}
 	for name, encoded := range raw {
-		// TODO use a constructor and Inserts -- that way the able can map
-		// columns by name
-		table := types.NewTable(fieldsByTable[name], map[string][]types.Entry{})
-		db[name] = table
 		primary, ok := primariesByTable[name]
 		if !ok {
 			return nil, fmt.Errorf("Unknown table: %s", name)
 		}
+		// TODO use a constructor and Inserts -- that way the able can map
+		// columns by name
+		table := types.NewTable(fieldsByTable[name], map[string][]types.Entry{}, primary)
+		db[name] = table
 		for pk, fields := range encoded {
 			row := make([]types.Entry, len(fieldsByTable[name]))
 			table.Entries[pk] = row

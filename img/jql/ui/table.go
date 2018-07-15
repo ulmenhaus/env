@@ -8,6 +8,7 @@ import (
 
 // A Table is a gocui object for vizualizing tabular data
 type Table struct {
+	Header []string
 	Values [][]string
 	Widths []int
 	row    int
@@ -59,6 +60,19 @@ func (t *Table) Layout(g *gocui.Gui) error {
 	}
 
 	content := ""
+	for j, val := range t.Header {
+		width := t.Widths[j]
+		if len(val) >= width {
+			val = val[:width]
+		} else {
+			diff := width - len(val)
+			for k := 0; k < diff; k++ {
+				val += " "
+			}
+		}
+		content += "  " + val + " "
+	}
+	content += "\n"
 	for i, row := range t.Values {
 		for j, val := range row {
 			width := t.Widths[j]

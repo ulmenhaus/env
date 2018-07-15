@@ -53,25 +53,39 @@ func main() {
 	orderBy := ""
 	dec := false
 
-	header := []string{}
+	columns := []string{}
 	for _, column := range table.Columns {
 		if strings.HasPrefix(column, "_") {
 			// TODO note these to skip the values as well
 			continue
 		}
-		t.Widths = append(t.Widths, 30)
-		header = append(header, column)
+		t.Widths = append(t.Widths, 20)
+		columns = append(columns, column)
 	}
 
+	entries := [][]types.Entry{}
 	refreshTable := func() error {
 		t.Values = [][]string{}
-		t.Values = append(t.Values, header)
+		// NOTE putting this here to support swapping columns later
+		header := []string{}
+		for _, col := range columns {
+			if orderBy == col {
+				if dec {
+					col += " ^"
+				} else {
+					col += " v"
+				}
+			}
+			header = append(header, col)
+		}
+		t.Header = header
 
-		entries, err := table.Query(filters, orderBy, dec)
+		entries, err = table.Query(filters, orderBy, dec)
 		if err != nil {
 			return err
 		}
 		for _, row := range entries {
+			// TODO ignore hidden columns
 			formatted := []string{}
 			for _, entry := range row {
 				// TODO extract actual formatting
@@ -82,6 +96,7 @@ func main() {
 		return nil
 	}
 	refreshTable()
+	primary := table.Primary()
 
 	defer g.Close()
 
@@ -89,7 +104,7 @@ func main() {
 
 	if err := g.SetKeybinding("", 'o', gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
 		_, col := t.GetSelected()
-		orderBy = header[col]
+		orderBy = columns[col]
 		dec = false
 		return refreshTable()
 	}); err != nil {
@@ -98,8 +113,38 @@ func main() {
 
 	if err := g.SetKeybinding("", 'O', gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
 		_, col := t.GetSelected()
-		orderBy = header[col]
+		orderBy = columns[col]
 		dec = true
+		return refreshTable()
+	}); err != nil {
+		panic(err)
+	}
+
+	if err := g.SetKeybinding("", 'i', gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+		row, col := t.GetSelected()
+		key := entries[row][primary].Format("")
+		// TODO should use an Update so table can modify any necessary internals
+		new, err := table.Entries[key][col].Add(1)
+		if err != nil {
+			// TODO show error in prompt
+			return err
+		}
+		table.Entries[key][col] = new
+		return refreshTable()
+	}); err != nil {
+		panic(err)
+	}
+
+	if err := g.SetKeybinding("", 'I', gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+		row, col := t.GetSelected()
+		key := entries[row][primary].Format("")
+		// TODO should use an Update so table can modify any necessary internals
+		new, err := table.Entries[key][col].Add(-1)
+		if err != nil {
+			// TODO show error in prompt
+			return err
+		}
+		table.Entries[key][col] = new
 		return refreshTable()
 	}); err != nil {
 		panic(err)

@@ -28,3 +28,12 @@ func (s String) Compare(i interface{}) bool {
 	}
 	return entry > s
 }
+
+// Add concatonates the provided string with the String
+func (s String) Add(i interface{}) (Entry, error) {
+	addend, ok := i.(string)
+	if !ok {
+		return nil, fmt.Errorf("Strings can only be concatonated with strings")
+	}
+	return String(string(s) + addend), nil
+}
