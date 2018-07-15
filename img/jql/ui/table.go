@@ -3,8 +3,21 @@ package ui
 import (
 	"fmt"
 	"io"
+)
 
-	"github.com/jroimartin/gocui"
+// A Direction denotes which way to move a cursor when navigating
+// a table view
+type Direction int
+
+const (
+	// DirectionRight denotes moving the cursor right
+	DirectionRight Direction = iota
+	// DirectionUp denotes moving the cursor up
+	DirectionUp
+	// DirectionLeft denotes moving the cursor left
+	DirectionLeft
+	// DirectionDown denotes moving the cursor down
+	DirectionDown
 )
 
 // A TableView is a gocui object for vizualizing tabular data
@@ -16,22 +29,22 @@ type TableView struct {
 	column int
 }
 
-// Edit handles keyboard inputs when in table view
-func (tv *TableView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifier) {
-	switch key {
-	case gocui.KeyArrowRight:
+// Move moves the table's cursor in the input direction
+func (tv *TableView) Move(d Direction) {
+	switch d {
+	case DirectionRight:
 		if len(tv.Values) > 0 && tv.column < len(tv.Values[0])-1 {
 			tv.column++
 		}
-	case gocui.KeyArrowUp:
+	case DirectionUp:
 		if tv.row > 0 {
 			tv.row--
 		}
-	case gocui.KeyArrowLeft:
+	case DirectionLeft:
 		if tv.column > 0 {
 			tv.column--
 		}
-	case gocui.KeyArrowDown:
+	case DirectionDown:
 		if tv.row < len(tv.Values)-1 {
 			tv.row++
 		}

@@ -2,7 +2,6 @@ package main
 
 import (
 	"os"
-	"os/exec"
 	"strings"
 
 	"github.com/jroimartin/gocui"
@@ -106,15 +105,6 @@ func main() {
 
 	g.SetManagerFunc(mv.Layout)
 
-	if err := g.SetKeybinding("", ':', gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
-		if mv.Mode != ui.MainViewModePrompt {
-			mv.Mode = ui.MainViewModePrompt
-		}
-		return nil
-	}); err != nil {
-		panic(err)
-	}
-
 	if err := g.SetKeybinding("", 'o', gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
 		_, col := tv.GetSelected()
 		orderBy = columns[col]
@@ -164,15 +154,6 @@ func main() {
 	}
 
 	if err := g.SetKeybinding("", gocui.KeyCtrlC, gocui.ModNone, quit); err != nil {
-		panic(err)
-	}
-
-	if err := g.SetKeybinding("", 'b', gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
-		row, column := tv.GetSelected()
-		_, err := exec.Command("open", tv.Values[row][column]).CombinedOutput()
-		// TODO error needs to be shown on prompt
-		return err
-	}); err != nil {
 		panic(err)
 	}
 
