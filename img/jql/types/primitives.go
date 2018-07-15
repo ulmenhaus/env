@@ -18,3 +18,13 @@ func NewString(i interface{}) (Entry, error) {
 func (s String) Format(fmt string) string {
 	return string(s)
 }
+
+// Compare returns true iff the given object is a string and comes
+// lexicographically after this string
+func (s String) Compare(i interface{}) bool {
+	entry, ok := i.(String)
+	if !ok {
+		return false
+	}
+	return entry > s
+}

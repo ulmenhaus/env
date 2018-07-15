@@ -99,12 +99,9 @@ func (osm *ObjectStoreMapper) Load(src io.Reader) (types.Database, error) {
 	delete(raw, "_schemata")
 	db := types.Database{}
 	for name, encoded := range raw {
-		table := types.Table{
-			// TODO use a constructor and Inserts -- that way the able can map
-			// columns by name
-			Columns: fieldsByTable[name],
-			Entries: map[string][]types.Entry{},
-		}
+		// TODO use a constructor and Inserts -- that way the able can map
+		// columns by name
+		table := types.NewTable(fieldsByTable[name], map[string][]types.Entry{})
 		db[name] = table
 		primary, ok := primariesByTable[name]
 		if !ok {

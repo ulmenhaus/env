@@ -65,7 +65,7 @@ func TestJSONWrite(t *testing.T) {
         },
         "tags.id": {
             "primary": true,
-            "type": "uuid",
+            "type": "uuid"
         },
         "tags.url": {
             "type": "foreign.web.key"
@@ -103,7 +103,7 @@ func TestJSONRead(t *testing.T) {
 		expected EncodedDatabase
 	}{
 		{
-			name: "basic marshaling",
+			name: "basic unmarshaling",
 			contents: `{
     "_schemata": {
         "pages.url": {
@@ -115,7 +115,7 @@ func TestJSONRead(t *testing.T) {
         },
         "tags.id": {
             "primary": true,
-            "type": "uuid",
+            "type": "uuid"
         },
         "tags.url": {
             "type": "foreign.web.key"

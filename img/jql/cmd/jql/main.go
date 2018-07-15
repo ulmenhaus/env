@@ -8,11 +8,13 @@ import (
 	"github.com/jroimartin/gocui"
 	"github.com/ulmenhaus/env/img/jql/osm"
 	"github.com/ulmenhaus/env/img/jql/storage"
+	"github.com/ulmenhaus/env/img/jql/types"
 	"github.com/ulmenhaus/env/img/jql/ui"
 )
 
 func main() {
 	// TODO use a cli library
+	// XXX refactor
 	dbPath := os.Args[1]
 	tableName := os.Args[2]
 	var store storage.Store
@@ -47,6 +49,10 @@ func main() {
 		Widths: []int{},
 	}
 
+	filters := []types.Filter{}
+	orderBy := ""
+	dec := false
+
 	header := []string{}
 	for _, column := range table.Columns {
 		if strings.HasPrefix(column, "_") {
@@ -56,20 +62,48 @@ func main() {
 		t.Widths = append(t.Widths, 30)
 		header = append(header, column)
 	}
-	t.Values = append(t.Values, header)
 
-	for _, row := range table.Entries {
-		formatted := []string{}
-		for _, entry := range row {
-			// TODO extract actual formatting
-			formatted = append(formatted, entry.Format(""))
+	refreshTable := func() error {
+		t.Values = [][]string{}
+		t.Values = append(t.Values, header)
+
+		entries, err := table.Query(filters, orderBy, dec)
+		if err != nil {
+			return err
 		}
-		t.Values = append(t.Values, formatted)
+		for _, row := range entries {
+			formatted := []string{}
+			for _, entry := range row {
+				// TODO extract actual formatting
+				formatted = append(formatted, entry.Format(""))
+			}
+			t.Values = append(t.Values, formatted)
+		}
+		return nil
 	}
+	refreshTable()
 
 	defer g.Close()
 
 	g.SetManagerFunc(t.Layout)
+
+	if err := g.SetKeybinding("", 'o', gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+		_, col := t.GetSelected()
+		orderBy = header[col]
+		dec = false
+		return refreshTable()
+	}); err != nil {
+		panic(err)
+	}
+
+	if err := g.SetKeybinding("", 'O', gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+		_, col := t.GetSelected()
+		orderBy = header[col]
+		dec = true
+		return refreshTable()
+	}); err != nil {
+		panic(err)
+	}
 
 	if err := g.SetKeybinding("", gocui.KeyCtrlC, gocui.ModNone, quit); err != nil {
 		panic(err)
@@ -91,8 +125,10 @@ func main() {
 		panic(err)
 	}
 
-	if err := g.SetKeybinding("", 'o', gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
-		_, err := exec.Command("open", t.GetSelected()[0][0]).CombinedOutput()
+	if err := g.SetKeybinding("", 'b', gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+		row, column := t.GetSelected()
+		_, err := exec.Command("open", t.Values[row][column]).CombinedOutput()
+		// TODO error needs to be shown on prompt
 		return err
 	}); err != nil {
 		panic(err)

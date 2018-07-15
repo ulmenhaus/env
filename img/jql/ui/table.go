@@ -84,11 +84,7 @@ func (t *Table) Layout(g *gocui.Gui) error {
 	return nil
 }
 
-// GetSelected returns the selected object
-func (t *Table) GetSelected() [][]string {
-	return [][]string{
-		{
-			t.Values[t.row][t.column],
-		},
-	}
+// GetSelected returns the selected row and column
+func (t *Table) GetSelected() (int, int) {
+	return t.row, t.column
 }

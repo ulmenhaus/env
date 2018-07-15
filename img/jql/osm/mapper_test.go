@@ -60,24 +60,22 @@ func TestLoad(t *testing.T) {
 				},
 			},
 			expected: types.Database{
-				"pages": types.Table{
-					Columns: []string{"url"},
-					Entries: map[string][]types.Entry{
-						"https://www.zoidberg.com": []types.Entry{
+				"pages": types.NewTable(
+					[]string{"url"},
+					map[string][]types.Entry{
+						"https://www.zoidberg.com": {
 							types.String("https://www.zoidberg.com"),
 						},
-					},
-				},
-				"tags": types.Table{
-					Columns: []string{"desc", "id", "url"},
-					Entries: map[string][]types.Entry{
-						"6149c1fe-e9ea-4afc-af7d-542e09af83e7": []types.Entry{
+					}),
+				"tags": types.NewTable(
+					[]string{"desc", "id", "url"},
+					map[string][]types.Entry{
+						"6149c1fe-e9ea-4afc-af7d-542e09af83e7": {
 							types.String("#superlame"),
 							types.String("6149c1fe-e9ea-4afc-af7d-542e09af83e7"),
 							types.String("https://www.zoidberg.com"),
 						},
-					},
-				},
+					}),
 			},
 		},
 	}
