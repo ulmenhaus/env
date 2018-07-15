@@ -42,6 +42,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	g.InputEsc = true
 	mv, err := ui.NewMainView(table)
 	if err != nil {
 		panic(err)

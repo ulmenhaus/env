@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"io/ioutil"
+
 	"github.com/jroimartin/gocui"
 )
 
@@ -8,6 +10,7 @@ import (
 // character inputs so it will be responsible for getting user input
 // and alerting the user of errors
 type PromptHandler struct {
+	Callback func(contents string, finish bool, err error)
 }
 
 // Edit handles keyboard inputs when in prompt mode
@@ -23,16 +26,20 @@ func (ph *PromptHandler) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.M
 		v.EditDelete(false)
 	case key == gocui.KeyInsert:
 		v.Overwrite = !v.Overwrite
-	case key == gocui.KeyArrowDown:
-		v.MoveCursor(0, 1, false)
-	case key == gocui.KeyArrowUp:
-		v.MoveCursor(0, -1, false)
 	case key == gocui.KeyArrowLeft:
 		v.MoveCursor(-1, 0, false)
 	case key == gocui.KeyArrowRight:
 		v.MoveCursor(1, 0, false)
-		// TODO switch out of prompt mode
-		//case key == gocui.KeyEsc:
-		//case key == gocui.KeyEnter:
+	case key == gocui.KeyEsc:
+		// TODO handle error
+		// TODO the MainView is responsible for clearing. This is a bad
+		// abstraction
+		v.SetCursor(0, 0)
+		contents, err := ioutil.ReadAll(v)
+		ph.Callback(string(contents), false, err)
+	case key == gocui.KeyEnter:
+		v.SetCursor(0, 0)
+		contents, err := ioutil.ReadAll(v)
+		ph.Callback(string(contents), true, err)
 	}
 }

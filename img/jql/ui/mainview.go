@@ -36,9 +36,8 @@ type MainView struct {
 	// be higher-level types (e.g. VerboseRow and Row)
 	entries [][]types.Entry
 
-	TableView     *TableView
-	PromptHandler *PromptHandler
-	Mode          MainViewMode
+	TableView *TableView
+	Mode      MainViewMode
 
 	switching bool // on when transitioning modes has not yet been acknowleged by Layout
 	alert     string
@@ -93,7 +92,9 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 			return err
 		}
 		prompt.Editable = true
-		prompt.Editor = mv.PromptHandler
+		prompt.Editor = &PromptHandler{
+			Callback: mv.promptExit,
+		}
 	}
 	if switching {
 		prompt.Clear()
@@ -103,20 +104,17 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 		if _, err := g.SetCurrentView("table"); err != nil {
 			return err
 		}
-		g.InputEsc = false
 		g.Cursor = false
 	case MainViewModeAlert:
 		if _, err := g.SetCurrentView("table"); err != nil {
 			return err
 		}
-		g.InputEsc = true
 		g.Cursor = false
 		fmt.Fprintf(prompt, mv.alert)
 	case MainViewModePrompt:
 		if _, err := g.SetCurrentView("prompt"); err != nil {
 			return err
 		}
-		g.InputEsc = true
 		g.Cursor = true
 	}
 	return nil
@@ -226,4 +224,16 @@ func (mv *MainView) updateTableViewContents() error {
 		mv.TableView.Values = append(mv.TableView.Values, formatted)
 	}
 	return nil
+}
+
+func (mv *MainView) promptExit(contents string, finish bool, err error) {
+	if !finish {
+		mv.switchMode(MainViewModeTable)
+		return
+	}
+	switch contents {
+	default:
+		mv.switchMode(MainViewModeAlert)
+		mv.alert = fmt.Sprintf("unknown command: %s", contents)
+	}
 }
