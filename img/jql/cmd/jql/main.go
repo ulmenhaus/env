@@ -106,6 +106,15 @@ func main() {
 
 	g.SetManagerFunc(mv.Layout)
 
+	if err := g.SetKeybinding("", ':', gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+		if mv.Mode != ui.MainViewModePrompt {
+			mv.Mode = ui.MainViewModePrompt
+		}
+		return nil
+	}); err != nil {
+		panic(err)
+	}
+
 	if err := g.SetKeybinding("", 'o', gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
 		_, col := tv.GetSelected()
 		orderBy = columns[col]
@@ -155,22 +164,6 @@ func main() {
 	}
 
 	if err := g.SetKeybinding("", gocui.KeyCtrlC, gocui.ModNone, quit); err != nil {
-		panic(err)
-	}
-
-	if err := g.SetKeybinding("", gocui.KeyArrowDown, gocui.ModNone, tv.Down); err != nil {
-		panic(err)
-	}
-
-	if err := g.SetKeybinding("", gocui.KeyArrowUp, gocui.ModNone, tv.Up); err != nil {
-		panic(err)
-	}
-
-	if err := g.SetKeybinding("", gocui.KeyArrowRight, gocui.ModNone, tv.Right); err != nil {
-		panic(err)
-	}
-
-	if err := g.SetKeybinding("", gocui.KeyArrowLeft, gocui.ModNone, tv.Left); err != nil {
 		panic(err)
 	}
 

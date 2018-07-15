@@ -16,36 +16,26 @@ type TableView struct {
 	column int
 }
 
-// Down moves the cursor down
-func (tv *TableView) Down(g *gocui.Gui, v *gocui.View) error {
-	if tv.row < len(tv.Values)-1 {
-		tv.row++
+// Edit handles keyboard inputs when in table view
+func (tv *TableView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifier) {
+	switch key {
+	case gocui.KeyArrowRight:
+		if len(tv.Values) > 0 && tv.column < len(tv.Values[0])-1 {
+			tv.column++
+		}
+	case gocui.KeyArrowUp:
+		if tv.row > 0 {
+			tv.row--
+		}
+	case gocui.KeyArrowLeft:
+		if tv.column > 0 {
+			tv.column--
+		}
+	case gocui.KeyArrowDown:
+		if tv.row < len(tv.Values)-1 {
+			tv.row++
+		}
 	}
-	return nil
-}
-
-// Up moves the cursor up
-func (tv *TableView) Up(g *gocui.Gui, v *gocui.View) error {
-	if tv.row > 0 {
-		tv.row--
-	}
-	return nil
-}
-
-// Right moves the cursor right
-func (tv *TableView) Right(g *gocui.Gui, v *gocui.View) error {
-	if len(tv.Values) > 0 && tv.column < len(tv.Values[0])-1 {
-		tv.column++
-	}
-	return nil
-}
-
-// Left moves the cursor left
-func (tv *TableView) Left(g *gocui.Gui, v *gocui.View) error {
-	if tv.column > 0 {
-		tv.column--
-	}
-	return nil
 }
 
 // WriteContents writes the contents of the table to a gocui view
