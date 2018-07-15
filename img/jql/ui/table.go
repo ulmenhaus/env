@@ -2,12 +2,13 @@ package ui
 
 import (
 	"fmt"
+	"io"
 
 	"github.com/jroimartin/gocui"
 )
 
-// A Table is a gocui object for vizualizing tabular data
-type Table struct {
+// A TableView is a gocui object for vizualizing tabular data
+type TableView struct {
 	Header []string
 	Values [][]string
 	Widths []int
@@ -16,52 +17,44 @@ type Table struct {
 }
 
 // Down moves the cursor down
-func (t *Table) Down(g *gocui.Gui, v *gocui.View) error {
-	if t.row < len(t.Values)-1 {
-		t.row++
+func (tv *TableView) Down(g *gocui.Gui, v *gocui.View) error {
+	if tv.row < len(tv.Values)-1 {
+		tv.row++
 	}
 	return nil
 }
 
 // Up moves the cursor up
-func (t *Table) Up(g *gocui.Gui, v *gocui.View) error {
-	if t.row > 0 {
-		t.row--
+func (tv *TableView) Up(g *gocui.Gui, v *gocui.View) error {
+	if tv.row > 0 {
+		tv.row--
 	}
 	return nil
 }
 
 // Right moves the cursor right
-func (t *Table) Right(g *gocui.Gui, v *gocui.View) error {
-	if len(t.Values) > 0 && t.column < len(t.Values[0])-1 {
-		t.column++
+func (tv *TableView) Right(g *gocui.Gui, v *gocui.View) error {
+	if len(tv.Values) > 0 && tv.column < len(tv.Values[0])-1 {
+		tv.column++
 	}
 	return nil
 }
 
 // Left moves the cursor left
-func (t *Table) Left(g *gocui.Gui, v *gocui.View) error {
-	if t.column > 0 {
-		t.column--
+func (tv *TableView) Left(g *gocui.Gui, v *gocui.View) error {
+	if tv.column > 0 {
+		tv.column--
 	}
 	return nil
 }
 
-// Layout returns the gocui object
-func (t *Table) Layout(g *gocui.Gui) error {
+// WriteContents writes the contents of the table to a gocui view
+func (tv *TableView) WriteContents(v io.Writer) error {
 	// TODO paginate horizantally and vertically
 	// Also figure out how to make the cursor disappear when inactive
-	maxX, maxY := g.Size()
-	v, err := g.SetView("table", 0, 0, maxX-1, maxY-1)
-	if err != nil {
-		if err != gocui.ErrUnknownView {
-			return err
-		}
-	}
-
 	content := ""
-	for j, val := range t.Header {
-		width := t.Widths[j]
+	for j, val := range tv.Header {
+		width := tv.Widths[j]
 		if len(val) >= width {
 			val = val[:width]
 		} else {
@@ -73,9 +66,9 @@ func (t *Table) Layout(g *gocui.Gui) error {
 		content += "  " + val + " "
 	}
 	content += "\n"
-	for i, row := range t.Values {
+	for i, row := range tv.Values {
 		for j, val := range row {
-			width := t.Widths[j]
+			width := tv.Widths[j]
 			if len(val) >= width {
 				val = val[:width]
 			} else {
@@ -85,7 +78,7 @@ func (t *Table) Layout(g *gocui.Gui) error {
 				}
 			}
 
-			if i == t.row && j == t.column {
+			if i == tv.row && j == tv.column {
 				content += "> " + val + " "
 			} else {
 				content += "  " + val + " "
@@ -93,12 +86,11 @@ func (t *Table) Layout(g *gocui.Gui) error {
 		}
 		content += "\n"
 	}
-	v.Clear()
-	fmt.Fprintf(v, content)
-	return nil
+	_, err := fmt.Fprintf(v, content)
+	return err
 }
 
 // GetSelected returns the selected row and column
-func (t *Table) GetSelected() (int, int) {
-	return t.row, t.column
+func (tv *TableView) GetSelected() (int, int) {
+	return tv.row, tv.column
 }
