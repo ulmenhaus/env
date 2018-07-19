@@ -19,12 +19,17 @@ func NewDate(i interface{}) (Entry, error) {
 }
 
 // Format formats the date
-func (d Date) Format(fmt string) string {
+func (d Date) Format(ft string) string {
 	t := time.Unix(int64(d*24*60*60), int64(0))
-	if fmt == "" {
-		fmt = "02 Jan 2006"
+	if ft == "" {
+		ft = "02 Jan 2006"
 	}
-	return t.UTC().Format(fmt)
+	return t.UTC().Format(ft)
+}
+
+// Reverse creates a new date from the input
+func (d Date) Reverse(ft, input string) (Entry, error) {
+	return nil, fmt.Errorf("testing")
 }
 
 // Compare returns true iff the given object is a Date and comes

@@ -23,6 +23,9 @@ const (
 	// MainViewModeAlert is for when the user is being
 	// shown an alert in the prompt window
 	MainViewModeAlert
+	// MainViewModeEdit is for when the user is editing
+	// the value of a single cell
+	MainViewModeEdit
 )
 
 // A MainView is the overall view of the table including headers,
@@ -39,8 +42,9 @@ type MainView struct {
 	TableView *TableView
 	Mode      MainViewMode
 
-	switching bool // on when transitioning modes has not yet been acknowleged by Layout
-	alert     string
+	switching  bool // on when transitioning modes has not yet been acknowleged by Layout
+	alert      string
+	promptText string
 }
 
 // NewMainView returns a MainView initialized with a given Table
@@ -116,6 +120,13 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 			return err
 		}
 		g.Cursor = true
+	case MainViewModeEdit:
+		prompt.Write([]byte(mv.promptText))
+		mv.promptText = ""
+		if _, err := g.SetCurrentView("prompt"); err != nil {
+			return err
+		}
+		g.Cursor = true
 	}
 	return nil
 }
@@ -150,6 +161,10 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		mv.TableView.Move(DirectionLeft)
 	case gocui.KeyArrowDown:
 		mv.TableView.Move(DirectionDown)
+	case gocui.KeyEnter:
+		mv.switchMode(MainViewModeEdit)
+		row, column := mv.TableView.GetSelected()
+		mv.promptText = mv.TableView.Values[row][column]
 	}
 
 	primary := mv.Table.Primary()
@@ -227,13 +242,36 @@ func (mv *MainView) updateTableViewContents() error {
 }
 
 func (mv *MainView) promptExit(contents string, finish bool, err error) {
+	current := mv.Mode
 	if !finish {
 		mv.switchMode(MainViewModeTable)
 		return
 	}
-	switch contents {
-	default:
-		mv.switchMode(MainViewModeAlert)
-		mv.alert = fmt.Sprintf("unknown command: %s", contents)
+	defer func() {
+		if err != nil {
+			mv.switchMode(MainViewModeAlert)
+			mv.alert = err.Error()
+		}
+	}()
+	if err != nil {
+		return
+	}
+	switch current {
+	case MainViewModeEdit:
+		row, column := mv.TableView.GetSelected()
+		primary := mv.Table.Primary()
+		key := mv.entries[row][primary].Format("")
+		err = mv.Table.Update(key, mv.Table.Columns[column], contents)
+		if err != nil {
+			return
+		}
+		err = mv.updateTableViewContents()
+		mv.switchMode(MainViewModeTable)
+		return
+	case MainViewModePrompt:
+		switch contents {
+		default:
+			err = fmt.Errorf("unknown command: %s", contents)
+		}
 	}
 }

@@ -13,6 +13,10 @@ type Entry interface {
 	// When given an emptry string, should return the canonical form
 	// of the object.
 	Format(fmt string) string
+	// Reverse takes in a format string and an input and
+	// returns a new Entry whose representation with the given
+	// format should be the input
+	Reverse(fmt, input string) (Entry, error)
 	// Compare should return true iff the privded Entry
 	// is greater than the Entry whose method is being called.
 	// Behavior is undefined if the two Entries are of different types
@@ -97,8 +101,25 @@ func (t *Table) Insert(pk string) error {
 
 // Update modifies a row
 func (t *Table) Update(pk, field, value string) error {
-	// NOTE Update needs to be gorouting safe
-	return fmt.Errorf("not implemented")
+	col, ok := t.columnsByName[field]
+	if !ok {
+		return fmt.Errorf("Unknown column: %s", field)
+	}
+	current, ok := t.Entries[pk]
+	if !ok {
+		return fmt.Errorf("Row does not exist with pk %s", pk)
+	}
+	// TODO this needs to be passed the format string
+	new, err := current[col].Reverse("", value)
+	if err != nil {
+		return err
+	}
+	current[col] = new
+	if col == t.primary {
+		delete(t.Entries, pk)
+		t.Entries[new.Format("")] = current
+	}
+	return nil
 }
 
 // Primary returns the index of the primary key column of the table

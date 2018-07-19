@@ -15,8 +15,13 @@ func NewString(i interface{}) (Entry, error) {
 }
 
 // Format formats the string
-func (s String) Format(fmt string) string {
+func (s String) Format(ft string) string {
 	return string(s)
+}
+
+// Reverse creates a new string from the input
+func (s String) Reverse(ft, input string) (Entry, error) {
+	return String(input), nil
 }
 
 // Compare returns true iff the given object is a string and comes
