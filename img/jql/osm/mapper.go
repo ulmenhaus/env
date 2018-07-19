@@ -139,3 +139,8 @@ func (osm *ObjectStoreMapper) Load(src io.Reader) (types.Database, error) {
 	}
 	return db, nil
 }
+
+// Dump takes the database and serializes it using the storage driver
+func (osm *ObjectStoreMapper) Dump(db types.Database, dst io.Writer) error {
+	return fmt.Errorf("dump not implemented")
+}

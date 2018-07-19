@@ -2,10 +2,13 @@ package ui
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 
 	"github.com/jroimartin/gocui"
+	"github.com/ulmenhaus/env/img/jql/osm"
+	"github.com/ulmenhaus/env/img/jql/storage"
 	"github.com/ulmenhaus/env/img/jql/types"
 )
 
@@ -32,6 +35,8 @@ const (
 // prompts, &c. It will also be responsible for managing differnt
 // interaction modes if jql supports those.
 type MainView struct {
+	OSM     *osm.ObjectStoreMapper
+	DB      types.Database
 	Table   *types.Table
 	Params  types.QueryParams
 	columns []string
@@ -48,10 +53,43 @@ type MainView struct {
 }
 
 // NewMainView returns a MainView initialized with a given Table
-func NewMainView(t *types.Table) (*MainView, error) {
+func NewMainView(path, start string) (*MainView, error) {
+	var store storage.Store
+	if strings.HasSuffix(path, ".json") {
+		store = &storage.JSONStore{}
+	} else {
+		return nil, fmt.Errorf("unknown file type")
+	}
+	mapper, err := osm.NewObjectStoreMapper(store)
+	if err != nil {
+		return nil, err
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	db, err := mapper.Load(f)
+	if err != nil {
+		return nil, err
+	}
+	mv := &MainView{
+		OSM: mapper,
+		DB:  db,
+	}
+	return mv, mv.loadTable(start)
+}
+
+// loadTable display's the named table in the main table view
+func (mv *MainView) loadTable(t string) error {
+	table, ok := mv.DB[t]
+	if !ok {
+		return fmt.Errorf("unknown table: %s", t)
+	}
+	mv.Table = table
 	columns := []string{}
 	widths := []int{}
-	for _, column := range t.Columns {
+	for _, column := range table.Columns {
 		if strings.HasPrefix(column, "_") {
 			// TODO note these to skip the values as well
 			continue
@@ -59,16 +97,12 @@ func NewMainView(t *types.Table) (*MainView, error) {
 		widths = append(widths, 20)
 		columns = append(columns, column)
 	}
-
-	mv := &MainView{
-		Table: t,
-		TableView: &TableView{
-			Values: [][]string{},
-			Widths: widths,
-		},
-		columns: columns,
+	mv.TableView = &TableView{
+		Values: [][]string{},
+		Widths: widths,
 	}
-	return mv, mv.updateTableViewContents()
+	mv.columns = columns
+	return mv.updateTableViewContents()
 }
 
 // Layout returns the gocui object
@@ -138,6 +172,11 @@ func (mv *MainView) switchMode(new MainViewMode) {
 	mv.Mode = new
 }
 
+// saveContents asks the osm to save the current contents to disk
+func (mv *MainView) saveContents() error {
+	return mv.OSM.Dump(mv.DB, nil)
+}
+
 // Edit handles keyboard inputs while in table mode
 func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifier) {
 	if mv.Mode == MainViewModeAlert {
@@ -205,6 +244,8 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		}
 		mv.Table.Entries[key][col] = new
 		err = mv.updateTableViewContents()
+	case 's':
+		err = mv.saveContents()
 	}
 }
 
