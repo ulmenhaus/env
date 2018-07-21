@@ -12,6 +12,8 @@ import (
 
 type fieldValueConstructor func(interface{}) (types.Entry, error)
 
+const schemataTableName = "_schemata"
+
 var (
 	constructors = map[string]fieldValueConstructor{
 		"string": types.NewString,
@@ -34,13 +36,13 @@ func NewObjectStoreMapper(store storage.Store) (*ObjectStoreMapper, error) {
 }
 
 // Load takes the given reader of a serialized databse and returns a databse object
-func (osm *ObjectStoreMapper) Load(src io.Reader) (types.Database, error) {
+func (osm *ObjectStoreMapper) Load(src io.Reader) (*types.Database, error) {
 	// XXX needs refactor
 	raw, err := osm.store.Read(src)
 	if err != nil {
 		return nil, err
 	}
-	schemata, ok := raw["_schemata"]
+	schemata, ok := raw[schemataTableName]
 	if !ok {
 		return nil, fmt.Errorf("missing schema table")
 	}
@@ -97,8 +99,11 @@ func (osm *ObjectStoreMapper) Load(src io.Reader) (types.Database, error) {
 		}
 	}
 
-	delete(raw, "_schemata")
-	db := types.Database{}
+	delete(raw, schemataTableName)
+	db := &types.Database{
+		Schemata: schemata,
+		Tables:   map[string]*types.Table{},
+	}
 	for name, encoded := range raw {
 		primary, ok := primariesByTable[name]
 		if !ok {
@@ -107,7 +112,7 @@ func (osm *ObjectStoreMapper) Load(src io.Reader) (types.Database, error) {
 		// TODO use a constructor and Inserts -- that way the able can map
 		// columns by name
 		table := types.NewTable(fieldsByTable[name], map[string][]types.Entry{}, primary)
-		db[name] = table
+		db.Tables[name] = table
 		for pk, fields := range encoded {
 			row := make([]types.Entry, len(fieldsByTable[name]))
 			table.Entries[pk] = row
@@ -141,6 +146,25 @@ func (osm *ObjectStoreMapper) Load(src io.Reader) (types.Database, error) {
 }
 
 // Dump takes the database and serializes it using the storage driver
-func (osm *ObjectStoreMapper) Dump(db types.Database, dst io.Writer) error {
-	return fmt.Errorf("dump not implemented")
+func (osm *ObjectStoreMapper) Dump(db *types.Database, dst io.Writer) error {
+	encoded := storage.EncodedDatabase{
+		schemataTableName: db.Schemata,
+	}
+	for name, table := range db.Tables {
+		encodedTable := storage.EncodedTable{}
+		pkCol := table.Primary()
+		for pk, row := range table.Entries {
+			// TODO inconsistent use of entry in types and storage
+			encodedEntry := storage.EncodedEntry{}
+			for i, entry := range row {
+				if i != pkCol {
+					encodedEntry[table.Columns[i]] = entry.Encoded()
+				}
+			}
+			encodedTable[pk] = encodedEntry
+		}
+		encoded[name] = encodedTable
+	}
+	err := osm.store.Write(dst, encoded)
+	return err
 }

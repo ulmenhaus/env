@@ -35,8 +35,10 @@ const (
 // prompts, &c. It will also be responsible for managing differnt
 // interaction modes if jql supports those.
 type MainView struct {
+	path string
+
 	OSM     *osm.ObjectStoreMapper
-	DB      types.Database
+	DB      *types.Database
 	Table   *types.Table
 	Params  types.QueryParams
 	columns []string
@@ -74,15 +76,16 @@ func NewMainView(path, start string) (*MainView, error) {
 		return nil, err
 	}
 	mv := &MainView{
-		OSM: mapper,
-		DB:  db,
+		path: path,
+		OSM:  mapper,
+		DB:   db,
 	}
 	return mv, mv.loadTable(start)
 }
 
 // loadTable display's the named table in the main table view
 func (mv *MainView) loadTable(t string) error {
-	table, ok := mv.DB[t]
+	table, ok := mv.DB.Tables[t]
 	if !ok {
 		return fmt.Errorf("unknown table: %s", t)
 	}
@@ -150,19 +153,32 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 		g.Cursor = false
 		fmt.Fprintf(prompt, mv.alert)
 	case MainViewModePrompt:
+		prompt.Write([]byte(mv.promptText))
 		if _, err := g.SetCurrentView("prompt"); err != nil {
 			return err
 		}
 		g.Cursor = true
+		prompt.MoveCursor(len(mv.promptText), 0, false)
+		mv.promptText = ""
 	case MainViewModeEdit:
 		prompt.Write([]byte(mv.promptText))
-		mv.promptText = ""
 		if _, err := g.SetCurrentView("prompt"); err != nil {
 			return err
 		}
 		g.Cursor = true
+		prompt.MoveCursor(len(mv.promptText), 0, false)
+		mv.promptText = ""
 	}
 	return nil
+}
+
+// newEntry prompts the user for the pk to a new entry and
+// attempts to add an entry with that key
+// TODO should just create an entry if using uuids
+func (mv *MainView) newEntry() {
+	// TODO prompting doesn't work yet
+	// mv.promptText = "PK for new entry "
+	mv.switchMode(MainViewModePrompt)
 }
 
 // switchMode sets the main view's mode to the new mode and sets
@@ -174,7 +190,16 @@ func (mv *MainView) switchMode(new MainViewMode) {
 
 // saveContents asks the osm to save the current contents to disk
 func (mv *MainView) saveContents() error {
-	return mv.OSM.Dump(mv.DB, nil)
+	f, err := os.OpenFile(mv.path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	err = mv.OSM.Dump(mv.DB, f)
+	if err != nil {
+		return err
+	}
+	return fmt.Errorf("Wrote %s", mv.path)
 }
 
 // Edit handles keyboard inputs while in table mode
@@ -246,6 +271,8 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		err = mv.updateTableViewContents()
 	case 's':
 		err = mv.saveContents()
+	case 'n':
+		mv.newEntry()
 	}
 }
 

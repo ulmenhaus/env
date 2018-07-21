@@ -1,6 +1,10 @@
 package types
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/ulmenhaus/env/img/jql/storage"
+)
 
 // A String is an array of characters
 type String string
@@ -41,4 +45,9 @@ func (s String) Add(i interface{}) (Entry, error) {
 		return nil, fmt.Errorf("Strings can only be concatonated with strings")
 	}
 	return String(string(s) + addend), nil
+}
+
+// Encoded returns the String encoded as a string
+func (s String) Encoded() storage.Primitive {
+	return string(s)
 }

@@ -3,11 +3,17 @@ package types
 import (
 	"fmt"
 	"time"
+
+	"github.com/ulmenhaus/env/img/jql/storage"
 )
 
 // A Date denotes a specifc day in history by modeling as the
 // number of days (positive or negative) since 1 January 1970 UTC
 type Date int
+
+var (
+	epoch = time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
+)
 
 // NewDate returns a new date from the encoded data
 func NewDate(i interface{}) (Entry, error) {
@@ -20,7 +26,7 @@ func NewDate(i interface{}) (Entry, error) {
 
 // Format formats the date
 func (d Date) Format(ft string) string {
-	t := time.Unix(int64(d*24*60*60), int64(0))
+	t := epoch.Add(time.Hour * 24 * time.Duration(d))
 	if ft == "" {
 		ft = "02 Jan 2006"
 	}
@@ -29,7 +35,14 @@ func (d Date) Format(ft string) string {
 
 // Reverse creates a new date from the input
 func (d Date) Reverse(ft, input string) (Entry, error) {
-	return nil, fmt.Errorf("testing")
+	if ft == "" {
+		ft = "02 Jan 2006"
+	}
+	t, err := time.Parse(ft, input)
+	if err != nil {
+		return nil, err
+	}
+	return Date(t.Sub(epoch) / (time.Hour * 24)), nil
 }
 
 // Compare returns true iff the given object is a Date and comes
@@ -49,4 +62,9 @@ func (d Date) Add(i interface{}) (Entry, error) {
 		return nil, fmt.Errorf("Dates can only be incremented by integers")
 	}
 	return Date(int(d) + days), nil
+}
+
+// Encoded returns the Date encoded as a string
+func (d Date) Encoded() storage.Primitive {
+	return int(d)
 }

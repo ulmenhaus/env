@@ -3,6 +3,8 @@ package types
 import (
 	"fmt"
 	"sort"
+
+	"github.com/ulmenhaus/env/img/jql/storage"
 )
 
 // An Entry is an internal representation of a single column in a
@@ -23,6 +25,9 @@ type Entry interface {
 	Compare(entry interface{}) bool
 	// Add returns a new Entry with the provided value added
 	Add(addend interface{}) (Entry, error)
+	// Encoded returns the entry encoded as a primitive
+	// TODO remove dependency on storage package
+	Encoded() storage.Primitive
 }
 
 // A Table is a model of an unordered two-dimensional array of data
@@ -51,7 +56,12 @@ func NewTable(columns []string, entries map[string][]Entry, primary string) *Tab
 }
 
 // A Database is a collection of named tables
-type Database map[string]*Table
+type Database struct {
+	// TODO remove dependency on storage package, perhaps by storing
+	// schemata as an actual table
+	Schemata storage.EncodedTable
+	Tables   map[string]*Table
+}
 
 // A Filter is a decision function on Entries
 // TODO this should filter on rows

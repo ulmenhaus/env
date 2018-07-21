@@ -26,7 +26,7 @@ func TestLoad(t *testing.T) {
 	cases := []struct {
 		name     string
 		db       storage.EncodedDatabase
-		expected types.Database
+		expected *types.Database
 	}{
 		{
 			name: "basic loading",
@@ -59,27 +59,47 @@ func TestLoad(t *testing.T) {
 					},
 				},
 			},
-			expected: types.Database{
-				"pages": types.NewTable(
-					[]string{"url"},
-					map[string][]types.Entry{
-						"https://www.zoidberg.com": {
-							types.String("https://www.zoidberg.com"),
-						},
+			expected: &types.Database{
+				Schemata: storage.EncodedTable{
+					"pages.url": storage.EncodedEntry{
+						"primary": true,
+						"type":    "string",
 					},
-					"url",
-				),
-				"tags": types.NewTable(
-					[]string{"desc", "id", "url"},
-					map[string][]types.Entry{
-						"6149c1fe-e9ea-4afc-af7d-542e09af83e7": {
-							types.String("#superlame"),
-							types.String("6149c1fe-e9ea-4afc-af7d-542e09af83e7"),
-							types.String("https://www.zoidberg.com"),
-						},
+					"tags.id": storage.EncodedEntry{
+						"primary": true,
+						// TODO should be "uuid"
+						"type": "string",
 					},
-					"id",
-				),
+					"tags.url": storage.EncodedEntry{
+						// TODO should be "foreign.pages.url"
+						"type": "string",
+					},
+					"tags.desc": storage.EncodedEntry{
+						"type": "string",
+					},
+				},
+				Tables: map[string]*types.Table{
+					"pages": types.NewTable(
+						[]string{"url"},
+						map[string][]types.Entry{
+							"https://www.zoidberg.com": {
+								types.String("https://www.zoidberg.com"),
+							},
+						},
+						"url",
+					),
+					"tags": types.NewTable(
+						[]string{"desc", "id", "url"},
+						map[string][]types.Entry{
+							"6149c1fe-e9ea-4afc-af7d-542e09af83e7": {
+								types.String("#superlame"),
+								types.String("6149c1fe-e9ea-4afc-af7d-542e09af83e7"),
+								types.String("https://www.zoidberg.com"),
+							},
+						},
+						"id",
+					),
+				},
 			},
 		},
 	}
