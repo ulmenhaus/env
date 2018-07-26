@@ -18,6 +18,7 @@ type Entry interface {
 	// Reverse takes in a format string and an input and
 	// returns a new Entry whose representation with the given
 	// format should be the input
+	// TODO could just use constructor for this instead
 	Reverse(fmt, input string) (Entry, error)
 	// Compare should return true iff the privded Entry
 	// is greater than the Entry whose method is being called.
@@ -30,6 +31,11 @@ type Entry interface {
 	Encoded() storage.Primitive
 }
 
+// A FieldValueConstructor is a function which takes in a base encoded
+// version of the entry and returns the entry itself. If given nil
+// the function should return a reasonable default value.
+type FieldValueConstructor func(interface{}) (Entry, error)
+
 // A Table is a model of an unordered two-dimensional array of data
 type Table struct {
 	Columns []string
@@ -37,10 +43,11 @@ type Table struct {
 
 	columnsByName map[string]int
 	primary       int
+	Constructors  []FieldValueConstructor
 }
 
 // NewTable returns a new table given a list of columns
-func NewTable(columns []string, entries map[string][]Entry, primary string) *Table {
+func NewTable(columns []string, entries map[string][]Entry, primary string, Constructors []FieldValueConstructor) *Table {
 	columnsByName := map[string]int{}
 	for i, col := range columns {
 		columnsByName[col] = i
@@ -51,7 +58,8 @@ func NewTable(columns []string, entries map[string][]Entry, primary string) *Tab
 
 		columnsByName: columnsByName,
 		// XXX need to verify column is in table
-		primary: columnsByName[primary],
+		primary:      columnsByName[primary],
+		Constructors: Constructors,
 	}
 }
 
@@ -105,8 +113,25 @@ func (t *Table) Query(params QueryParams) ([][]Entry, error) {
 
 // Insert adds a new row to the table
 func (t *Table) Insert(pk string) error {
-	// NOTE Insert needs to be gorouting safe
-	return fmt.Errorf("not implemented")
+	// TODO Insert needs to be gorouting safe
+	_, ok := t.Entries[pk]
+	if ok {
+		return fmt.Errorf("Row already exists with pk '%s'", pk)
+	}
+	row := []Entry{}
+	for i, con := range t.Constructors {
+		var input interface{}
+		if i == t.primary {
+			input = pk
+		}
+		entry, err := con(input)
+		if err != nil {
+			return err
+		}
+		row = append(row, entry)
+	}
+	t.Entries[pk] = row
+	return nil
 }
 
 // Update modifies a row

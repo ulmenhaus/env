@@ -153,20 +153,20 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 		g.Cursor = false
 		fmt.Fprintf(prompt, mv.alert)
 	case MainViewModePrompt:
-		prompt.Write([]byte(mv.promptText))
 		if _, err := g.SetCurrentView("prompt"); err != nil {
 			return err
 		}
 		g.Cursor = true
-		prompt.MoveCursor(len(mv.promptText), 0, false)
+		prompt.Write([]byte(mv.promptText))
+		prompt.MoveCursor(len(mv.promptText), 0, true)
 		mv.promptText = ""
 	case MainViewModeEdit:
-		prompt.Write([]byte(mv.promptText))
 		if _, err := g.SetCurrentView("prompt"); err != nil {
 			return err
 		}
 		g.Cursor = true
-		prompt.MoveCursor(len(mv.promptText), 0, false)
+		prompt.Write([]byte(mv.promptText))
+		prompt.MoveCursor(len(mv.promptText), 0, true)
 		mv.promptText = ""
 	}
 	return nil
@@ -176,8 +176,7 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 // attempts to add an entry with that key
 // TODO should just create an entry if using uuids
 func (mv *MainView) newEntry() {
-	// TODO prompting doesn't work yet
-	// mv.promptText = "PK for new entry "
+	mv.promptText = "create-new-entry "
 	mv.switchMode(MainViewModePrompt)
 }
 
@@ -312,13 +311,14 @@ func (mv *MainView) updateTableViewContents() error {
 func (mv *MainView) promptExit(contents string, finish bool, err error) {
 	current := mv.Mode
 	if !finish {
-		mv.switchMode(MainViewModeTable)
 		return
 	}
 	defer func() {
 		if err != nil {
 			mv.switchMode(MainViewModeAlert)
 			mv.alert = err.Error()
+		} else {
+			mv.switchMode(MainViewModeTable)
 		}
 	}()
 	if err != nil {
@@ -334,10 +334,26 @@ func (mv *MainView) promptExit(contents string, finish bool, err error) {
 			return
 		}
 		err = mv.updateTableViewContents()
-		mv.switchMode(MainViewModeTable)
 		return
 	case MainViewModePrompt:
-		switch contents {
+		parts := strings.Split(contents, " ")
+		if len(parts) == 0 {
+			return
+		}
+		command := parts[0]
+		switch command {
+		case "create-new-entry":
+			if len(parts) != 2 {
+				err = fmt.Errorf("create-new-entry takes 1 arg")
+				return
+			}
+			newPK := parts[1]
+			err = mv.Table.Insert(newPK)
+			if err != nil {
+				return
+			}
+			err = mv.updateTableViewContents()
+			return
 		default:
 			err = fmt.Errorf("unknown command: %s", contents)
 		}

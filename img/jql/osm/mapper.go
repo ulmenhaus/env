@@ -10,12 +10,10 @@ import (
 	"github.com/ulmenhaus/env/img/jql/types"
 )
 
-type fieldValueConstructor func(interface{}) (types.Entry, error)
-
 const schemataTableName = "_schemata"
 
 var (
-	constructors = map[string]fieldValueConstructor{
+	constructors = map[string]types.FieldValueConstructor{
 		"string": types.NewString,
 		"date":   types.NewDate,
 	}
@@ -51,6 +49,7 @@ func (osm *ObjectStoreMapper) Load(src io.Reader) (*types.Database, error) {
 	// column order and widths
 	fieldsByTable := map[string][]string{}
 	primariesByTable := map[string]string{}
+	constructorsByTable := map[string][]types.FieldValueConstructor{}
 	for name, schema := range schemata {
 		parts := strings.Split(name, ".")
 		if len(parts) != 2 {
@@ -80,11 +79,17 @@ func (osm *ObjectStoreMapper) Load(src io.Reader) (*types.Database, error) {
 				primariesByTable[table] = column
 			}
 		}
+		constructor := constructors[fieldType]
+		if !ok {
+			return nil, fmt.Errorf("invalid type '%s'", fieldType)
+		}
 		byTable, ok := fieldsByTable[table]
 		if !ok {
 			fieldsByTable[table] = []string{column}
+			constructorsByTable[table] = []types.FieldValueConstructor{constructor}
 		} else {
 			fieldsByTable[table] = append(byTable, column)
+			constructorsByTable[table] = append(constructorsByTable[table], constructor)
 		}
 	}
 
@@ -111,7 +116,7 @@ func (osm *ObjectStoreMapper) Load(src io.Reader) (*types.Database, error) {
 		}
 		// TODO use a constructor and Inserts -- that way the able can map
 		// columns by name
-		table := types.NewTable(fieldsByTable[name], map[string][]types.Entry{}, primary)
+		table := types.NewTable(fieldsByTable[name], map[string][]types.Entry{}, primary, constructorsByTable[name])
 		db.Tables[name] = table
 		for pk, fields := range encoded {
 			row := make([]types.Entry, len(fieldsByTable[name]))
@@ -127,6 +132,7 @@ func (osm *ObjectStoreMapper) Load(src io.Reader) (*types.Database, error) {
 				if !ok {
 					return nil, fmt.Errorf("missing schema for %s.%s", name, column)
 				}
+
 				// TODO use structured data from above schema validation
 				// instead of keying map
 				fieldType := schema["type"].(string)

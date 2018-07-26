@@ -11,6 +11,9 @@ type String string
 
 // NewString returns a new string from the encoded data
 func NewString(i interface{}) (Entry, error) {
+	if i == nil {
+		return String(""), nil
+	}
 	s, ok := i.(string)
 	if !ok {
 		return nil, fmt.Errorf("failed to unpack string from: %#v", i)

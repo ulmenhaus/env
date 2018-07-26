@@ -87,9 +87,10 @@ func TestLoad(t *testing.T) {
 							},
 						},
 						"url",
+						[]types.FieldValueConstructor{types.NewString},
 					),
 					"tags": types.NewTable(
-						[]string{"desc", "id", "url"},
+						[]string{"desc", "id", "url", ""}[:3],
 						map[string][]types.Entry{
 							"6149c1fe-e9ea-4afc-af7d-542e09af83e7": {
 								types.String("#superlame"),
@@ -98,6 +99,7 @@ func TestLoad(t *testing.T) {
 							},
 						},
 						"id",
+						[]types.FieldValueConstructor{types.NewString, types.NewString, types.NewString}[:3],
 					),
 				},
 			},
@@ -112,6 +114,7 @@ func TestLoad(t *testing.T) {
 			require.NoError(t, err)
 			actual, err := osm.Load(nil)
 			require.NoError(t, err)
+
 			require.Equal(t, tc.expected, actual)
 		})
 	}

@@ -17,6 +17,9 @@ var (
 
 // NewDate returns a new date from the encoded data
 func NewDate(i interface{}) (Entry, error) {
+	if i == nil {
+		return Date(0), nil
+	}
 	n, ok := i.(float64)
 	if !ok {
 		return nil, fmt.Errorf("failed to unpack int from: %#v", i)
