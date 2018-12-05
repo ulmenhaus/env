@@ -1,0 +1,48 @@
+{
+    "_schemata": {
+        "pages.desc": {
+            "type": "string"
+        },
+        "pages.last_visited": {
+            "type": "date"
+        },
+        "pages.url": {
+            "primary": true,
+            "type": "string"
+        }
+    },
+    "pages": {
+        "http://lesswrong.com/": {
+            "desc": "LessWrong asdf",
+            "last_visited": 13931
+        },
+        "http://www.elcultural.com/": {
+            "desc": "El Cultural",
+            "last_visited": 11
+        },
+        "http://www.euronews.com/": {
+            "desc": "Euronews",
+            "last_visited": 10
+        },
+        "https://lifehacker.com/": {
+            "desc": "Lifehacker",
+            "last_visited": 5
+        },
+        "https://news.ycombinator.com/": {
+            "desc": "   Hackernews",
+            "last_visited": 12
+        },
+        "https://techcrunch.com/": {
+            "desc": "TechCrunch",
+            "last_visited": 9
+        },
+        "https://www.reddit.com/": {
+            "desc": "Reddit",
+            "last_visited": 19
+        },
+        "zxcv": {
+            "desc": "",
+            "last_visited": 6
+        }
+    }
+}
