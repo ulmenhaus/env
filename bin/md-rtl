@@ -1,0 +1,50 @@
+#! /usr/local/bin/python
+"""
+A quick and dirty python script to convert a markdown file to right-to-left
+"""
+import sys
+
+
+def _substitute_pattern(pattern, tag, contents):
+    parts = contents.split(pattern)
+    if (len(parts) % 2) == 0:
+        raise ValueError("no matching closing pattern")
+    new = b''
+    for i, part in enumerate(parts):
+        if i % 2:
+            new += b'<{}>{}</{}>'.format(tag, part, tag)
+        else:
+            new += part
+    return new
+
+
+def _convert(path, target):
+    with open(path) as f:
+        contents = f.read()
+    lines = contents.split(b'\n')
+    new = b''
+    for line in lines:
+        if line.startswith(b'#'):
+            hashes, line_contents = line.split(b' ', 1)
+            new += b"<h{} dir='rtl'>".format(len(hashes)) + line_contents + \
+                   b"</h{}>".format(len(hashes))
+        else:
+            new += b"<p dir='rtl'>"
+            # TODO handle italics, tables, &c
+            new += _substitute_pattern(b'**', b'b', line)
+            new += b'</p>'
+        new += b'\n'
+    with open(target, 'w') as f:
+        f.write(new)
+
+
+def main():
+    path = sys.argv[1]
+    if not path.endswith(".md"):
+        raise Exception("path must end with .md")
+    target = path[:-len(".md")] + ".rtl.md"
+    _convert(path, target)
+
+
+if __name__ == "__main__":
+    main()
