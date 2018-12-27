@@ -233,6 +233,9 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 	primary := mv.Table.Primary()
 
 	switch ch {
+	case 't':
+		mv.switchMode(MainViewModePrompt)
+		mv.promptText = "switch-table "
 	case 'b':
 		row, column := mv.TableView.GetSelected()
 		_, err = exec.Command("open", mv.TableView.Values[row][column]).CombinedOutput()
@@ -342,6 +345,13 @@ func (mv *MainView) promptExit(contents string, finish bool, err error) {
 		}
 		command := parts[0]
 		switch command {
+		case "switch-table":
+			if len(parts) != 2 {
+				err = fmt.Errorf("switch-table takes 1 arg")
+				return
+			}
+			err = mv.loadTable(parts[1])
+			return
 		case "create-new-entry":
 			if len(parts) != 2 {
 				err = fmt.Errorf("create-new-entry takes 1 arg")
