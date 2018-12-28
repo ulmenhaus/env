@@ -74,8 +74,7 @@ type Database struct {
 }
 
 // A Filter is a decision function on Entries
-// TODO this should filter on rows
-type Filter func(Entry) bool
+type Filter func([]Entry) bool
 
 // QueryParams are the parameters to a table's Query method
 type QueryParams struct {
@@ -92,13 +91,17 @@ type QueryParams struct {
 // as well as a bool which is true iff the ordering shoud be decending.
 // It returns a sub-table of just the filtered items
 func (t *Table) Query(params QueryParams) ([][]Entry, error) {
-	if len(params.Filters) != 0 {
-		return nil, fmt.Errorf("filtered querying not implemented")
-	}
-
 	entries := [][]Entry{}
 	for _, row := range t.Entries {
-		entries = append(entries, row)
+		out := false
+		for _, filter := range params.Filters {
+			if !filter(row) {
+				out = true
+			}
+		}
+		if !out {
+			entries = append(entries, row)
+		}
 	}
 	xor := func(b1, b2 bool) bool { return (b1 || b2) && !(b1 && b2) }
 	if params.OrderBy != "" {

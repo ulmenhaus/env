@@ -108,7 +108,9 @@ func (mv *MainView) loadTable(t string) error {
 	}
 	table := mv.DB.Tables[tName]
 	mv.Table = table
+	// TODO would be good to preserve params per table
 	mv.Params.OrderBy = ""
+	mv.Params.Filters = []types.Filter{}
 	columns := []string{}
 	widths := []int{}
 	for _, column := range table.Columns {
@@ -252,6 +254,21 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 	primary := mv.Table.Primary()
 
 	switch ch {
+	case 'f':
+		row, col := mv.TableView.GetSelected()
+		filterTarget := mv.entries[row][col].Format("")
+		mv.Params.Filters = append(mv.Params.Filters, func(e []types.Entry) bool {
+			return e[col].Format("") == filterTarget
+		})
+		err = mv.updateTableViewContents()
+	case 'q':
+		if len(mv.Params.Filters) > 0 {
+			mv.Params.Filters = mv.Params.Filters[:len(mv.Params.Filters) - 1]
+		}
+		err = mv.updateTableViewContents()
+	case 'Q':
+		mv.Params.Filters = []types.Filter{}
+		err = mv.updateTableViewContents()
 	case 'd':
 		row, _ := mv.TableView.GetSelected()
 		key := mv.entries[row][primary].Format("")
