@@ -10,7 +10,7 @@ import (
 type String string
 
 // NewString returns a new string from the encoded data
-func NewString(i interface{}) (Entry, error) {
+func NewString(i interface{}, features map[string]interface{}) (Entry, error) {
 	if i == nil {
 		return String(""), nil
 	}

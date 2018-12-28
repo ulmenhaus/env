@@ -34,20 +34,21 @@ type Entry interface {
 // A FieldValueConstructor is a function which takes in a base encoded
 // version of the entry and returns the entry itself. If given nil
 // the function should return a reasonable default value.
-type FieldValueConstructor func(interface{}) (Entry, error)
+type FieldValueConstructor func(encoded interface{}, features map[string]interface{}) (Entry, error)
 
 // A Table is a model of an unordered two-dimensional array of data
 type Table struct {
 	Columns []string
 	Entries map[string][]Entry
 
-	columnsByName map[string]int
-	primary       int
-	Constructors  []FieldValueConstructor
+	columnsByName    map[string]int
+	primary          int
+	Constructors     []FieldValueConstructor
+	featuresByColumn map[string](map[string]interface{})
 }
 
 // NewTable returns a new table given a list of columns
-func NewTable(columns []string, entries map[string][]Entry, primary string, Constructors []FieldValueConstructor) *Table {
+func NewTable(columns []string, entries map[string][]Entry, primary string, Constructors []FieldValueConstructor, featuresByColumn map[string](map[string]interface{})) *Table {
 	columnsByName := map[string]int{}
 	for i, col := range columns {
 		columnsByName[col] = i
@@ -58,8 +59,9 @@ func NewTable(columns []string, entries map[string][]Entry, primary string, Cons
 
 		columnsByName: columnsByName,
 		// XXX need to verify column is in table
-		primary:      columnsByName[primary],
-		Constructors: Constructors,
+		primary:          columnsByName[primary],
+		Constructors:     Constructors,
+		featuresByColumn: featuresByColumn,
 	}
 }
 
@@ -124,7 +126,7 @@ func (t *Table) Insert(pk string) error {
 		if i == t.primary {
 			input = pk
 		}
-		entry, err := con(input)
+		entry, err := con(input, t.featuresByColumn[t.Columns[i]])
 		if err != nil {
 			return err
 		}
@@ -160,4 +162,14 @@ func (t *Table) Update(pk, field, value string) error {
 // Primary returns the index of the primary key column of the table
 func (t *Table) Primary() int {
 	return t.primary
+}
+
+// Delete removes a row
+func (t *Table) Delete(pk string) error {
+	_, ok := t.Entries[pk]
+	if !ok {
+		return fmt.Errorf("Row does not exist with pk %s", pk)
+	}
+	delete(t.Entries, pk)
+	return nil
 }

@@ -83,13 +83,32 @@ func NewMainView(path, start string) (*MainView, error) {
 	return mv, mv.loadTable(start)
 }
 
-// loadTable display's the named table in the main table view
-func (mv *MainView) loadTable(t string) error {
-	table, ok := mv.DB.Tables[t]
-	if !ok {
-		return fmt.Errorf("unknown table: %s", t)
+// findTable takes in a user-provided table name and returns
+// either that name if it's an exact match for a table, or
+// the first table to match the provided prefix, or an error if no
+// table matches
+func (mv *MainView) findTable(t string) (string, error) {
+	_, ok := mv.DB.Tables[t]
+	if ok {
+		return t, nil
 	}
+	for name, _ := range mv.DB.Tables {
+		if strings.HasPrefix(name, t) {
+			return name, nil
+		}
+	}
+	return "", fmt.Errorf("unknown table: %s", t)
+}
+
+// loadTable displays the named table in the main table view
+func (mv *MainView) loadTable(t string) error {
+	tName, err := mv.findTable(t)
+	if err != nil {
+		return err
+	}
+	table := mv.DB.Tables[tName]
 	mv.Table = table
+	mv.Params.OrderBy = ""
 	columns := []string{}
 	widths := []int{}
 	for _, column := range table.Columns {
@@ -233,7 +252,15 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 	primary := mv.Table.Primary()
 
 	switch ch {
-	case 't':
+	case 'd':
+		row, _ := mv.TableView.GetSelected()
+		key := mv.entries[row][primary].Format("")
+		err = mv.Table.Delete(key)
+		if err != nil {
+			return
+		}
+		err = mv.updateTableViewContents()
+	case '\'':
 		mv.switchMode(MainViewModePrompt)
 		mv.promptText = "switch-table "
 	case 'b':
@@ -353,11 +380,11 @@ func (mv *MainView) promptExit(contents string, finish bool, err error) {
 			err = mv.loadTable(parts[1])
 			return
 		case "create-new-entry":
-			if len(parts) != 2 {
-				err = fmt.Errorf("create-new-entry takes 1 arg")
+			if len(parts) == 0 {
+				err = fmt.Errorf("create-new-entry takes at least")
 				return
 			}
-			newPK := parts[1]
+			newPK := strings.Join(parts[1:], " ")
 			err = mv.Table.Insert(newPK)
 			if err != nil {
 				return

@@ -16,6 +16,7 @@ var (
 	constructors = map[string]types.FieldValueConstructor{
 		"string": types.NewString,
 		"date":   types.NewDate,
+		"enum":   types.NewEnum,
 	}
 )
 
@@ -50,6 +51,7 @@ func (osm *ObjectStoreMapper) Load(src io.Reader) (*types.Database, error) {
 	fieldsByTable := map[string][]string{}
 	primariesByTable := map[string]string{}
 	constructorsByTable := map[string][]types.FieldValueConstructor{}
+	featuresByColumn := map[string](map[string]interface{}){}
 	for name, schema := range schemata {
 		parts := strings.Split(name, ".")
 		if len(parts) != 2 {
@@ -91,6 +93,15 @@ func (osm *ObjectStoreMapper) Load(src io.Reader) (*types.Database, error) {
 			fieldsByTable[table] = append(byTable, column)
 			constructorsByTable[table] = append(constructorsByTable[table], constructor)
 		}
+		features := map[string]interface{}{}
+		featuresUncast, ok := schema["features"]
+		if ok {
+			features, ok = featuresUncast.(map[string]interface{})
+			if !ok {
+				return nil, fmt.Errorf("invalid type for `features`")
+			}
+		}
+		featuresByColumn[column] = features
 	}
 
 	indexMap := map[string]int{}
@@ -116,7 +127,7 @@ func (osm *ObjectStoreMapper) Load(src io.Reader) (*types.Database, error) {
 		}
 		// TODO use a constructor and Inserts -- that way the able can map
 		// columns by name
-		table := types.NewTable(fieldsByTable[name], map[string][]types.Entry{}, primary, constructorsByTable[name])
+		table := types.NewTable(fieldsByTable[name], map[string][]types.Entry{}, primary, constructorsByTable[name], featuresByColumn)
 		db.Tables[name] = table
 		for pk, fields := range encoded {
 			row := make([]types.Entry, len(fieldsByTable[name]))
@@ -140,7 +151,7 @@ func (osm *ObjectStoreMapper) Load(src io.Reader) (*types.Database, error) {
 				if !ok {
 					return nil, fmt.Errorf("invalid type '%s'", fieldType)
 				}
-				typedVal, err := constructor(value)
+				typedVal, err := constructor(value, featuresByColumn[column])
 				if err != nil {
 					return nil, err
 				}
