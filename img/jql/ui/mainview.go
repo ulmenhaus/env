@@ -118,7 +118,7 @@ func (mv *MainView) loadTable(t string) error {
 			// TODO note these to skip the values as well
 			continue
 		}
-		widths = append(widths, 20)
+		widths = append(widths, 40)
 		columns = append(columns, column)
 	}
 	mv.TableView = &TableView{
@@ -254,6 +254,14 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 	primary := mv.Table.Primary()
 
 	switch ch {
+	case 'l':
+		mv.TableView.Move(DirectionRight)
+	case 'k':
+		mv.TableView.Move(DirectionUp)
+	case 'h':
+		mv.TableView.Move(DirectionLeft)
+	case 'j':
+		mv.TableView.Move(DirectionDown)
 	case 'f':
 		row, col := mv.TableView.GetSelected()
 		filterTarget := mv.entries[row][col].Format("")
