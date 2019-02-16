@@ -1,6 +1,6 @@
 import os
 
 try:
-    ENV = __xonsh_env__
+    ENV = __xonsh__.env
 except NameError:
     ENV = os.environ
