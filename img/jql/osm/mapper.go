@@ -15,6 +15,7 @@ const schemataTableName = "_schemata"
 var (
 	constructors = map[string]types.FieldValueConstructor{
 		"string": types.NewString,
+		"int":    types.NewInteger,
 		"date":   types.NewDate,
 		"enum":   types.NewEnum,
 	}
@@ -51,7 +52,7 @@ func (osm *ObjectStoreMapper) Load(src io.Reader) (*types.Database, error) {
 	fieldsByTable := map[string][]string{}
 	primariesByTable := map[string]string{}
 	constructorsByTable := map[string][]types.FieldValueConstructor{}
-	featuresByColumn := map[string](map[string]interface{}){}
+	featuresByColumnByTable := map[string](map[string](map[string]interface{})){}
 	for name, schema := range schemata {
 		parts := strings.Split(name, ".")
 		if len(parts) != 2 {
@@ -68,8 +69,8 @@ func (osm *ObjectStoreMapper) Load(src io.Reader) (*types.Database, error) {
 		if !ok {
 			return nil, fmt.Errorf("invalid type %#v", fieldTypeRaw)
 		}
-		if strings.HasPrefix(fieldType, "foreign.") || strings.HasPrefix(fieldType, "dynamic.") {
-			// TODO implement foreign keys and dymanic columns
+		if strings.HasPrefix(fieldType, "dynamic.") {
+			// TODO implement dymanic columns
 			// ignoring for now
 			continue
 		}
@@ -81,14 +82,29 @@ func (osm *ObjectStoreMapper) Load(src io.Reader) (*types.Database, error) {
 				primariesByTable[table] = column
 			}
 		}
-		constructor := constructors[fieldType]
-		if !ok {
-			return nil, fmt.Errorf("invalid type '%s'", fieldType)
+		var constructor types.FieldValueConstructor
+		if strings.HasPrefix(fieldType, "foreign.") {
+			// TODO(rabrams) double check scoping of this variable
+			// also would be good to validate foriegn values
+			table := fieldType[len("foreign."):]
+			constructor = func(i interface{}, features map[string]interface{}) (types.Entry, error) {
+				if features == nil {
+					features = map[string]interface{}{}
+				}
+				features["table"] = table
+				return types.NewForeignKey(i, features)
+			}
+		} else {
+			constructor, ok = constructors[fieldType]
+			if !ok {
+				return nil, fmt.Errorf("invalid type '%s'", fieldType)
+			}
 		}
 		byTable, ok := fieldsByTable[table]
 		if !ok {
 			fieldsByTable[table] = []string{column}
 			constructorsByTable[table] = []types.FieldValueConstructor{constructor}
+			featuresByColumnByTable[table] = map[string](map[string]interface{}){}
 		} else {
 			fieldsByTable[table] = append(byTable, column)
 			constructorsByTable[table] = append(constructorsByTable[table], constructor)
@@ -101,7 +117,7 @@ func (osm *ObjectStoreMapper) Load(src io.Reader) (*types.Database, error) {
 				return nil, fmt.Errorf("invalid type for `features`")
 			}
 		}
-		featuresByColumn[column] = features
+		featuresByColumnByTable[table][column] = features
 	}
 
 	indexMap := map[string]int{}
@@ -127,7 +143,7 @@ func (osm *ObjectStoreMapper) Load(src io.Reader) (*types.Database, error) {
 		}
 		// TODO use a constructor and Inserts -- that way the able can map
 		// columns by name
-		table := types.NewTable(fieldsByTable[name], map[string][]types.Entry{}, primary, constructorsByTable[name], featuresByColumn)
+		table := types.NewTable(fieldsByTable[name], map[string][]types.Entry{}, primary, constructorsByTable[name], featuresByColumnByTable[name])
 		db.Tables[name] = table
 		for pk, fields := range encoded {
 			row := make([]types.Entry, len(fieldsByTable[name]))
@@ -139,19 +155,8 @@ func (osm *ObjectStoreMapper) Load(src io.Reader) (*types.Database, error) {
 				if !ok {
 					return nil, fmt.Errorf("unknown column: %s", fullName)
 				}
-				schema, ok := schemata[fullName]
-				if !ok {
-					return nil, fmt.Errorf("missing schema for %s.%s", name, column)
-				}
-
-				// TODO use structured data from above schema validation
-				// instead of keying map
-				fieldType := schema["type"].(string)
-				constructor, ok := constructors[fieldType]
-				if !ok {
-					return nil, fmt.Errorf("invalid type '%s'", fieldType)
-				}
-				typedVal, err := constructor(value, featuresByColumn[column])
+				constructor := constructorsByTable[name][index]
+				typedVal, err := constructor(value, featuresByColumnByTable[name][column])
 				if err != nil {
 					return nil, err
 				}

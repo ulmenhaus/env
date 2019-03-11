@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/ulmenhaus/env/img/jql/storage"
 )
@@ -54,3 +55,57 @@ func (s String) Add(i interface{}) (Entry, error) {
 func (s String) Encoded() storage.Primitive {
 	return string(s)
 }
+
+// An Integer is a numerical value
+type Integer int
+
+// NewInteger returns a new string from the encoded data
+func NewInteger(i interface{}, features map[string]interface{}) (Entry, error) {
+	if i == nil {
+		return Integer(0), nil
+	}
+	d, ok := i.(float64)
+	if !ok {
+		return nil, fmt.Errorf("failed to unpack int from: %#v", i)
+	}
+	return Integer(d), nil
+}
+
+// Format formats the integer
+func (d Integer) Format(ft string) string {
+	return strconv.Itoa(int(d))
+}
+
+// Reverse creates a new integer from the input
+func (d Integer) Reverse(ft, input string) (Entry, error) {
+	value, err := strconv.Atoi(input)
+	if err != nil {
+		return nil, err
+	}
+	return Integer(value), nil
+}
+
+// Compare returns true iff the given object is an integer and comes
+// after the argument
+func (d Integer) Compare(i interface{}) bool {
+	entry, ok := i.(Integer)
+	if !ok {
+		return false
+	}
+	return entry > d
+}
+
+// Add adds to the string
+func (d Integer) Add(i interface{}) (Entry, error) {
+	addend, ok := i.(int)
+	if !ok {
+		return nil, fmt.Errorf("Integers can only be added with integers")
+	}
+	return Integer(int(d) + addend), nil
+}
+
+// Encoded returns the Integer encoded as a int
+func (s Integer) Encoded() storage.Primitive {
+	return int(s)
+}
+

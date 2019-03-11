@@ -52,6 +52,7 @@ type MainView struct {
 	switching  bool // on when transitioning modes has not yet been acknowleged by Layout
 	alert      string
 	promptText string
+	tableName  string
 }
 
 // NewMainView returns a MainView initialized with a given Table
@@ -108,6 +109,7 @@ func (mv *MainView) loadTable(t string) error {
 	}
 	table := mv.DB.Tables[tName]
 	mv.Table = table
+	mv.tableName = tName
 	// TODO would be good to preserve params per table
 	mv.Params.OrderBy = ""
 	mv.Params.Filters = []types.Filter{}
@@ -251,8 +253,6 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		mv.promptText = mv.TableView.Values[row][column]
 	}
 
-	primary := mv.Table.Primary()
-
 	switch ch {
 	case 'l':
 		mv.TableView.Move(DirectionRight)
@@ -262,6 +262,10 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		mv.TableView.Move(DirectionLeft)
 	case 'j':
 		mv.TableView.Move(DirectionDown)
+	case 'g':
+		err = mv.goToSelectedValue()
+	case 'G':
+		err = mv.goFromSelectedValue()
 	case 'f':
 		row, col := mv.TableView.GetSelected()
 		filterTarget := mv.entries[row][col].Format("")
@@ -271,7 +275,7 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		err = mv.updateTableViewContents()
 	case 'q':
 		if len(mv.Params.Filters) > 0 {
-			mv.Params.Filters = mv.Params.Filters[:len(mv.Params.Filters) - 1]
+			mv.Params.Filters = mv.Params.Filters[:len(mv.Params.Filters)-1]
 		}
 		err = mv.updateTableViewContents()
 	case 'Q':
@@ -279,7 +283,7 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		err = mv.updateTableViewContents()
 	case 'd':
 		row, _ := mv.TableView.GetSelected()
-		key := mv.entries[row][primary].Format("")
+		key := mv.entries[row][mv.Table.Primary()].Format("")
 		err = mv.Table.Delete(key)
 		if err != nil {
 			return
@@ -304,25 +308,9 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		mv.Params.Dec = true
 		err = mv.updateTableViewContents()
 	case 'i':
-		row, col := mv.TableView.GetSelected()
-		key := mv.entries[row][primary].Format("")
-		// TODO should use an Update so table can modify any necessary internals
-		new, err := mv.Table.Entries[key][col].Add(1)
-		if err != nil {
-			return
-		}
-		mv.Table.Entries[key][col] = new
-		err = mv.updateTableViewContents()
+		err = mv.incrementSelected(1)
 	case 'I':
-		row, col := mv.TableView.GetSelected()
-		key := mv.entries[row][primary].Format("")
-		// TODO should use an Update so table can modify any necessary internals
-		new, err := mv.Table.Entries[key][col].Add(-1)
-		if err != nil {
-			return
-		}
-		mv.Table.Entries[key][col] = new
-		err = mv.updateTableViewContents()
+		err = mv.incrementSelected(-1)
 	case 's':
 		err = mv.saveContents()
 	case 'n':
@@ -420,4 +408,83 @@ func (mv *MainView) promptExit(contents string, finish bool, err error) {
 			err = fmt.Errorf("unknown command: %s", contents)
 		}
 	}
+}
+
+func (mv *MainView) goToSelectedValue() error {
+	row, col := mv.TableView.GetSelected()
+	entry := mv.entries[row][col]
+	// TODO leaky abstraction. Maybe better to support
+	// an interface method for detecting foreigns
+	foreign, ok := entry.(types.ForeignKey)
+	if !ok {
+		return fmt.Errorf("must select a foreign key")
+	}
+	err := mv.loadTable(foreign.Table)
+	if err != nil {
+		return err
+	}
+	primary := mv.DB.Tables[foreign.Table].Primary()
+	mv.Params.Filters = []types.Filter{
+		func(e []types.Entry) bool {
+			return e[primary].Format("") == foreign.Key
+		},
+	}
+	return mv.updateTableViewContents()
+}
+
+func (mv *MainView) goFromSelectedValue() error {
+	row, _ := mv.TableView.GetSelected()
+	selected := mv.entries[row][mv.Table.Primary()]
+	for name, table := range mv.DB.Tables {
+		col := table.HasForeign(mv.tableName)
+		if col == -1 {
+			continue
+		}
+		err := mv.loadTable(name)
+		if err != nil {
+			return err
+		}
+		mv.Params.Filters = []types.Filter{
+			func(e []types.Entry) bool {
+				return e[col].Format("") == selected.Format("")
+			},
+		}
+		return mv.updateTableViewContents()
+	}
+	return fmt.Errorf("no tables found with corresponding foreign key: %s", selected)
+}
+
+func (mv *MainView) incrementSelected(amt int) error {
+	row, col := mv.TableView.GetSelected()
+	entry := mv.entries[row][col]
+	key := mv.entries[row][mv.Table.Primary()].Format("")
+	// TODO leaky abstraction
+	switch typed := entry.(type) {
+	case  types.ForeignKey:
+		ftable := mv.DB.Tables[typed.Table]
+		// TODO not cache mapping
+		fentries, err := ftable.Query(types.QueryParams{
+			OrderBy: ftable.Columns[ftable.Primary()],
+		})
+		if err != nil {
+			return err
+		}
+		index := map[string]int{}
+		for i, fentry := range fentries {
+			index[fentry[ftable.Primary()].Format("")] = i
+		}
+		next := (index[entry.Format("")] + 1) % len(fentries)
+		err = mv.Table.Update(key, mv.Table.Columns[col], fentries[next][ftable.Primary()].Format(""))
+		if err != nil {
+			return err
+		}
+	default:
+		// TODO should use an Update so table can modify any necessary internals
+		new, err := mv.Table.Entries[key][col].Add(amt)
+		if err != nil {
+			return err
+		}
+		mv.Table.Entries[key][col] = new
+	}
+	return mv.updateTableViewContents()
 }

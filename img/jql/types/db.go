@@ -48,7 +48,7 @@ type Table struct {
 }
 
 // NewTable returns a new table given a list of columns
-func NewTable(columns []string, entries map[string][]Entry, primary string, Constructors []FieldValueConstructor, featuresByColumn map[string](map[string]interface{})) *Table {
+func NewTable(columns []string, entries map[string][]Entry, primary string, constructors []FieldValueConstructor, featuresByColumn map[string](map[string]interface{})) *Table {
 	columnsByName := map[string]int{}
 	for i, col := range columns {
 		columnsByName[col] = i
@@ -60,7 +60,7 @@ func NewTable(columns []string, entries map[string][]Entry, primary string, Cons
 		columnsByName: columnsByName,
 		// XXX need to verify column is in table
 		primary:          columnsByName[primary],
-		Constructors:     Constructors,
+		Constructors:     constructors,
 		featuresByColumn: featuresByColumn,
 	}
 }
@@ -175,4 +175,16 @@ func (t *Table) Delete(pk string) error {
 	}
 	delete(t.Entries, pk)
 	return nil
+}
+
+// HasForeign returns the index of the column that is a foriegn key to the
+// provided table or -1 if there is no such column
+func (t *Table) HasForeign(table string) int {
+	// FIXME leaky abstraction, inefficient, and not guaranteed to be correct
+	for name, features := range t.featuresByColumn {
+		if foreign, ok := features["table"]; ok && table == foreign {
+			return t.columnsByName[name]
+		}
+	}
+	return -1
 }
