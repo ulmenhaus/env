@@ -18,6 +18,8 @@ var (
 		"int":    types.NewInteger,
 		"date":   types.NewDate,
 		"enum":   types.NewEnum,
+		"id":     types.NewID,
+		"time":   types.NewTime,
 	}
 )
 

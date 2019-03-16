@@ -71,3 +71,70 @@ func (d Date) Add(i interface{}) (Entry, error) {
 func (d Date) Encoded() storage.Primitive {
 	return int(d)
 }
+
+// A Time denotes a specifc second in history by modeling as the
+// number of seconds (positive or negative) since 1 January 1970 UTC
+type Time int
+
+// NewTime returns a new time from the encoded data
+func NewTime(i interface{}, features map[string]interface{}) (Entry, error) {
+	if i == nil {
+		return Time(0), nil
+	}
+	n, ok := i.(float64)
+	if !ok {
+		return nil, fmt.Errorf("failed to unpack int from: %#v", i)
+	}
+	return Time(n), nil
+}
+
+// Format formats the time
+func (t Time) Format(ft string) string {
+	p := epoch.Add(time.Second * time.Duration(t))
+	if ft == "" {
+		ft = "02 Jan 2006 15:04:05"
+	}
+	return p.UTC().Format(ft)
+}
+
+// Reverse creates a new time from the input
+func (t Time) Reverse(ft, input string) (Entry, error) {
+	if ft == "" {
+		ft = "02 Jan 2006 15:04:05"
+	}
+	p, err := time.Parse(ft, input)
+	if err != nil {
+		return nil, err
+	}
+	new := Time(p.Sub(epoch) / time.Second)
+	// HACK if the timestamp is unchanged it is assumed the user
+	// is updating to current time
+	if new == t {
+		return Time(time.Now().Unix()), nil
+	}
+	return new, nil
+}
+
+// Compare returns true iff the given object is a Time and comes
+// after this time
+func (t Time) Compare(i interface{}) bool {
+	entry, ok := i.(Time)
+	if !ok {
+		return false
+	}
+	return entry > t
+}
+
+// Add increments the Time by the provided number of days
+func (t Time) Add(i interface{}) (Entry, error) {
+	seconds, ok := i.(int)
+	if !ok {
+		return nil, fmt.Errorf("Times can only be incremented by integers")
+	}
+	return Time(int(t) + seconds * 10), nil
+}
+
+// Encoded returns the Time encoded as a string
+func (t Time) Encoded() storage.Primitive {
+	return int(t)
+}
