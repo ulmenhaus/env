@@ -292,9 +292,6 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 	case '\'':
 		mv.switchMode(MainViewModePrompt)
 		mv.promptText = "switch-table "
-	case 'b':
-		row, column := mv.TableView.GetSelected()
-		_, err = exec.Command("open", mv.TableView.Values[row][column]).CombinedOutput()
 	case ':':
 		mv.switchMode(MainViewModePrompt)
 	case 'o':
@@ -315,6 +312,8 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		err = mv.saveContents()
 	case 'n':
 		mv.newEntry()
+	case 'w':
+		err = mv.openCellInWindow()
 	}
 }
 
@@ -460,7 +459,7 @@ func (mv *MainView) incrementSelected(amt int) error {
 	key := mv.entries[row][mv.Table.Primary()].Format("")
 	// TODO leaky abstraction
 	switch typed := entry.(type) {
-	case  types.ForeignKey:
+	case types.ForeignKey:
 		ftable := mv.DB.Tables[typed.Table]
 		// TODO not cache mapping
 		fentries, err := ftable.Query(types.QueryParams{
@@ -487,4 +486,11 @@ func (mv *MainView) incrementSelected(amt int) error {
 		mv.Table.Entries[key][col] = new
 	}
 	return mv.updateTableViewContents()
+}
+
+func (mv *MainView) openCellInWindow() error {
+	row, col := mv.TableView.GetSelected()
+	entry := mv.entries[row][col]
+	cmd := exec.Command("open", entry.Format(""))
+	return cmd.Run()
 }

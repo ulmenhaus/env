@@ -51,7 +51,7 @@ func (osm *ObjectStoreMapper) Load(src io.Reader) (*types.Database, error) {
 	// column order and widths
 	fieldsByTable := map[string][]string{}
 	primariesByTable := map[string]string{}
-	constructorsByTable := map[string][]types.FieldValueConstructor{}
+	constructorsByTable := map[string](map[string]types.FieldValueConstructor){}
 	featuresByColumnByTable := map[string](map[string](map[string]interface{})){}
 	for name, schema := range schemata {
 		parts := strings.Split(name, ".")
@@ -103,11 +103,13 @@ func (osm *ObjectStoreMapper) Load(src io.Reader) (*types.Database, error) {
 		byTable, ok := fieldsByTable[table]
 		if !ok {
 			fieldsByTable[table] = []string{column}
-			constructorsByTable[table] = []types.FieldValueConstructor{constructor}
+			constructorsByTable[table] = map[string]types.FieldValueConstructor{
+				column: constructor,
+			}
 			featuresByColumnByTable[table] = map[string](map[string]interface{}){}
 		} else {
 			fieldsByTable[table] = append(byTable, column)
-			constructorsByTable[table] = append(constructorsByTable[table], constructor)
+			constructorsByTable[table][column] = constructor
 		}
 		features := map[string]interface{}{}
 		featuresUncast, ok := schema["features"]
@@ -144,21 +146,25 @@ func (osm *ObjectStoreMapper) Load(src io.Reader) (*types.Database, error) {
 		// TODO use a constructor and Inserts -- that way the able can map
 		// columns by name
 		table := types.NewTable(fieldsByTable[name], map[string][]types.Entry{}, primary, constructorsByTable[name], featuresByColumnByTable[name])
+		allFields := fieldsByTable[name]
+
 		db.Tables[name] = table
 		for pk, fields := range encoded {
 			row := make([]types.Entry, len(fieldsByTable[name]))
 			table.Entries[pk] = row
 			fields[primary] = pk
-			for column, value := range fields {
+			for _, column := range allFields {
+				value := fields[column]
 				fullName := fmt.Sprintf("%s.%s", name, column)
 				index, ok := indexMap[fullName]
 				if !ok {
 					return nil, fmt.Errorf("unknown column: %s", fullName)
 				}
-				constructor := constructorsByTable[name][index]
+				constructor := constructorsByTable[name][column]
+
 				typedVal, err := constructor(value, featuresByColumnByTable[name][column])
 				if err != nil {
-					return nil, err
+					return nil, fmt.Errorf("failed to init %s.%s for %s: %s", name, column, pk, err)
 				}
 				row[index] = typedVal
 			}

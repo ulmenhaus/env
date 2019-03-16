@@ -43,12 +43,12 @@ type Table struct {
 
 	columnsByName    map[string]int
 	primary          int
-	Constructors     []FieldValueConstructor
+	Constructors     map[string]FieldValueConstructor
 	featuresByColumn map[string](map[string]interface{})
 }
 
 // NewTable returns a new table given a list of columns
-func NewTable(columns []string, entries map[string][]Entry, primary string, constructors []FieldValueConstructor, featuresByColumn map[string](map[string]interface{})) *Table {
+func NewTable(columns []string, entries map[string][]Entry, primary string, constructors map[string]FieldValueConstructor, featuresByColumn map[string](map[string]interface{})) *Table {
 	columnsByName := map[string]int{}
 	for i, col := range columns {
 		columnsByName[col] = i
@@ -124,12 +124,13 @@ func (t *Table) Insert(pk string) error {
 		return fmt.Errorf("Row already exists with pk '%s'", pk)
 	}
 	row := []Entry{}
-	for i, con := range t.Constructors {
+	for i, col := range t.Columns {
+		constructor := t.Constructors[col]
 		var input interface{}
 		if i == t.primary {
 			input = pk
 		}
-		entry, err := con(input, t.featuresByColumn[t.Columns[i]])
+		entry, err := constructor(input, t.featuresByColumn[t.Columns[i]])
 		if err != nil {
 			return err
 		}
