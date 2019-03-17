@@ -2,6 +2,7 @@ package ui
 
 import (
 	"io/ioutil"
+	"strings"
 
 	"github.com/jroimartin/gocui"
 )
@@ -40,6 +41,6 @@ func (ph *PromptHandler) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.M
 	case key == gocui.KeyEnter:
 		v.SetCursor(0, 0)
 		contents, err := ioutil.ReadAll(v)
-		ph.Callback(string(contents[:len(contents)-1]), true, err)
+		ph.Callback(strings.TrimSuffix(string(contents), "\n"), true, err)
 	}
 }

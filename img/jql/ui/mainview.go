@@ -254,6 +254,9 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 	}
 
 	switch ch {
+	case 'r':
+		mv.switchMode(MainViewModeEdit)
+		mv.promptText = ""
 	case 'l':
 		mv.TableView.Move(DirectionRight)
 	case 'k':
@@ -283,9 +286,13 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		mv.Params.Filters = []types.Filter{}
 		err = mv.updateTableViewContents()
 	case 'd':
-		row, _ := mv.TableView.GetSelected()
-		key := mv.entries[row][mv.Table.Primary()].Format("")
-		err = mv.Table.Delete(key)
+		err = mv.deleteSelectedRow()
+		if err != nil {
+			return
+		}
+		err = mv.updateTableViewContents()
+	case 'D':
+		err = mv.duplicateSelectedRow()
 		if err != nil {
 			return
 		}
@@ -507,4 +514,42 @@ func (mv *MainView) openCellInWindow() error {
 	entry := mv.entries[row][col]
 	cmd := exec.Command("open", entry.Format(""))
 	return cmd.Run()
+}
+
+func (mv *MainView) deleteSelectedRow() error {
+	row, _ := mv.TableView.GetSelected()
+	key := mv.entries[row][mv.Table.Primary()].Format("")
+	return mv.Table.Delete(key)
+}
+
+func (mv *MainView) duplicateSelectedRow() error {
+	row, _ := mv.TableView.GetSelected()
+	old := mv.entries[row]
+	primaryIndex := mv.Table.Primary()
+	key := old[primaryIndex].Format("")
+	// TODO look for number patterns inside the description and
+	// try to increment those instead
+	ordinal := 0
+	newKey := ""
+	for {
+		ordinal += 1
+		newKey = fmt.Sprintf("%s (%d)", key, ordinal)
+		if _, ok := mv.Table.Entries[newKey]; !ok {
+			break
+		}
+	}
+	err := mv.Table.Insert(newKey)
+	if err != nil {
+		return err
+	}
+	for i, oldValue := range old {
+		if i == primaryIndex {
+			continue
+		}
+		err = mv.Table.Update(newKey, mv.Table.Columns[i], oldValue.Format(""))
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }

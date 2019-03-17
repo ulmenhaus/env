@@ -117,6 +117,9 @@ func (t Time) Reverse(ft, input string) (Entry, error) {
 	if ft == "" {
 		ft = "02 Jan 2006 15:04:05"
 	}
+	if input == "" {
+		return Time(time.Now().Unix()), nil
+	}
 	noLoc, err := time.Parse(ft, input)
 	if err != nil {
 		return nil, err
@@ -124,13 +127,7 @@ func (t Time) Reverse(ft, input string) (Entry, error) {
 	p := time.Date(noLoc.Year(), noLoc.Month(), noLoc.Day(), noLoc.Hour(), noLoc.Minute(),
 		noLoc.Second(), noLoc.Nanosecond(), loc)
 
-	new := Time(p.Sub(epoch) / time.Second)
-	// HACK if the timestamp is unchanged it is assumed the user
-	// is updating to current time
-	if new == t {
-		return Time(time.Now().Unix()), nil
-	}
-	return new, nil
+	return Time(p.Sub(epoch) / time.Second), nil
 }
 
 // Compare returns true iff the given object is a Time and comes
