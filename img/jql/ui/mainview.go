@@ -269,8 +269,9 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 	case 'f':
 		row, col := mv.TableView.GetSelected()
 		filterTarget := mv.entries[row][col].Format("")
-		mv.Params.Filters = append(mv.Params.Filters, func(e []types.Entry) bool {
-			return e[col].Format("") == filterTarget
+		mv.Params.Filters = append(mv.Params.Filters, &EqualFilter{
+			Col:       col,
+			Formatted: filterTarget,
 		})
 		err = mv.updateTableViewContents()
 	case 'q':
@@ -401,6 +402,17 @@ func (mv *MainView) promptExit(contents string, finish bool, err error) {
 			if err != nil {
 				return
 			}
+			for _, filter := range mv.Params.Filters {
+				col, formatted := filter.Example()
+				if col == -1 {
+					// TODO should unapply all filters here
+					continue
+				}
+				err = mv.Table.Update(newPK, mv.Table.Columns[col], formatted)
+				if err != nil {
+					return
+				}
+			}
 			err = mv.updateTableViewContents()
 			return
 		default:
@@ -424,8 +436,9 @@ func (mv *MainView) goToSelectedValue() error {
 	}
 	primary := mv.DB.Tables[foreign.Table].Primary()
 	mv.Params.Filters = []types.Filter{
-		func(e []types.Entry) bool {
-			return e[primary].Format("") == foreign.Key
+		&EqualFilter{
+			Col:       primary,
+			Formatted: foreign.Key,
 		},
 	}
 	return mv.updateTableViewContents()
@@ -444,8 +457,9 @@ func (mv *MainView) goFromSelectedValue() error {
 			return err
 		}
 		mv.Params.Filters = []types.Filter{
-			func(e []types.Entry) bool {
-				return e[col].Format("") == selected.Format("")
+			&EqualFilter{
+				Col:       col,
+				Formatted: selected.Format(""),
 			},
 		}
 		return mv.updateTableViewContents()

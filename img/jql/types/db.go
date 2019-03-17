@@ -73,8 +73,17 @@ type Database struct {
 	Tables   map[string]*Table
 }
 
-// A Filter is a decision function on Entries
-type Filter func([]Entry) bool
+// A Filter reduces the set of Entries to just those the user is interested in
+// seeing at a given time
+type Filter interface {
+	// Applies returns true iff the provided entry should be shown given the filter
+	Applies([]Entry) bool
+	// Description returns a user-facing description of the Filter
+	Description() string
+	// Example returns a column and an example formatted value that would match the
+	// given filte or -1 if no such matching is possible
+	Example() (int, string)
+}
 
 // QueryParams are the parameters to a table's Query method
 type QueryParams struct {
@@ -95,7 +104,7 @@ func (t *Table) Query(params QueryParams) ([][]Entry, error) {
 	for _, row := range t.Entries {
 		out := false
 		for _, filter := range params.Filters {
-			if !filter(row) {
+			if !filter.Applies(row) {
 				out = true
 			}
 		}
