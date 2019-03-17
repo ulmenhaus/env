@@ -13,6 +13,7 @@ type Date int
 
 var (
 	epoch = time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
+	loc   *time.Location
 )
 
 // NewDate returns a new date from the encoded data
@@ -24,6 +25,12 @@ func NewDate(i interface{}, features map[string]interface{}) (Entry, error) {
 	if !ok {
 		return nil, fmt.Errorf("failed to unpack int from: %#v", i)
 	}
+	var err error
+	// HACK hard coding to PST for now
+	loc, err = time.LoadLocation("America/Los_Angeles")
+	if err != nil {
+		return nil, fmt.Errorf("Failed to load time zone: %s", err)
+	}
 	return Date(n), nil
 }
 
@@ -33,7 +40,7 @@ func (d Date) Format(ft string) string {
 	if ft == "" {
 		ft = "02 Jan 2006"
 	}
-	return t.UTC().Format(ft)
+	return t.In(loc).Format(ft)
 }
 
 // Reverse creates a new date from the input
@@ -41,10 +48,12 @@ func (d Date) Reverse(ft, input string) (Entry, error) {
 	if ft == "" {
 		ft = "02 Jan 2006"
 	}
-	t, err := time.Parse(ft, input)
+	noLoc, err := time.Parse(ft, input)
 	if err != nil {
 		return nil, err
 	}
+	t := time.Date(noLoc.Year(), noLoc.Month(), noLoc.Day(), noLoc.Hour(), noLoc.Minute(),
+		noLoc.Second(), noLoc.Nanosecond(), loc)
 	return Date(t.Sub(epoch) / (time.Hour * 24)), nil
 }
 
@@ -85,6 +94,12 @@ func NewTime(i interface{}, features map[string]interface{}) (Entry, error) {
 	if !ok {
 		return nil, fmt.Errorf("failed to unpack int from: %#v", i)
 	}
+	var err error
+	// HACK hard coding to PST for now
+	loc, err = time.LoadLocation("America/Los_Angeles")
+	if err != nil {
+		return nil, fmt.Errorf("Failed to load time zone: %s", err)
+	}
 	return Time(n), nil
 }
 
@@ -94,7 +109,7 @@ func (t Time) Format(ft string) string {
 	if ft == "" {
 		ft = "02 Jan 2006 15:04:05"
 	}
-	return p.UTC().Format(ft)
+	return p.In(loc).Format(ft)
 }
 
 // Reverse creates a new time from the input
@@ -102,10 +117,13 @@ func (t Time) Reverse(ft, input string) (Entry, error) {
 	if ft == "" {
 		ft = "02 Jan 2006 15:04:05"
 	}
-	p, err := time.Parse(ft, input)
+	noLoc, err := time.Parse(ft, input)
 	if err != nil {
 		return nil, err
 	}
+	p := time.Date(noLoc.Year(), noLoc.Month(), noLoc.Day(), noLoc.Hour(), noLoc.Minute(),
+		noLoc.Second(), noLoc.Nanosecond(), loc)
+
 	new := Time(p.Sub(epoch) / time.Second)
 	// HACK if the timestamp is unchanged it is assumed the user
 	// is updating to current time
@@ -131,7 +149,7 @@ func (t Time) Add(i interface{}) (Entry, error) {
 	if !ok {
 		return nil, fmt.Errorf("Times can only be incremented by integers")
 	}
-	return Time(int(t) + seconds * 10), nil
+	return Time(int(t) + seconds*10), nil
 }
 
 // Encoded returns the Time encoded as a string
