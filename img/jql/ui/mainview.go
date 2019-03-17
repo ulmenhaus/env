@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/jroimartin/gocui"
@@ -523,22 +525,37 @@ func (mv *MainView) deleteSelectedRow() error {
 }
 
 func (mv *MainView) duplicateSelectedRow() error {
+	ordinalFinder := regexp.MustCompile("[\\[\\(][0-9]+[\\]\\)]")
 	row, _ := mv.TableView.GetSelected()
 	old := mv.entries[row]
 	primaryIndex := mv.Table.Primary()
 	key := old[primaryIndex].Format("")
-	// TODO look for number patterns inside the description and
-	// try to increment those instead
 	ordinal := 0
 	newKey := ""
+	existing := ordinalFinder.FindAllStringSubmatchIndex(key, -1)
+	var err error
+	if len(existing) > 0 {
+		// go with the first pattern
+		used := existing[0]
+		ordinal, err = strconv.Atoi(key[used[0]+1 : used[1]-1])
+		if err != nil {
+			return fmt.Errorf("Failed to increment ordinal: %s", err)
+		}
+	}
 	for {
 		ordinal += 1
-		newKey = fmt.Sprintf("%s (%d)", key, ordinal)
+		if len(existing) == 0 {
+			newKey = fmt.Sprintf("%s (%d)", key, ordinal)
+		} else {
+			used := existing[0]
+			padding := strconv.Itoa((used[1] - 1) - (used[0] + 1))
+			newKey = fmt.Sprintf("%s%0"+padding+"d%s", key[:used[0]+1], ordinal, key[used[1]-1:])
+		}
 		if _, ok := mv.Table.Entries[newKey]; !ok {
 			break
 		}
 	}
-	err := mv.Table.Insert(newKey)
+	err = mv.Table.Insert(newKey)
 	if err != nil {
 		return err
 	}
