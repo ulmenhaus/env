@@ -23,3 +23,7 @@ func (ef *EqualFilter) Description() string {
 func (ef *EqualFilter) Example() (int, string) {
 	return ef.Col, ef.Formatted
 }
+
+func (ef *EqualFilter) PrimarySuggestion() (string, bool) {
+	return ef.Formatted, true
+}

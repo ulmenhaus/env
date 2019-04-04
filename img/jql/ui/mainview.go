@@ -200,9 +200,25 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 // newEntry prompts the user for the pk to a new entry and
 // attempts to add an entry with that key
 // TODO should just create an entry if using uuids
-func (mv *MainView) newEntry() {
-	mv.promptText = "create-new-entry "
+func (mv *MainView) newEntry(prefill bool) error {
+	sample := ""
+	if prefill {
+		for _, filter := range mv.Params.Filters {
+			suggestion, yes := filter.PrimarySuggestion()
+			if !yes {
+				continue
+			}
+			next, err := mv.nextAvailablePrimaryFromPattern(fmt.Sprintf("%s (0000)", suggestion))
+			if err != nil {
+				return err
+			}
+			sample = next
+			break
+		}
+	}
+	mv.promptText = fmt.Sprintf("create-new-entry %s", sample)
 	mv.switchMode(MainViewModePrompt)
+	return nil
 }
 
 // switchMode sets the main view's mode to the new mode and sets
@@ -321,7 +337,9 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 	case 's':
 		err = mv.saveContents()
 	case 'n':
-		mv.newEntry()
+		err = mv.newEntry(true)
+	case 'N':
+		err = mv.newEntry(false)
 	case 'w':
 		err = mv.openCellInWindow()
 	}
@@ -524,22 +542,18 @@ func (mv *MainView) deleteSelectedRow() error {
 	return mv.Table.Delete(key)
 }
 
-func (mv *MainView) duplicateSelectedRow() error {
+func (mv *MainView) nextAvailablePrimaryFromPattern(key string) (string, error) {
 	ordinalFinder := regexp.MustCompile("[\\[\\(][0-9]+[\\]\\)]")
-	row, _ := mv.TableView.GetSelected()
-	old := mv.entries[row]
-	primaryIndex := mv.Table.Primary()
-	key := old[primaryIndex].Format("")
 	ordinal := 0
 	newKey := ""
 	existing := ordinalFinder.FindAllStringSubmatchIndex(key, -1)
 	var err error
 	if len(existing) > 0 {
-		// go with the first pattern
-		used := existing[0]
+		// go with the last pattern
+		used := existing[len(existing) - 1]
 		ordinal, err = strconv.Atoi(key[used[0]+1 : used[1]-1])
 		if err != nil {
-			return fmt.Errorf("Failed to increment ordinal: %s", err)
+			return "", fmt.Errorf("Failed to increment ordinal: %s", err)
 		}
 	}
 	for {
@@ -547,13 +561,25 @@ func (mv *MainView) duplicateSelectedRow() error {
 		if len(existing) == 0 {
 			newKey = fmt.Sprintf("%s (%d)", key, ordinal)
 		} else {
-			used := existing[0]
+			used := existing[len(existing) - 1]
 			padding := strconv.Itoa((used[1] - 1) - (used[0] + 1))
 			newKey = fmt.Sprintf("%s%0"+padding+"d%s", key[:used[0]+1], ordinal, key[used[1]-1:])
 		}
 		if _, ok := mv.Table.Entries[newKey]; !ok {
 			break
 		}
+	}
+	return newKey, nil
+}
+
+func (mv *MainView) duplicateSelectedRow() error {
+	row, _ := mv.TableView.GetSelected()
+	primaryIndex := mv.Table.Primary()
+	old := mv.entries[row]
+	key := old[primaryIndex].Format("")
+	newKey, err := mv.nextAvailablePrimaryFromPattern(key)
+	if err != nil {
+		return err
 	}
 	err = mv.Table.Insert(newKey)
 	if err != nil {
