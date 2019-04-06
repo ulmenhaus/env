@@ -495,12 +495,20 @@ func (mv *MainView) promptExit(contents string, finish bool, err error) {
 
 func (mv *MainView) goToSelectedValue() error {
 	row, col := mv.TableView.PrimarySelection()
-	entry := mv.entries[row][col]
 	// TODO leaky abstraction. Maybe better to support
 	// an interface method for detecting foreigns
-	foreign, ok := entry.(types.ForeignKey)
-	if !ok {
-		return fmt.Errorf("must select a foreign key")
+	var foreign types.ForeignKey
+	// Look for the first column, starting at the primary
+	// selection that is a foreign key
+	for {
+		if f, ok := mv.entries[row][col].(types.ForeignKey); ok {
+			foreign = f
+			break
+		}
+		col = (col + 1) % len(mv.entries[row])
+		if col == mv.TableView.Selections.Primary.Column {
+			return fmt.Errorf("no foreign key found in entry")
+		}
 	}
 	err := mv.loadTable(foreign.Table)
 	if err != nil {
