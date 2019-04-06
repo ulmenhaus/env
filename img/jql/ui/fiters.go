@@ -60,3 +60,28 @@ func (f *InFilter) Example() (int, string) {
 func (f *InFilter) PrimarySuggestion() (string, bool) {
 	return "", false
 }
+
+// A ContainsFilter applies when the value of an entry at a given column
+// is a case insensitive superstring of the provided formatted query
+type ContainsFilter struct {
+	Field     string
+	Col       int
+	Formatted string
+}
+
+func (cf *ContainsFilter) Applies(e []types.Entry) bool {
+	return strings.Contains(strings.ToLower(e[cf.Col].Format("")), strings.ToLower(cf.Formatted))
+}
+
+func (cf *ContainsFilter) Description() string {
+	return fmt.Sprintf("%s contains %s", cf.Field, cf.Formatted)
+}
+
+func (cf *ContainsFilter) Example() (int, string) {
+	return cf.Col, cf.Formatted
+}
+
+func (cf *ContainsFilter) PrimarySuggestion() (string, bool) {
+	return "", false
+}
+

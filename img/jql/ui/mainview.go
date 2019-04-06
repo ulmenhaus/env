@@ -31,6 +31,9 @@ const (
 	// MainViewModeEdit is for when the user is editing
 	// the value of a single cell
 	MainViewModeEdit
+	// MainViewModeSearch is for when the user is typing
+	// a search query into the view
+	MainViewModeSearch
 )
 
 // A MainView is the overall view of the table including headers,
@@ -55,6 +58,7 @@ type MainView struct {
 	alert      string
 	promptText string
 	tableName  string
+	searchText string
 }
 
 // NewMainView returns a MainView initialized with a given Table
@@ -197,6 +201,10 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 		prompt.Write([]byte(mv.promptText))
 		prompt.MoveCursor(len(mv.promptText), 0, true)
 		mv.promptText = ""
+	case MainViewModeSearch:
+		prompt.Clear()
+		prompt.Write([]byte{'/'})
+		prompt.Write([]byte(mv.searchText))
 	}
 	return nil
 }
@@ -230,6 +238,10 @@ func (mv *MainView) newEntry(prefill bool) error {
 func (mv *MainView) switchMode(new MainViewMode) {
 	mv.switching = true
 	mv.Mode = new
+	mv.Params.Filters = append(mv.Params.Filters, &ContainsFilter{
+		Col: mv.TableView.Selections.Primary.Column,
+		Formatted: "",
+	})
 }
 
 // saveContents asks the osm to save the current contents to disk
@@ -246,6 +258,24 @@ func (mv *MainView) saveContents() error {
 	return fmt.Errorf("Wrote %s", mv.path)
 }
 
+func (mv *MainView) handleSearchInput(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifier) error {
+	if key == gocui.KeyEnter || key == gocui.KeyEsc {
+		mv.searchText = ""
+		mv.Mode = MainViewModeTable
+		mv.switching = true
+		return nil
+	}
+	mv.searchText += string(ch)
+	// TODO implement major search mode (over all columns)
+	// When switching into search mode, the last filter added is the working
+	// search filter
+	mv.Params.Filters[len(mv.Params.Filters) - 1] = &ContainsFilter{
+		Col:       mv.TableView.Selections.Primary.Column,
+		Formatted: mv.searchText,
+	}
+	return mv.updateTableViewContents()
+}
+
 // Edit handles keyboard inputs while in table mode
 func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifier) {
 	if mv.Mode == MainViewModeAlert {
@@ -259,6 +289,11 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 			mv.switchMode(MainViewModeAlert)
 		}
 	}()
+
+	if mv.Mode == MainViewModeSearch {
+		err = mv.handleSearchInput(v, key, ch, mod)
+		return
+	}
 
 	switch key {
 	case gocui.KeyArrowRight:
@@ -328,6 +363,8 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		mv.promptText = "switch-table "
 	case ':':
 		mv.switchMode(MainViewModePrompt)
+	case '/':
+		mv.switchMode(MainViewModeSearch)
 	case 'o':
 		_, col := mv.TableView.PrimarySelection()
 		mv.Params.OrderBy = mv.columns[col]
