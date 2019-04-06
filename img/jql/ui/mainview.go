@@ -116,9 +116,6 @@ func (mv *MainView) loadTable(t string) error {
 	table := mv.DB.Tables[tName]
 	mv.Table = table
 	mv.tableName = tName
-	// TODO would be good to preserve params per table
-	mv.Params.OrderBy = ""
-	mv.Params.Filters = []types.Filter{}
 	columns := []string{}
 	widths := []int{}
 	for _, column := range table.Columns {
@@ -138,6 +135,9 @@ func (mv *MainView) loadTable(t string) error {
 		},
 	}
 	mv.columns = columns
+	// TODO would be good to preserve params per table
+	mv.Params.OrderBy = mv.columns[0]
+	mv.Params.Filters = []types.Filter{}
 	return mv.updateTableViewContents()
 }
 
@@ -261,11 +261,17 @@ func (mv *MainView) handleSearchInput(v *gocui.View, key gocui.Key, ch rune, mod
 		mv.switching = true
 		return nil
 	}
-	mv.searchText += string(ch)
+	if key == gocui.KeyBackspace || key == gocui.KeyBackspace2 {
+		if len(mv.searchText) != 0 {
+			mv.searchText = mv.searchText[:len(mv.searchText)-1]
+		}
+	} else {
+		mv.searchText += string(ch)
+	}
 	// TODO implement major search mode (over all columns)
 	// When switching into search mode, the last filter added is the working
 	// search filter
-	mv.Params.Filters[len(mv.Params.Filters) - 1] = &ContainsFilter{
+	mv.Params.Filters[len(mv.Params.Filters)-1] = &ContainsFilter{
 		Col:       mv.TableView.Selections.Primary.Column,
 		Formatted: mv.searchText,
 	}
@@ -361,7 +367,7 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		mv.switchMode(MainViewModePrompt)
 	case '/':
 		mv.Params.Filters = append(mv.Params.Filters, &ContainsFilter{
-			Col: mv.TableView.Selections.Primary.Column,
+			Col:       mv.TableView.Selections.Primary.Column,
 			Formatted: "",
 		})
 		mv.switchMode(MainViewModeSearch)
