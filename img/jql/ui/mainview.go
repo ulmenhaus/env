@@ -128,6 +128,10 @@ func (mv *MainView) loadTable(t string) error {
 	mv.TableView = &TableView{
 		Values: [][]string{},
 		Widths: widths,
+		Selections: SelectionSet{
+			Secondary: make(map[Coordinate]bool),
+			Tertiary:  make(map[Coordinate]bool),
+		},
 	}
 	mv.columns = columns
 	return mv.updateTableViewContents()
@@ -267,11 +271,15 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		mv.TableView.Move(DirectionDown)
 	case gocui.KeyEnter:
 		mv.switchMode(MainViewModeEdit)
-		row, column := mv.TableView.GetSelected()
+		row, column := mv.TableView.PrimarySelection()
 		mv.promptText = mv.TableView.Values[row][column]
+	case gocui.KeyEsc:
+		mv.TableView.SelectNone()
 	}
 
 	switch ch {
+	case 'a':
+		mv.TableView.SelectColumn()
 	case 'r':
 		mv.switchMode(MainViewModeEdit)
 		mv.promptText = ""
@@ -288,7 +296,7 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 	case 'G':
 		err = mv.goFromSelectedValue()
 	case 'f':
-		row, col := mv.TableView.GetSelected()
+		row, col := mv.TableView.PrimarySelection()
 		filterTarget := mv.entries[row][col].Format("")
 		mv.Params.Filters = append(mv.Params.Filters, &EqualFilter{
 			Col:       col,
@@ -321,12 +329,12 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 	case ':':
 		mv.switchMode(MainViewModePrompt)
 	case 'o':
-		_, col := mv.TableView.GetSelected()
+		_, col := mv.TableView.PrimarySelection()
 		mv.Params.OrderBy = mv.columns[col]
 		mv.Params.Dec = false
 		err = mv.updateTableViewContents()
 	case 'O':
-		_, col := mv.TableView.GetSelected()
+		_, col := mv.TableView.PrimarySelection()
 		mv.Params.OrderBy = mv.columns[col]
 		mv.Params.Dec = true
 		err = mv.updateTableViewContents()
@@ -396,7 +404,7 @@ func (mv *MainView) promptExit(contents string, finish bool, err error) {
 	}
 	switch current {
 	case MainViewModeEdit:
-		row, column := mv.TableView.GetSelected()
+		row, column := mv.TableView.PrimarySelection()
 		primary := mv.Table.Primary()
 		key := mv.entries[row][primary].Format("")
 		err = mv.Table.Update(key, mv.Table.Columns[column], contents)
@@ -421,7 +429,7 @@ func (mv *MainView) promptExit(contents string, finish bool, err error) {
 			return
 		case "create-new-entry":
 			if len(parts) == 0 {
-				err = fmt.Errorf("create-new-entry takes at least")
+				err = fmt.Errorf("create-new-entry takes at least 1 arg")
 				return
 			}
 			newPK := strings.Join(parts[1:], " ")
@@ -449,7 +457,7 @@ func (mv *MainView) promptExit(contents string, finish bool, err error) {
 }
 
 func (mv *MainView) goToSelectedValue() error {
-	row, col := mv.TableView.GetSelected()
+	row, col := mv.TableView.PrimarySelection()
 	entry := mv.entries[row][col]
 	// TODO leaky abstraction. Maybe better to support
 	// an interface method for detecting foreigns
@@ -472,30 +480,48 @@ func (mv *MainView) goToSelectedValue() error {
 }
 
 func (mv *MainView) goFromSelectedValue() error {
-	row, _ := mv.TableView.GetSelected()
+	row, _ := mv.TableView.PrimarySelection()
 	selected := mv.entries[row][mv.Table.Primary()]
 	for name, table := range mv.DB.Tables {
 		col := table.HasForeign(mv.tableName)
 		if col == -1 {
 			continue
 		}
+		secondary := mv.TableView.Selections.Secondary
+
+		var filters []types.Filter
+
+		if len(secondary) == 0 {
+			filters = []types.Filter{
+				&EqualFilter{
+					Col:       col,
+					Formatted: selected.Format(""),
+				},
+			}
+		} else {
+			selections := map[string]bool{selected.Format(""): true}
+			for coordinate, _ := range secondary {
+				selections[mv.entries[coordinate.Row][mv.Table.Primary()].Format("")] = true
+			}
+			filters = []types.Filter{
+				&InFilter{
+					Col:       col,
+					Formatted: selections,
+				},
+			}
+		}
 		err := mv.loadTable(name)
 		if err != nil {
 			return err
 		}
-		mv.Params.Filters = []types.Filter{
-			&EqualFilter{
-				Col:       col,
-				Formatted: selected.Format(""),
-			},
-		}
+		mv.Params.Filters = filters
 		return mv.updateTableViewContents()
 	}
 	return fmt.Errorf("no tables found with corresponding foreign key: %s", selected)
 }
 
 func (mv *MainView) incrementSelected(amt int) error {
-	row, col := mv.TableView.GetSelected()
+	row, col := mv.TableView.PrimarySelection()
 	entry := mv.entries[row][col]
 	key := mv.entries[row][mv.Table.Primary()].Format("")
 	// TODO leaky abstraction
@@ -530,14 +556,14 @@ func (mv *MainView) incrementSelected(amt int) error {
 }
 
 func (mv *MainView) openCellInWindow() error {
-	row, col := mv.TableView.GetSelected()
+	row, col := mv.TableView.PrimarySelection()
 	entry := mv.entries[row][col]
 	cmd := exec.Command("open", entry.Format(""))
 	return cmd.Run()
 }
 
 func (mv *MainView) deleteSelectedRow() error {
-	row, _ := mv.TableView.GetSelected()
+	row, _ := mv.TableView.PrimarySelection()
 	key := mv.entries[row][mv.Table.Primary()].Format("")
 	return mv.Table.Delete(key)
 }
@@ -550,7 +576,7 @@ func (mv *MainView) nextAvailablePrimaryFromPattern(key string) (string, error) 
 	var err error
 	if len(existing) > 0 {
 		// go with the last pattern
-		used := existing[len(existing) - 1]
+		used := existing[len(existing)-1]
 		ordinal, err = strconv.Atoi(key[used[0]+1 : used[1]-1])
 		if err != nil {
 			return "", fmt.Errorf("Failed to increment ordinal: %s", err)
@@ -561,7 +587,7 @@ func (mv *MainView) nextAvailablePrimaryFromPattern(key string) (string, error) 
 		if len(existing) == 0 {
 			newKey = fmt.Sprintf("%s (%d)", key, ordinal)
 		} else {
-			used := existing[len(existing) - 1]
+			used := existing[len(existing)-1]
 			padding := strconv.Itoa((used[1] - 1) - (used[0] + 1))
 			newKey = fmt.Sprintf("%s%0"+padding+"d%s", key[:used[0]+1], ordinal, key[used[1]-1:])
 		}
@@ -573,7 +599,7 @@ func (mv *MainView) nextAvailablePrimaryFromPattern(key string) (string, error) 
 }
 
 func (mv *MainView) duplicateSelectedRow() error {
-	row, _ := mv.TableView.GetSelected()
+	row, _ := mv.TableView.PrimarySelection()
 	primaryIndex := mv.Table.Primary()
 	old := mv.entries[row]
 	key := old[primaryIndex].Format("")
