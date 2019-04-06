@@ -238,10 +238,6 @@ func (mv *MainView) newEntry(prefill bool) error {
 func (mv *MainView) switchMode(new MainViewMode) {
 	mv.switching = true
 	mv.Mode = new
-	mv.Params.Filters = append(mv.Params.Filters, &ContainsFilter{
-		Col: mv.TableView.Selections.Primary.Column,
-		Formatted: "",
-	})
 }
 
 // saveContents asks the osm to save the current contents to disk
@@ -364,6 +360,10 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 	case ':':
 		mv.switchMode(MainViewModePrompt)
 	case '/':
+		mv.Params.Filters = append(mv.Params.Filters, &ContainsFilter{
+			Col: mv.TableView.Selections.Primary.Column,
+			Formatted: "",
+		})
 		mv.switchMode(MainViewModeSearch)
 	case 'o':
 		_, col := mv.TableView.PrimarySelection()
