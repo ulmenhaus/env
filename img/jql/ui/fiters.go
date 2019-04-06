@@ -18,7 +18,7 @@ func (ef *EqualFilter) Applies(e []types.Entry) bool {
 }
 
 func (ef *EqualFilter) Description() string {
-	return fmt.Sprintf("%s = %s", ef.Field, ef.Formatted)
+	return fmt.Sprintf("%s = \"%s\"", ef.Field, strings.Replace(ef.Formatted, "\"", "\\\"", -1))
 }
 
 func (ef *EqualFilter) Example() (int, string) {
@@ -50,7 +50,7 @@ func (f *InFilter) keys() []string {
 }
 
 func (f *InFilter) Description() string {
-	return fmt.Sprintf("%s in %s", f.Field, strings.Join(f.keys(), ", "))
+	return fmt.Sprintf("%s in (%s)", f.Field, strings.Join(f.keys(), ", "))
 }
 
 func (f *InFilter) Example() (int, string) {
@@ -74,7 +74,7 @@ func (cf *ContainsFilter) Applies(e []types.Entry) bool {
 }
 
 func (cf *ContainsFilter) Description() string {
-	return fmt.Sprintf("%s contains %s", cf.Field, cf.Formatted)
+	return fmt.Sprintf("%s contains \"%s\"", cf.Field, strings.Replace(cf.Formatted, "\"", "\\\"", -1))
 }
 
 func (cf *ContainsFilter) Example() (int, string) {
@@ -84,4 +84,3 @@ func (cf *ContainsFilter) Example() (int, string) {
 func (cf *ContainsFilter) PrimarySuggestion() (string, bool) {
 	return "", false
 }
-

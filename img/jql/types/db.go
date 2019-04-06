@@ -98,12 +98,30 @@ type QueryParams struct {
 	OrderBy string
 	// Dec is true iff the order should be decending
 	Dec bool
+	// Offset is the ordinal of the row from which the response should start
+	Offset uint
+	// Limit is the max number of entries the query should return
+	Limit uint
+}
+
+// A Response is a paginated collection of entries that match a query
+type Response struct {
+	Entries [][]Entry
+	Total   uint
+}
+
+// IntMin returns the min of two integers
+func IntMin(a, b uint) uint {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // Query takes in a set of filters, and the name of a column to order by
 // as well as a bool which is true iff the ordering shoud be decending.
 // It returns a sub-table of just the filtered items
-func (t *Table) Query(params QueryParams) ([][]Entry, error) {
+func (t *Table) Query(params QueryParams) (*Response, error) {
 	entries := [][]Entry{}
 	for _, row := range t.Entries {
 		out := false
@@ -126,7 +144,14 @@ func (t *Table) Query(params QueryParams) ([][]Entry, error) {
 			return xor(params.Dec, entries[i][col].Compare(entries[j][col]))
 		})
 	}
-	return entries, nil
+	total := uint(len(entries))
+	cap := IntMin(params.Offset + params.Limit, uint(len(entries)))
+	entries = entries[params.Offset : cap]
+	resp := &Response{
+		Entries: entries,
+		Total:   total,
+	}
+	return resp, nil
 }
 
 // Insert adds a new row to the table

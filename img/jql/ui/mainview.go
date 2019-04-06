@@ -49,7 +49,7 @@ type MainView struct {
 	columns []string
 	// TODO map[string]types.Entry and []types.Entry could both
 	// be higher-level types (e.g. VerboseRow and Row)
-	entries [][]types.Entry
+	response *types.Response
 
 	TableView *TableView
 	Mode      MainViewMode
@@ -138,6 +138,7 @@ func (mv *MainView) loadTable(t string) error {
 	// TODO would be good to preserve params per table
 	mv.Params.OrderBy = mv.columns[0]
 	mv.Params.Filters = []types.Filter{}
+	mv.Params.Offset = uint(0)
 	return mv.updateTableViewContents()
 }
 
@@ -146,9 +147,21 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 	switching := mv.switching
 	mv.switching = false
 
-	// TODO hide prompt if not in prompt mode or alert mode
+	// TODO hide prompt and header if not in prompt mode or alert mode
 	maxX, maxY := g.Size()
-	v, err := g.SetView("table", 0, 0, maxX-2, maxY-3)
+	// HACK maxY - 8 is the max number of visible rows when header and prompt are present
+	maxRows := uint(maxY - 8)
+	if mv.Params.Limit != maxRows {
+		mv.Params.Limit = maxRows
+		if err := mv.updateTableViewContents(); err != nil {
+			return err
+		}
+	}
+	_, err := g.SetView("header", 0, 0, maxX-2, 3)
+	if err != nil && err != gocui.ErrUnknownView {
+		return err
+	}
+	v, err := g.SetView("table", 0, 3, maxX-2, maxY-3)
 	if err != nil {
 		if err != gocui.ErrUnknownView {
 			return err
@@ -175,7 +188,13 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 	}
 	switch mv.Mode {
 	case MainViewModeTable:
-		if _, err := g.SetCurrentView("table"); err != nil {
+		header, err := g.SetCurrentView("header")
+		if err != nil {
+			return err
+		}
+		header.Clear()
+		header.Write(mv.headerContents())
+		if _, err = g.SetCurrentView("table"); err != nil {
 			return err
 		}
 		g.Cursor = false
@@ -267,11 +286,14 @@ func (mv *MainView) handleSearchInput(v *gocui.View, key gocui.Key, ch rune, mod
 		}
 	} else {
 		mv.searchText += string(ch)
+		// when we start search pagination should be reset
+		mv.Params.Offset = uint(0)
 	}
 	// TODO implement major search mode (over all columns)
 	// When switching into search mode, the last filter added is the working
 	// search filter
 	mv.Params.Filters[len(mv.Params.Filters)-1] = &ContainsFilter{
+		Field:     mv.Table.Columns[mv.TableView.Selections.Primary.Column],
 		Col:       mv.TableView.Selections.Primary.Column,
 		Formatted: mv.searchText,
 	}
@@ -312,6 +334,16 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		mv.promptText = mv.TableView.Values[row][column]
 	case gocui.KeyEsc:
 		mv.TableView.SelectNone()
+	case gocui.KeyPgdn:
+		next := mv.nextPageStart()
+		if next >= mv.response.Total {
+			return
+		}
+		mv.Params.Offset = next
+		err = mv.updateTableViewContents()
+	case gocui.KeyPgup:
+		mv.Params.Offset = mv.prevPageStart()
+		err = mv.updateTableViewContents()
 	}
 
 	switch ch {
@@ -334,8 +366,9 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		err = mv.goFromSelectedValue()
 	case 'f':
 		row, col := mv.TableView.PrimarySelection()
-		filterTarget := mv.entries[row][col].Format("")
+		filterTarget := mv.response.Entries[row][col].Format("")
 		mv.Params.Filters = append(mv.Params.Filters, &EqualFilter{
+			Field:     mv.Table.Columns[col],
 			Col:       col,
 			Formatted: filterTarget,
 		})
@@ -367,6 +400,7 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		mv.switchMode(MainViewModePrompt)
 	case '/':
 		mv.Params.Filters = append(mv.Params.Filters, &ContainsFilter{
+			Field:     mv.Table.Columns[mv.TableView.Selections.Primary.Column],
 			Col:       mv.TableView.Selections.Primary.Column,
 			Formatted: "",
 		})
@@ -396,6 +430,29 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 	}
 }
 
+func (mv *MainView) nextPageStart() uint {
+	return types.IntMin(mv.Params.Offset+mv.Params.Limit, mv.Params.Offset+uint(len(mv.response.Entries)))
+}
+
+func (mv *MainView) prevPageStart() uint {
+	if mv.Params.Offset < mv.Params.Limit {
+		return 0
+	}
+	return mv.Params.Offset - mv.Params.Limit
+}
+
+func (mv *MainView) headerContents() []byte {
+	// Actual params are 0-indexed but displayed as 1-indexed
+	l1 := fmt.Sprintf("Table: %s\t\t\t Entries %d - %d of %d (%d total)",
+		mv.tableName, mv.Params.Offset+1, mv.nextPageStart(), mv.response.Total, len(mv.Table.Entries))
+	subqs := make([]string, len(mv.Params.Filters))
+	for i, filter := range mv.Params.Filters {
+		subqs[i] = filter.Description()
+	}
+	l2 := fmt.Sprintf("Query: %s", strings.Join(subqs, ", "))
+	return []byte(fmt.Sprintf("%s\n%s", l1, l2))
+}
+
 func (mv *MainView) updateTableViewContents() error {
 	mv.TableView.Values = [][]string{}
 	// NOTE putting this here to support swapping columns later
@@ -412,12 +469,12 @@ func (mv *MainView) updateTableViewContents() error {
 	}
 	mv.TableView.Header = header
 
-	entries, err := mv.Table.Query(mv.Params)
+	response, err := mv.Table.Query(mv.Params)
 	if err != nil {
 		return err
 	}
-	mv.entries = entries
-	for _, row := range mv.entries {
+	mv.response = response
+	for _, row := range mv.response.Entries {
 		// TODO ignore hidden columns
 		formatted := []string{}
 		for _, entry := range row {
@@ -449,7 +506,7 @@ func (mv *MainView) promptExit(contents string, finish bool, err error) {
 	case MainViewModeEdit:
 		row, column := mv.TableView.PrimarySelection()
 		primary := mv.Table.Primary()
-		key := mv.entries[row][primary].Format("")
+		key := mv.response.Entries[row][primary].Format("")
 		err = mv.Table.Update(key, mv.Table.Columns[column], contents)
 		if err != nil {
 			return
@@ -507,11 +564,11 @@ func (mv *MainView) goToSelectedValue() error {
 	// Look for the first column, starting at the primary
 	// selection that is a foreign key
 	for {
-		if f, ok := mv.entries[row][col].(types.ForeignKey); ok {
+		if f, ok := mv.response.Entries[row][col].(types.ForeignKey); ok {
 			foreign = f
 			break
 		}
-		col = (col + 1) % len(mv.entries[row])
+		col = (col + 1) % len(mv.response.Entries[row])
 		if col == mv.TableView.Selections.Primary.Column {
 			return fmt.Errorf("no foreign key found in entry")
 		}
@@ -523,6 +580,7 @@ func (mv *MainView) goToSelectedValue() error {
 	primary := mv.DB.Tables[foreign.Table].Primary()
 	mv.Params.Filters = []types.Filter{
 		&EqualFilter{
+			Field:     mv.Table.Columns[primary],
 			Col:       primary,
 			Formatted: foreign.Key,
 		},
@@ -532,7 +590,7 @@ func (mv *MainView) goToSelectedValue() error {
 
 func (mv *MainView) goFromSelectedValue() error {
 	row, _ := mv.TableView.PrimarySelection()
-	selected := mv.entries[row][mv.Table.Primary()]
+	selected := mv.response.Entries[row][mv.Table.Primary()]
 	for name, table := range mv.DB.Tables {
 		col := table.HasForeign(mv.tableName)
 		if col == -1 {
@@ -545,6 +603,7 @@ func (mv *MainView) goFromSelectedValue() error {
 		if len(secondary) == 0 {
 			filters = []types.Filter{
 				&EqualFilter{
+					Field:     fmt.Sprintf("%s.%s", table.Columns[col], mv.Table.Columns[mv.Table.Primary()]),
 					Col:       col,
 					Formatted: selected.Format(""),
 				},
@@ -552,10 +611,11 @@ func (mv *MainView) goFromSelectedValue() error {
 		} else {
 			selections := map[string]bool{selected.Format(""): true}
 			for coordinate, _ := range secondary {
-				selections[mv.entries[coordinate.Row][mv.Table.Primary()].Format("")] = true
+				selections[mv.response.Entries[coordinate.Row][mv.Table.Primary()].Format("")] = true
 			}
 			filters = []types.Filter{
 				&InFilter{
+					Field:     fmt.Sprintf("%s.%s", table.Columns[col], mv.Table.Columns[mv.Table.Primary()]),
 					Col:       col,
 					Formatted: selections,
 				},
@@ -573,25 +633,25 @@ func (mv *MainView) goFromSelectedValue() error {
 
 func (mv *MainView) incrementSelected(amt int) error {
 	row, col := mv.TableView.PrimarySelection()
-	entry := mv.entries[row][col]
-	key := mv.entries[row][mv.Table.Primary()].Format("")
+	entry := mv.response.Entries[row][col]
+	key := mv.response.Entries[row][mv.Table.Primary()].Format("")
 	// TODO leaky abstraction
 	switch typed := entry.(type) {
 	case types.ForeignKey:
 		ftable := mv.DB.Tables[typed.Table]
 		// TODO not cache mapping
-		fentries, err := ftable.Query(types.QueryParams{
+		fresp, err := ftable.Query(types.QueryParams{
 			OrderBy: ftable.Columns[ftable.Primary()],
 		})
 		if err != nil {
 			return err
 		}
 		index := map[string]int{}
-		for i, fentry := range fentries {
+		for i, fentry := range fresp.Entries {
 			index[fentry[ftable.Primary()].Format("")] = i
 		}
-		next := (index[entry.Format("")] + 1) % len(fentries)
-		err = mv.Table.Update(key, mv.Table.Columns[col], fentries[next][ftable.Primary()].Format(""))
+		next := (index[entry.Format("")] + 1) % len(fresp.Entries)
+		err = mv.Table.Update(key, mv.Table.Columns[col], fresp.Entries[next][ftable.Primary()].Format(""))
 		if err != nil {
 			return err
 		}
@@ -608,14 +668,14 @@ func (mv *MainView) incrementSelected(amt int) error {
 
 func (mv *MainView) openCellInWindow() error {
 	row, col := mv.TableView.PrimarySelection()
-	entry := mv.entries[row][col]
+	entry := mv.response.Entries[row][col]
 	cmd := exec.Command("open", entry.Format(""))
 	return cmd.Run()
 }
 
 func (mv *MainView) deleteSelectedRow() error {
 	row, _ := mv.TableView.PrimarySelection()
-	key := mv.entries[row][mv.Table.Primary()].Format("")
+	key := mv.response.Entries[row][mv.Table.Primary()].Format("")
 	return mv.Table.Delete(key)
 }
 
@@ -652,7 +712,7 @@ func (mv *MainView) nextAvailablePrimaryFromPattern(key string) (string, error) 
 func (mv *MainView) duplicateSelectedRow() error {
 	row, _ := mv.TableView.PrimarySelection()
 	primaryIndex := mv.Table.Primary()
-	old := mv.entries[row]
+	old := mv.response.Entries[row]
 	key := old[primaryIndex].Format("")
 	newKey, err := mv.nextAvailablePrimaryFromPattern(key)
 	if err != nil {
