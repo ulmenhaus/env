@@ -371,7 +371,7 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 			Field:     mv.Table.Columns[col],
 			Col:       col,
 			Formatted: filterTarget,
-			Not: ch == 'F',
+			Not:       ch == 'F',
 		})
 		err = mv.updateTableViewContents()
 	case 'q':
@@ -428,6 +428,10 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		err = mv.newEntry(false)
 	case 'w':
 		err = mv.openCellInWindow()
+	case 'y':
+		err = mv.copyValue()
+	case 'Y':
+		err = mv.pasteValue()
 	}
 }
 
@@ -505,14 +509,7 @@ func (mv *MainView) promptExit(contents string, finish bool, err error) {
 	}
 	switch current {
 	case MainViewModeEdit:
-		row, column := mv.TableView.PrimarySelection()
-		primary := mv.Table.Primary()
-		key := mv.response.Entries[row][primary].Format("")
-		err = mv.Table.Update(key, mv.Table.Columns[column], contents)
-		if err != nil {
-			return
-		}
-		err = mv.updateTableViewContents()
+		err = mv.updateEntryValue(contents)
 		return
 	case MainViewModePrompt:
 		parts := strings.Split(contents, " ")
@@ -733,4 +730,49 @@ func (mv *MainView) duplicateSelectedRow() error {
 		}
 	}
 	return nil
+}
+
+func (mv *MainView) copyValue() error {
+	row, col := mv.TableView.PrimarySelection()
+	value := mv.response.Entries[row][col].Format("")
+	// TODO Linux implementation
+	cmd := exec.Command("/usr/bin/pbcopy")
+	pipe, err := cmd.StdinPipe()
+	if err != nil {
+		return err
+	}
+	err = cmd.Start()
+	if err != nil {
+		return err
+	}
+	_, err = pipe.Write([]byte(value))
+	if err != nil {
+		return err
+	}
+	err = pipe.Close()
+	if err != nil {
+		return err
+	}
+	return cmd.Wait()
+}
+
+func (mv *MainView) updateEntryValue(contents string) error {
+	row, column := mv.TableView.PrimarySelection()
+	primary := mv.Table.Primary()
+	key := mv.response.Entries[row][primary].Format("")
+	err := mv.Table.Update(key, mv.Table.Columns[column], contents)
+	if err != nil {
+		return err
+	}
+	return mv.updateTableViewContents()
+}
+
+func (mv *MainView) pasteValue() error {
+	// TODO Linux implementation
+	cmd := exec.Command("/usr/bin/pbpaste")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return err
+	}
+	return mv.updateEntryValue(strings.TrimSpace(string(out)))
 }
