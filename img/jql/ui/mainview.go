@@ -364,13 +364,14 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		err = mv.goToSelectedValue()
 	case 'G':
 		err = mv.goFromSelectedValue()
-	case 'f':
+	case 'f', 'F':
 		row, col := mv.TableView.PrimarySelection()
 		filterTarget := mv.response.Entries[row][col].Format("")
 		mv.Params.Filters = append(mv.Params.Filters, &EqualFilter{
 			Field:     mv.Table.Columns[col],
 			Col:       col,
 			Formatted: filterTarget,
+			Not: ch == 'F',
 		})
 		err = mv.updateTableViewContents()
 	case 'q':

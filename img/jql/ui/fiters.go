@@ -11,21 +11,36 @@ type EqualFilter struct {
 	Field     string
 	Col       int
 	Formatted string
+	Not       bool
+}
+
+func xor(a, b bool) bool {
+	return (a && !b) || (!a && b)
 }
 
 func (ef *EqualFilter) Applies(e []types.Entry) bool {
-	return e[ef.Col].Format("") == ef.Formatted
+	return xor(e[ef.Col].Format("") == ef.Formatted, ef.Not)
 }
 
 func (ef *EqualFilter) Description() string {
-	return fmt.Sprintf("%s = \"%s\"", ef.Field, strings.Replace(ef.Formatted, "\"", "\\\"", -1))
+	op := "="
+	if ef.Not {
+		op = "!="
+	}
+	return fmt.Sprintf("%s %s \"%s\"", ef.Field, op, strings.Replace(ef.Formatted, "\"", "\\\"", -1))
 }
 
 func (ef *EqualFilter) Example() (int, string) {
+	if ef.Not {
+		return ef.Col, ""
+	}
 	return ef.Col, ef.Formatted
 }
 
 func (ef *EqualFilter) PrimarySuggestion() (string, bool) {
+	if ef.Not {
+		return "", false
+	}
 	return ef.Formatted, true
 }
 
