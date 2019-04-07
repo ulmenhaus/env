@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -432,6 +433,8 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		err = mv.copyValue()
 	case 'Y':
 		err = mv.pasteValue()
+	case 'e':
+		err = mv.editWorkspace()
 	}
 }
 
@@ -775,4 +778,20 @@ func (mv *MainView) pasteValue() error {
 		return err
 	}
 	return mv.updateEntryValue(strings.TrimSpace(string(out)))
+}
+
+func (mv *MainView) editWorkspace() error {
+	row, col := mv.TableView.PrimarySelection()
+	val := mv.response.Entries[row][col].Format("")
+	ws := os.Getenv("JQL_WORKSPACE")
+	dir := filepath.Join(ws, val)
+	err := os.MkdirAll(dir, os.ModePerm)
+	if err != nil {
+		return err
+	}
+	args := strings.Split(os.Getenv("JQL_EDITOR"), " ")
+	args = append(args, filepath.Join(dir, "README.md"))
+	cmd := exec.Command(args[0], args[1:]...)
+	// command should run async in the background
+	return cmd.Start()
 }
