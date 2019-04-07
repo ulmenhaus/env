@@ -100,7 +100,8 @@ type QueryParams struct {
 	Dec bool
 	// Offset is the ordinal of the row from which the response should start
 	Offset uint
-	// Limit is the max number of entries the query should return
+	// Limit is the max number of entries the query should return -- if 0
+	// the response will be uncapped
 	Limit uint
 }
 
@@ -145,7 +146,10 @@ func (t *Table) Query(params QueryParams) (*Response, error) {
 		})
 	}
 	total := uint(len(entries))
-	cap := IntMin(params.Offset + params.Limit, uint(len(entries)))
+	cap := total
+	if params.Limit != 0 {
+		cap = IntMin(params.Offset + params.Limit, cap)
+	}
 	entries = entries[params.Offset : cap]
 	resp := &Response{
 		Entries: entries,
