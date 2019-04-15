@@ -108,6 +108,26 @@ func (mv *MainView) findTable(t string) (string, error) {
 	return "", fmt.Errorf("unknown table: %s", t)
 }
 
+func (mv *MainView) maxWidths(t *types.Table) ([]int, error) {
+	all, err := t.Query(types.QueryParams{})
+	if err != nil {
+		return nil, err
+	}
+	if len(all.Entries) == 0 {
+		return nil, nil
+	}
+	max := make([]int, len(all.Entries[0]))
+	for i := range all.Entries {
+		for j, entry := range all.Entries[i] {
+			chars := len(entry.Format(""))
+			if max[j] < chars {
+				max[j] = chars
+			}
+		}
+	}
+	return max, nil
+}
+
 // loadTable displays the named table in the main table view
 func (mv *MainView) loadTable(t string) error {
 	tName, err := mv.findTable(t)
@@ -119,12 +139,20 @@ func (mv *MainView) loadTable(t string) error {
 	mv.tableName = tName
 	columns := []string{}
 	widths := []int{}
-	for _, column := range table.Columns {
+	max, err := mv.maxWidths(table)
+	if err != nil {
+		return err
+	}
+	for i, column := range table.Columns {
 		if strings.HasPrefix(column, "_") {
 			// TODO note these to skip the values as well
 			continue
 		}
-		widths = append(widths, 40)
+		width := 40
+		if max != nil && max[i] < width {
+			width = max[i]
+		}
+		widths = append(widths, width)
 		columns = append(columns, column)
 	}
 	mv.TableView = &TableView{

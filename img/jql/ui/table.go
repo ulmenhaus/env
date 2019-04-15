@@ -100,7 +100,7 @@ func (tv *TableView) WriteContents(v io.Writer) error {
 				val += " "
 			}
 		}
-		content += "   " + val + " "
+		content += "   " + val + stringMult(" ", 5)
 	}
 	content += "\n"
 	for i, row := range tv.Values {
@@ -116,7 +116,7 @@ func (tv *TableView) WriteContents(v io.Writer) error {
 			}
 
 			level := tv.selectionLevel(Coordinate{Row: i, Column: j})
-			content += fmt.Sprintf("%s%s%s ", stringMult(">", level), stringMult(" ", 3-level), val)
+			content += fmt.Sprintf("%s%s%s%s", stringMult(">", level), stringMult(" ", 3-level), val, stringMult(" ", 5))
 		}
 		content += "\n"
 	}
