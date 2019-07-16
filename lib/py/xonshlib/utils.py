@@ -14,7 +14,6 @@ import time
 import xonsh.ansi_colors
 import requests
 
-from apiclient import discovery
 from oauth2client import client
 from oauth2client import tools
 from oauth2client.file import Storage
@@ -331,6 +330,7 @@ class GmailBackend(TaskBackend):
 
     @contextlib.contextmanager
     def _get_service(self):
+        from apiclient import discovery
         secret_body = self.pass_manager.get_entry(
             ["{}.secret".format(self.token_root)], is_json=False)
         token_body = self.pass_manager.get_entry(
