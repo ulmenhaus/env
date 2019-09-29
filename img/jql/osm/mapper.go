@@ -14,12 +14,13 @@ const schemataTableName = "_schemata"
 
 var (
 	constructors = map[string]types.FieldValueConstructor{
-		"string": types.NewString,
-		"int":    types.NewInteger,
-		"date":   types.NewDate,
-		"enum":   types.NewEnum,
-		"id":     types.NewID,
-		"time":   types.NewTime,
+		"string":   types.NewString,
+		"int":      types.NewInteger,
+		"date":     types.NewDate,
+		"enum":     types.NewEnum,
+		"id":       types.NewID,
+		"time":     types.NewTime,
+		"moneyamt": types.NewMoneyAmount,
 	}
 )
 

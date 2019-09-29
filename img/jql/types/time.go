@@ -25,12 +25,6 @@ func NewDate(i interface{}, features map[string]interface{}) (Entry, error) {
 	if !ok {
 		return nil, fmt.Errorf("failed to unpack int from: %#v", i)
 	}
-	var err error
-	// HACK hard coding to PST for now
-	loc, err = time.LoadLocation("America/Los_Angeles")
-	if err != nil {
-		return nil, fmt.Errorf("Failed to load time zone: %s", err)
-	}
 	return Date(n), nil
 }
 
@@ -94,12 +88,6 @@ func NewTime(i interface{}, features map[string]interface{}) (Entry, error) {
 	if !ok {
 		return nil, fmt.Errorf("failed to unpack int from: %#v", i)
 	}
-	var err error
-	// HACK hard coding to PST for now
-	loc, err = time.LoadLocation("America/Los_Angeles")
-	if err != nil {
-		return nil, fmt.Errorf("Failed to load time zone: %s", err)
-	}
 	return Time(n), nil
 }
 
@@ -152,4 +140,13 @@ func (t Time) Add(i interface{}) (Entry, error) {
 // Encoded returns the Time encoded as a string
 func (t Time) Encoded() storage.Primitive {
 	return int(t)
+}
+
+// init as a HACK hard coding to PST for now
+func init() {
+	var err error
+	loc, err = time.LoadLocation("America/Los_Angeles")
+	if err != nil {
+		panic(fmt.Sprintf("failed to load location: %s", err))
+	}
 }
