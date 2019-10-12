@@ -148,9 +148,9 @@ func (t *Table) Query(params QueryParams) (*Response, error) {
 	total := uint(len(entries))
 	cap := total
 	if params.Limit != 0 {
-		cap = IntMin(params.Offset + params.Limit, cap)
+		cap = IntMin(params.Offset+params.Limit, cap)
 	}
-	entries = entries[params.Offset : cap]
+	entries = entries[params.Offset:cap]
 	resp := &Response{
 		Entries: entries,
 		Total:   total,
@@ -230,4 +230,14 @@ func (t *Table) HasForeign(table string) int {
 		}
 	}
 	return -1
+}
+
+// IndexOfField returns the index of a column given the name of that column
+// If the column does not exist, -1 is returned
+func (t *Table) IndexOfField(field string) int {
+	index, ok := t.columnsByName[field]
+	if !ok {
+		return -1
+	}
+	return index
 }
