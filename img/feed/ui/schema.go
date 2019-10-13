@@ -17,8 +17,10 @@ const (
 	FieldFeed        string = "Feed"
 	FieldLink        string = "Link"
 	FieldResource    string = "Resource"
-	FieldStatus        string = "Status"
+	FieldStatus      string = "Status"
 
 	TableResources string = "resources"
 	TableItems     string = "items"
+
+	JQLName string = "jql"
 )

@@ -3,8 +3,10 @@ package ui
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"sort"
 	"strings"
+	"syscall"
 
 	"github.com/jroimartin/gocui"
 	"github.com/ulmenhaus/env/img/jql/osm"
@@ -252,6 +254,10 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 		if err != nil {
 			return err
 		}
+		err = g.SetKeybinding(current, 'q', gocui.ModNone, mv.switchToJQL)
+		if err != nil {
+			return err
+		}
 		err = g.SetKeybinding(next, 'N', gocui.ModNone, mv.switcherTo(current))
 		if err != nil {
 			return err
@@ -361,6 +367,24 @@ func (mv *MainView) cursorUp(g *gocui.Gui, v *gocui.View) error {
 		}
 	}
 	return mv.refreshView(g)
+}
+
+func (mv *MainView) switchToJQL(g *gocui.Gui, v *gocui.View) error {
+	err := mv.saveContents(g, v)
+	if err != nil {
+		return err
+	}
+	binary, err := exec.LookPath(JQLName)
+	if err != nil {
+		return err
+	}
+
+	args := []string{JQLName, mv.path, TableResources}
+
+	env := os.Environ()
+
+	err = syscall.Exec(binary, args, env)
+	return err
 }
 
 func (mv *MainView) refreshView(g *gocui.Gui) error {

@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/jroimartin/gocui"
 	"github.com/ulmenhaus/env/img/jql/osm"
@@ -290,16 +291,20 @@ func (mv *MainView) switchMode(new MainViewMode) {
 
 // saveContents asks the osm to save the current contents to disk
 func (mv *MainView) saveContents() error {
+	err := mv.saveSilent()
+	if err != nil {
+		return err
+	}
+	return fmt.Errorf("Wrote %s", mv.path)
+}
+
+func (mv *MainView) saveSilent() error {
 	f, err := os.OpenFile(mv.path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	err = mv.OSM.Dump(mv.DB, f)
-	if err != nil {
-		return err
-	}
-	return fmt.Errorf("Wrote %s", mv.path)
+	return mv.OSM.Dump(mv.DB, f)
 }
 
 func (mv *MainView) handleSearchInput(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifier) error {
@@ -457,6 +462,12 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		err = mv.newEntry(false)
 	case 'w':
 		err = mv.openCellInWindow()
+	case 'X':
+		err = mv.saveSilent()
+		if err != nil {
+			return
+		}
+		err = mv.switchView(true)
 	case 'y':
 		err = mv.copyValue()
 	case 'Y':
@@ -822,4 +833,32 @@ func (mv *MainView) editWorkspace() error {
 	cmd := exec.Command(args[0], args[1:]...)
 	// command should run async in the background
 	return cmd.Start()
+}
+
+// switchView changes to another tool for viewing the current jql db
+func (mv *MainView) switchView(reverse bool) error {
+	var tool string
+	if reverse {
+		tool = os.Getenv("JQL_REVERSE_TOOL")
+		if tool == "" {
+			tool = "feed"
+		}
+	} else {
+		tool = os.Getenv("JQL_FORWARD_TOOL")
+		if tool == "" {
+			tool = "execute"
+		}
+	}
+
+	binary, err := exec.LookPath(tool)
+	if err != nil {
+		return err
+	}
+
+	args := []string{tool, mv.path}
+
+	env := os.Environ()
+
+	err = syscall.Exec(binary, args, env)
+	return err
 }
