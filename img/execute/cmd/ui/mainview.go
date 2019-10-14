@@ -152,7 +152,7 @@ func (mv *MainView) fetchNewItems(g *gocui.Gui, v *gocui.View) error {
 				return fmt.Errorf("Failed to add entry: %s", err)
 			}
 
-			err = itemTable.Update(item.Description, FieldLink, item.Link)
+			err = itemTable.Update(item.Description, "Link", item.Link)
 			if err != nil {
 				return fmt.Errorf("Failed to update link for entry: %s", err)
 			}

@@ -468,6 +468,12 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 			return
 		}
 		err = mv.switchView(true)
+	case 'x':
+		err = mv.saveSilent()
+		if err != nil {
+			return
+		}
+		err = mv.switchView(false)
 	case 'y':
 		err = mv.copyValue()
 	case 'Y':
