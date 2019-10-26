@@ -97,6 +97,17 @@ func (osm *ObjectStoreMapper) Load(src io.Reader) (*types.Database, error) {
 				features["table"] = table
 				return types.NewForeignKey(i, features)
 			}
+		} else if strings.HasPrefix(fieldType, "foreigns.") {
+			// TODO(rabrams) double check scoping of this variable
+			// also would be good to validate foriegn values
+			table := fieldType[len("foreigns."):]
+			constructor = func(i interface{}, features map[string]interface{}) (types.Entry, error) {
+				if features == nil {
+					features = map[string]interface{}{}
+				}
+				features["table"] = table
+				return types.NewForeignList(i, features)
+			}
 		} else {
 			constructor, ok = constructors[fieldType]
 			if !ok {

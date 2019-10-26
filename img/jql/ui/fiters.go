@@ -76,15 +76,31 @@ func (f *InFilter) PrimarySuggestion() (string, bool) {
 	return "", false
 }
 
+func slice2map(slice []string) map[string]bool {
+	m := map[string]bool{}
+	for _, s := range slice {
+		m[s] = true
+	}
+	return m
+}
+
 // A ContainsFilter applies when the value of an entry at a given column
 // is a case insensitive superstring of the provided formatted query
 type ContainsFilter struct {
 	Field     string
 	Col       int
 	Formatted string
+	Exact     bool // exact requires a case sensitive match and will use table formatting to support list entries
 }
 
 func (cf *ContainsFilter) Applies(e []types.Entry) bool {
+	if cf.Exact {
+		// HACK to make a ContainsFilter work for ForeignLists format to the full list.
+		// NOTE this behavior is only partially correct as it  relies
+		// on keys not having newlines
+		return strings.Contains(e[cf.Col].Format(types.ListFormat), "\n"+cf.Formatted+"\n")
+
+	}
 	return strings.Contains(strings.ToLower(e[cf.Col].Format("")), strings.ToLower(cf.Formatted))
 }
 

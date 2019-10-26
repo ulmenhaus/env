@@ -606,31 +606,47 @@ func (mv *MainView) goToSelectedValue() error {
 	row, col := mv.TableView.PrimarySelection()
 	// TODO leaky abstraction. Maybe better to support
 	// an interface method for detecting foreigns
-	var foreign types.ForeignKey
+	var table string
+	var keys []string
 	// Look for the first column, starting at the primary
 	// selection that is a foreign key
+loop:
 	for {
-		if f, ok := mv.response.Entries[row][col].(types.ForeignKey); ok {
-			foreign = f
-			break
+		switch f := mv.response.Entries[row][col].(type) {
+		case types.ForeignKey:
+			table = f.Table
+			keys = []string{f.Key}
+			break loop
+		case types.ForeignList:
+			table = f.Table
+			keys = f.Keys
+			break loop
 		}
 		col = (col + 1) % len(mv.response.Entries[row])
 		if col == mv.TableView.Selections.Primary.Column {
 			return fmt.Errorf("no foreign key found in entry")
 		}
 	}
-	err := mv.loadTable(foreign.Table)
+	err := mv.loadTable(table)
 	if err != nil {
 		return err
 	}
-	primary := mv.DB.Tables[foreign.Table].Primary()
-	mv.Params.Filters = []types.Filter{
-		&EqualFilter{
+	primary := mv.DB.Tables[table].Primary()
+	var filter types.Filter
+	if len(keys) == 1 {
+		filter = &EqualFilter{
 			Field:     mv.Table.Columns[primary],
 			Col:       primary,
-			Formatted: foreign.Key,
-		},
+			Formatted: keys[0],
+		}
+	} else {
+		filter = &InFilter{
+			Field:     mv.Table.Columns[primary],
+			Col:       primary,
+			Formatted: slice2map(keys),
+		}
 	}
+	mv.Params.Filters = []types.Filter{filter}
 	return mv.updateTableViewContents()
 }
 
@@ -648,13 +664,17 @@ func (mv *MainView) goFromSelectedValue() error {
 
 		if len(secondary) == 0 {
 			filters = []types.Filter{
-				&EqualFilter{
+				&ContainsFilter{
 					Field:     fmt.Sprintf("%s.%s", table.Columns[col], mv.Table.Columns[mv.Table.Primary()]),
 					Col:       col,
 					Formatted: selected.Format(""),
+					Exact:     true,
 				},
 			}
 		} else {
+			// NOTE multiple selections will not work for foreign lists
+			// A better solution that also would remove some hackiness in the ContainsFilter would be
+			// to add a method on Entries to get their subentries
 			selections := map[string]bool{selected.Format(""): true}
 			for coordinate, _ := range secondary {
 				selections[mv.response.Entries[coordinate.Row][mv.Table.Primary()].Format("")] = true

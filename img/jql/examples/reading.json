@@ -1,0 +1,56 @@
+{
+    "_schemata": {
+        "authors.Name": {
+            "primary": true,
+            "type": "string"
+        },
+        "reading.Authors": {
+            "type": "foreigns.authors"
+        },
+        "reading.Title": {
+            "primary": true,
+            "type": "string"
+        },
+        "reading.Type": {
+            "features": {
+                "values": "Paper, Book"
+            },
+            "type": "enum"
+        }
+    },
+    "authors": {
+        "Adi Shamir": {},
+        "Charles Leiserson": {},
+        "Clifford Stein": {},
+        "Leonard Adleman": {},
+        "Ronald Rivest": {},
+        "Thomas Cormen": {},
+        "Tony Hoare": {}
+    },
+    "reading": {
+        "Introduction to Algorithms": {
+            "Authors": [
+                "Thomas Cormen",
+                "Charles Leiserson",
+                "Ronald Rivest",
+                "Clifford Stein"
+            ],
+            "Type": "Book"
+        },
+        "PKCS1": {
+            "Authors": [
+                "Ronald Rivest",
+                "Adi Shamir",
+                "Leonard Adleman"
+            ],
+            "Type": "Paper"
+        },
+        "Communicating Sequential Processes": {
+            "Authors": [
+                "Tony Hoare",
+                "Ronald Rivest"
+            ],
+            "Type": "Paper"
+        }
+    }
+}
