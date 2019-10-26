@@ -141,23 +141,39 @@ func (mv *MainView) fetchNewItems(g *gocui.Gui, v *gocui.View) error {
 		}
 		latest, err := feed.FetchNew()
 		if err != nil {
-			return err
+			return fmt.Errorf("Failed to fetch feed for %s: %s", entry[itemTable.IndexOfField(FieldDescription)].Format(""), err)
 		}
 		for _, item := range latest {
 			if _, ok := byDescription[item.Description]; ok {
 				continue
 			}
-			err = itemTable.Insert(item.Description)
+			description := item.Description
+			err = itemTable.Insert(description)
 			if err != nil {
-				return fmt.Errorf("Failed to add entry: %s", err)
+				// TODO would be good to use a specific error type
+				if strings.HasPrefix(err.Error(), "Row already exists") {
+					for i := 1; i < 100; i++ {
+						description = fmt.Sprintf("%s (%02d)", item.Description, i)
+						err = itemTable.Insert(description)
+						if err == nil {
+							break
+						} else if strings.HasPrefix(err.Error(), "Row already exists") {
+							continue
+						} else {
+							return err
+						}
+					}
+				} else {
+					return fmt.Errorf("Failed to add entry: %s", err)
+				}
 			}
 
-			err = itemTable.Update(item.Description, FieldLink, item.Link)
+			err = itemTable.Update(description, FieldLink, item.Link)
 			if err != nil {
 				return fmt.Errorf("Failed to update link for entry: %s", err)
 			}
 
-			err = itemTable.Update(item.Description, FieldResource, entry[resourceTable.IndexOfField(FieldDescription)].Format(""))
+			err = itemTable.Update(description, FieldResource, entry[resourceTable.IndexOfField(FieldDescription)].Format(""))
 			if err != nil {
 				return fmt.Errorf("Failed to update resource for entry: %s", err)
 			}

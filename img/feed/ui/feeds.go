@@ -12,7 +12,8 @@ Various methods for fetching items from different resource feeds
 */
 
 const (
-	SchemeRSS string = "rss"
+	SchemeRSS  string = "rss"
+	SchemeRSSI string = "rssi"
 )
 
 // Item is the model of time tracking items for the purposes of the feed UI
@@ -36,6 +37,11 @@ func NewFeed(urlS string) (Feed, error) {
 	switch parsed.Scheme {
 	case SchemeRSS:
 		parsed.Scheme = "https"
+		return &RSSFeed{
+			URL: parsed,
+		}, nil
+	case SchemeRSSI:
+		parsed.Scheme = "http"
 		return &RSSFeed{
 			URL: parsed,
 		}, nil
