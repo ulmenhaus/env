@@ -3,10 +3,9 @@ package ui
 import (
 	"fmt"
 	"sort"
-	"strings"
 
 	"github.com/jroimartin/gocui"
-	"github.com/ulmenhaus/env/img/explore/aggregator"
+	"github.com/ulmenhaus/env/img/explore/models"
 )
 
 const (
@@ -23,23 +22,17 @@ const (
 
 // A MainView is the overall view including a directory list
 type MainView struct {
-	Aggregator  aggregator.Aggregator
-	Aggregation aggregator.Aggregation
+	graph *models.SystemGraph
+
+	show      map[string]bool // determines which types of things will be shown
+	subsystem *string         // the subsystem that's currently in view (nil means the whole system)
 }
 
 // NewMainView returns a MainView initialized with a given Table
-func NewMainView(directory, language string, g *gocui.Gui) (*MainView, error) {
-	var err error
-	mv := &MainView{}
-	switch language {
-	case LanguageGo:
-		mv.Aggregator = &aggregator.GoAggregator{}
-	default:
-		return nil, fmt.Errorf("Unknown language: %s", language)
-	}
-	mv.Aggregation, err = mv.Aggregator.Collect()
-	if err != nil {
-		return nil, err
+func NewMainView(graph *models.SystemGraph, g *gocui.Gui) (*MainView, error) {
+	mv := &MainView{
+		graph: graph,
+		show:  map[string]bool{},
 	}
 	return mv, nil
 }
@@ -51,12 +44,12 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 
 func (mv *MainView) Layout(g *gocui.Gui) error {
 	maxX, maxY := g.Size()
-	header, err := g.SetView(HeaderView, 0, 0, maxX-1, 2)
+	header, err := g.SetView(HeaderView, 0, 0, maxX-1, 3)
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	}
 	header.Clear()
-	items, err := g.SetView(ItemsView, 0, 2, maxX-1, maxY-1)
+	items, err := g.SetView(ItemsView, 0, 3, maxX-1, maxY-1)
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	}
@@ -85,25 +78,11 @@ func map2slice(m map[string]bool) []string {
 }
 
 func (mv *MainView) tabulatedItems() (string, []string) {
-	allKeys := map[string]bool{}
-	for _, child := range mv.Aggregation.Children() {
-		for key := range child.Stats() {
-			allKeys[key] = true
-		}
-	}
-	keySlice := map2slice(allKeys)
-
-	header := strings.Join(keySlice, " ")
 	rows := []string{}
-	for _, child := range mv.Aggregation.Children() {
-		row := child.DisplayName()
-		stats := child.Stats()
-		for _, key := range keySlice {
-			row += " " + stats[key]
-		}
-		rows = append(rows, row)
+	for _, comp := range mv.graph.Components(mv.subsystem) {
+		rows = append(rows, fmt.Sprintf("%s         %s", comp.Kind, comp.DisplayName))
 	}
-	return header, rows
+	return "Components", rows
 }
 
 func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {

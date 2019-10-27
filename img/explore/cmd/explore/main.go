@@ -1,25 +1,36 @@
 package main
 
 import (
+	"encoding/json"
+	"io/ioutil"
 	"os"
 
 	"github.com/jroimartin/gocui"
+	"github.com/ulmenhaus/env/img/explore/models"
 	"github.com/ulmenhaus/env/img/explore/ui"
 )
 
 func main() {
 	// TODO use a cli library
-	if len(os.Args) != 3 {
-		panic("Usage: explore [dir] [language]")
+	if len(os.Args) != 2 {
+		panic("Usage: explore [graph]")
 	}
-	dir := os.Args[1]
-	language := os.Args[2]
+	path := os.Args[1]
+	encoded := &models.EncodedGraph{}
+	serialized, err := ioutil.ReadFile(path)
+	if err != nil {
+		panic(err)
+	}
+	err = json.Unmarshal(serialized, encoded)
+	if err != nil {
+		panic(err)
+	}
 	g, err := gocui.NewGui(gocui.OutputNormal)
 	if err != nil {
 		panic(err)
 	}
 	defer g.Close()
-	mv, err := ui.NewMainView(dir, language, g)
+	mv, err := ui.NewMainView(models.DecodeGraph(encoded), g)
 	if err != nil {
 		panic(err)
 	}
