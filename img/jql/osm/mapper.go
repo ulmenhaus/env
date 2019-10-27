@@ -10,7 +10,9 @@ import (
 	"github.com/ulmenhaus/env/img/jql/types"
 )
 
-const schemataTableName = "_schemata"
+const (
+	schemataTableName = "_schemata" // the name of the table containing schemata for other tables
+)
 
 var (
 	constructors = map[string]types.FieldValueConstructor{
@@ -21,14 +23,14 @@ var (
 		"id":       types.NewID,
 		"time":     types.NewTime,
 		"moneyamt": types.NewMoneyAmount,
-	}
+	} // maps field types to their corresponding constructor functions
 )
 
 // An ObjectStoreMapper is responsible for converting between the
 // internal representation of a database and the encoded version
 // used by storage drivers
 type ObjectStoreMapper struct {
-	store storage.Store
+	store storage.Store // the storage.Store to which items are stored
 }
 
 // NewObjectStoreMapper returns a new ObjectStoreMapper given a storage driver
