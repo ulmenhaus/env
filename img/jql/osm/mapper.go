@@ -10,9 +10,12 @@ import (
 	"github.com/ulmenhaus/env/img/jql/types"
 )
 
+// schemataTableName is the name of the table which contains the schemata
+// for all other tables
 const schemataTableName = "_schemata"
 
 var (
+	// constructors maps field types to their corresponding constructor functions
 	constructors = map[string]types.FieldValueConstructor{
 		"string":   types.NewString,
 		"int":      types.NewInteger,

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -36,15 +37,16 @@ func main() {
 		return true
 	})
 
-	ec := &EdgeCollector{}
-	// HACK skip the first one because it's a package def
-	err = ec.Collect(identifiers[1:])
+	c := NewCollector([]string{
+		"github.com/ulmenhaus/env/img/jql/osm",
+	})
+	err = c.CollectNodes()
 	if err != nil {
 		panic(err)
 	}
-
-	nc := &NodeCollector{}
-	nc.Collect([]string{
-		"github.com/ulmenhaus/env/img/jql/osm",
-	})
+	serialized, err := json.MarshalIndent(c.Graph(), "", "    ")
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("%s\n", string(serialized))
 }
