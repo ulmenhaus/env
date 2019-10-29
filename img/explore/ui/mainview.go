@@ -25,7 +25,7 @@ type MainView struct {
 	graph *models.SystemGraph
 
 	show      map[string]bool // determines which types of things will be shown
-	subsystem *string         // the subsystem that's currently in view (nil means the whole system)
+	subsystem string          // the subsystem that's currently in view (nil means the whole system)
 }
 
 // NewMainView returns a MainView initialized with a given Table
@@ -33,6 +33,9 @@ func NewMainView(graph *models.SystemGraph, g *gocui.Gui) (*MainView, error) {
 	mv := &MainView{
 		graph: graph,
 		show:  map[string]bool{},
+	}
+	for _, comp := range graph.Components("") {
+		mv.show[comp.Kind] = true
 	}
 	return mv, nil
 }
@@ -44,26 +47,46 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 
 func (mv *MainView) Layout(g *gocui.Gui) error {
 	maxX, maxY := g.Size()
-	header, err := g.SetView(HeaderView, 0, 0, maxX-1, 3)
+	header, err := g.SetView(HeaderView, 0, 0, maxX/2, 3)
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	}
 	header.Clear()
-	items, err := g.SetView(ItemsView, 0, 3, maxX-1, maxY-1)
+	items, err := g.SetView(ItemsView, 0, 3, maxX/2, maxY-1)
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	}
 	items.Clear()
+	detail, err := g.SetView(DetailView, maxX/2+1, 0, maxX-1, maxY-1)
+	if err != nil && err != gocui.ErrUnknownView {
+		return err
+	}
+	detail.Clear()
+	/*
+		For show mode
+		show, err := g.SetView(ShowView, maxX/2-30, maxY/2-10, maxX/2+30, maxY/2+10)
+			if err != nil && err != gocui.ErrUnknownView {
+				return err
+			}
+			show.Clear()
+			showContents := mv.showContents()
+			fmt.Fprintf(show, showContents)
+	*/
 	g.SetCurrentView(ItemsView)
 	items.SelBgColor = gocui.ColorWhite
 	items.SelFgColor = gocui.ColorBlack
 	items.Highlight = true
 
-	headerS, rows := mv.tabulatedItems()
+	components := mv.graph.Components(mv.subsystem)
+	headerS, rows := mv.tabulatedItems(components)
 	for _, row := range rows {
 		fmt.Fprintf(items, "%s\n", row)
 	}
 	fmt.Fprintf(header, headerS)
+	_, oy := items.Origin()
+	_, cy := items.Cursor()
+	detailContents := mv.detailContents(components, oy+cy)
+	fmt.Fprintf(detail, detailContents)
 
 	return nil
 }
@@ -77,12 +100,29 @@ func map2slice(m map[string]bool) []string {
 	return s
 }
 
-func (mv *MainView) tabulatedItems() (string, []string) {
+func (mv *MainView) tabulatedItems(components []models.Component) (string, []string) {
 	rows := []string{}
-	for _, comp := range mv.graph.Components(mv.subsystem) {
+	for _, comp := range components {
 		rows = append(rows, fmt.Sprintf("%s         %s", comp.Kind, comp.DisplayName))
 	}
 	return "Components", rows
+}
+
+func (mv *MainView) detailContents(components []models.Component, selected int) string {
+	return fmt.Sprintf("Description: %s", components[selected].Description)
+}
+
+func (mv *MainView) showContents() string {
+	contents := ""
+	keys := map2slice(mv.show)
+	for _, key := range keys {
+		mark := " "
+		if mv.show[key] {
+			mark = "x"
+		}
+		contents += fmt.Sprintf("[%s] %s\n", mark, key)
+	}
+	return contents
 }
 
 func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {

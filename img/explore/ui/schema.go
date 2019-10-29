@@ -1,6 +1,8 @@
 package ui
 
 const (
-	ItemsView  string = "items"
+	DetailView string = "detail"
 	HeaderView string = "header"
+	ItemsView  string = "items"
+	ShowView   string = "show"
 )
