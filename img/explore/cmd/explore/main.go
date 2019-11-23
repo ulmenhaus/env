@@ -38,7 +38,7 @@ func main() {
 
 	g.SetManagerFunc(mv.Layout)
 
-	err = mv.SetKeyBindings(g)
+	err = mv.InitKeyBindings(g)
 	if err != nil {
 		panic(err)
 	}

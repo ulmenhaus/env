@@ -18,6 +18,7 @@ type MainViewMode int
 
 const (
 	MainViewModeListBar MainViewMode = iota
+	MainViewModeToggleShow
 )
 
 // A MainView is the overall view including a directory list
@@ -26,6 +27,8 @@ type MainView struct {
 
 	show      map[string]bool // determines which types of things will be shown
 	subsystem string          // the subsystem that's currently in view (nil means the whole system)
+
+	mode MainViewMode
 }
 
 // NewMainView returns a MainView initialized with a given Table
@@ -62,17 +65,31 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 		return err
 	}
 	detail.Clear()
-	/*
-		For show mode
-		show, err := g.SetView(ShowView, maxX/2-30, maxY/2-10, maxX/2+30, maxY/2+10)
-			if err != nil && err != gocui.ErrUnknownView {
-				return err
-			}
-			show.Clear()
-			showContents := mv.showContents()
-			fmt.Fprintf(show, showContents)
-	*/
-	g.SetCurrentView(ItemsView)
+
+	if mv.mode == MainViewModeToggleShow {
+		showToggle, err := g.SetView(ShowView, maxX/2-30, maxY/2-10, maxX/2+30, maxY/2+10)
+		if err != nil && err != gocui.ErrUnknownView {
+			return err
+		}
+		showToggle.Clear()
+		showToggleContents := mv.showToggleContents()
+		fmt.Fprintf(showToggle, showToggleContents)
+		showToggle.SelBgColor = gocui.ColorWhite
+		showToggle.SelFgColor = gocui.ColorBlack
+		showToggle.Highlight = true
+		err = mv.setKeyBindings(ShowView, g)
+		if err != nil {
+			return err
+		}
+		g.SetCurrentView(ShowView)
+	} else {
+		err := g.DeleteView(ShowView)
+		if err != nil && err != gocui.ErrUnknownView {
+			return err
+		}
+		g.SetCurrentView(ItemsView)
+	}
+
 	items.SelBgColor = gocui.ColorWhite
 	items.SelFgColor = gocui.ColorBlack
 	items.Highlight = true
@@ -123,14 +140,28 @@ func (mv *MainView) tabulatedItems(components []models.Component) (string, []str
 	for _, comp := range components {
 		rows = append(rows, fmt.Sprintf("%s%s%s", comp.Kind, multiplyS(" ", maxKind-len(comp.Kind)), comp.DisplayName))
 	}
-	return "Components", rows
+	system := mv.subsystem
+	if system == "" {
+		system = "root system"
+	}
+	header := fmt.Sprintf(
+		"%s\n %d of %d Nodes     %d of %d Subsystems    %d of %d Components",
+		system,
+		len(components),
+		len(components),
+		0,
+		0,
+		len(components),
+		len(components),
+	)
+	return header, rows
 }
 
 func (mv *MainView) detailContents(components []models.Component, selected int) string {
 	return fmt.Sprintf("Description: %s", components[selected].Description)
 }
 
-func (mv *MainView) showContents() string {
+func (mv *MainView) showToggleContents() string {
 	contents := ""
 	keys := map2slice(mv.show)
 	for _, key := range keys {
@@ -143,37 +174,44 @@ func (mv *MainView) showContents() string {
 	return contents
 }
 
-func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
-	err := g.SetKeybinding(ItemsView, 'k', gocui.ModNone, mv.cursorUp)
-	if err != nil {
-		return err
-	}
-	err = g.SetKeybinding(ItemsView, 'j', gocui.ModNone, mv.cursorDown)
-	if err != nil {
-		return err
-	}
-	err = g.SetKeybinding(ItemsView, 'g', gocui.ModNone, mv.topOfList)
-	if err != nil {
-		return err
-	}
-	err = g.SetKeybinding(ItemsView, 'G', gocui.ModNone, mv.bottomOfList)
-	if err != nil {
-		return err
-	}
-	/*
-		err = g.SetKeybinding(ItemsView, 's', gocui.ModNone, mv.saveContents)
-			if err != nil {
-				return err
-			}
-			if err := g.SetKeybinding(ItemsView, gocui.KeyEnter, gocui.ModNone, mv.logTime); err != nil {
-				return err
-			}
-			err = g.SetKeybinding(ItemsView, 'w', gocui.ModNone, mv.openLink)
-			if err != nil {
-				return err
-			}
-	*/
+func (mv *MainView) InitKeyBindings(g *gocui.Gui) error {
+	return mv.setKeyBindings(ItemsView, g)
+}
 
+func (mv *MainView) setKeyBindings(view string, g *gocui.Gui) error {
+	if view != ItemsView && view != ShowView {
+		return nil
+	}
+	err := g.SetKeybinding(view, 'k', gocui.ModNone, mv.cursorUp)
+	if err != nil {
+		return err
+	}
+	err = g.SetKeybinding(view, 'j', gocui.ModNone, mv.cursorDown)
+	if err != nil {
+		return err
+	}
+	err = g.SetKeybinding(view, 'g', gocui.ModNone, mv.topOfList)
+	if err != nil {
+		return err
+	}
+	err = g.SetKeybinding(view, 'G', gocui.ModNone, mv.bottomOfList)
+	if err != nil {
+		return err
+	}
+	err = g.SetKeybinding(view, 's', gocui.ModNone, mv.toggleShowToggle)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (mv *MainView) toggleShowToggle(g *gocui.Gui, v *gocui.View) error {
+	switch mv.mode {
+	case MainViewModeListBar:
+		mv.mode = MainViewModeToggleShow
+	case MainViewModeToggleShow:
+		mv.mode = MainViewModeListBar
+	}
 	return nil
 }
 

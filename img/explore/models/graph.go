@@ -6,11 +6,12 @@ type Component struct {
 	Kind        string `json:"kind"`
 	DisplayName string `json:"display_name"`
 	Description string `json:"description"`
+	Location    string `json:"location"`
 }
 
 type EncodedNode struct {
 	Component
-	Public bool `json:"bool"`
+	Public bool `json:"public"`
 }
 
 type EncodedSubsystem struct {
