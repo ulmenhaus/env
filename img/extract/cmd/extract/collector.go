@@ -3,11 +3,11 @@ package main
 import (
 	"fmt"
 	"go/ast"
+	"go/build"
 	"go/parser"
 	"go/token"
 	"io/ioutil"
 	"os"
-	"os/exec"
 	"path/filepath"
 
 	"github.com/ulmenhaus/env/img/explore/models"
@@ -25,39 +25,36 @@ const (
 type Collector struct {
 	pkgs []string
 
-	graph *models.EncodedGraph
+	finder   *DefinitionFinder
+	graph    *models.EncodedGraph
+	loc2node map[string]models.EncodedNode // maps node canonical location to copy of corresponding node
 }
 
-func NewCollector(pkgs []string) *Collector {
+func NewCollector(pkgs []string) (*Collector, error) {
+	finder, err := NewDefinitionFinder(&build.Default, pkgs)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Collector{
 		pkgs: pkgs,
 
+		finder: finder,
 		graph: &models.EncodedGraph{
 			Nodes: []models.EncodedNode{},
+			Relations: map[string]([]models.EncodedEdge){
+				models.RelationReferences: []models.EncodedEdge{},
+			},
 		},
-	}
+		loc2node: map[string]models.EncodedNode{},
+	}, nil
 }
 
 func (c *Collector) CollectEdges(ids []*ast.Ident) error {
 	return nil
-	for _, id := range ids {
-		fmt.Printf("Object '%s' at: %d\n", id.Name, id.NamePos)
-		cmd := exec.Command("guru", "-json", "definition", fmt.Sprintf("jql/osm/mapper.go:#%d", id.NamePos))
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		err := cmd.Run()
-		if err != nil {
-			fmt.Printf("Got error: %s\n", err)
-		}
-	}
-	return nil
 }
 
-func pos2loc(path string, pos token.Pos) string {
-	return fmt.Sprintf("%s#%d", path, pos)
-}
-
-func (c *Collector) CollectNodes() error {
+func (c *Collector) MapFiles(f func(pkg, short, path string) error) error {
 	gopath := os.Getenv("GOPATH")
 	for _, pkg := range c.pkgs {
 		glob := filepath.Join(gopath, "src", pkg, "*.go")
@@ -68,33 +65,129 @@ func (c *Collector) CollectNodes() error {
 		}
 		short := filepath.Base(pkg)
 		for _, path := range paths {
-			fset := token.NewFileSet()
-			contents, err := ioutil.ReadFile(path)
+			err = f(pkg, short, path)
 			if err != nil {
 				return err
-			}
-			f, err := parser.ParseFile(fset, "", string(contents), parser.ParseComments)
-			if err != nil {
-				return err
-			}
-			for _, decl := range f.Decls {
-				switch typed := decl.(type) {
-				case *ast.FuncDecl:
-					c.graph.Nodes = append(c.graph.Nodes, NodeFromFunc(pkg, short, path, typed))
-				case *ast.GenDecl:
-					switch typed.Tok {
-					case token.CONST, token.VAR:
-						c.graph.Nodes = append(c.graph.Nodes, NodesFromGlobal(pkg, short, path, typed)...)
-					case token.TYPE:
-						c.graph.Nodes = append(c.graph.Nodes, NodesFromTypedef(pkg, short, path, typed)...)
-					default:
-						continue
-					}
-				}
 			}
 		}
 	}
 	return nil
+}
+
+func (c *Collector) collectNodesInFile(pkg, short, path string) error {
+	fset := token.NewFileSet()
+	contents, err := ioutil.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	f, err := parser.ParseFile(fset, "", string(contents), parser.ParseComments)
+	if err != nil {
+		return err
+	}
+	for _, decl := range f.Decls {
+		switch typed := decl.(type) {
+		case *ast.FuncDecl:
+			c.graph.Nodes = append(c.graph.Nodes, NodeFromFunc(pkg, short, path, typed))
+		case *ast.GenDecl:
+			switch typed.Tok {
+			case token.CONST, token.VAR:
+				c.graph.Nodes = append(c.graph.Nodes, NodesFromGlobal(pkg, short, path, typed)...)
+			case token.TYPE:
+				c.graph.Nodes = append(c.graph.Nodes, NodesFromTypedef(pkg, short, path, typed)...)
+			default:
+				continue
+			}
+		default:
+			continue
+		}
+	}
+	return nil
+}
+
+func (c *Collector) CollectAll() error {
+	err := c.CollectNodes()
+	if err != nil {
+		return err
+	}
+	for _, node := range c.graph.Nodes {
+		c.loc2node[node.Location.Canonical()] = node
+	}
+	err = c.CollectReferences()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *Collector) CollectNodes() error {
+	return c.MapFiles(c.collectNodesInFile)
+}
+
+func (c *Collector) CollectReferences() error {
+	return c.MapFiles(func(pkg, short, path string) error {
+		fset := token.NewFileSet()
+
+		contents, err := ioutil.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		f, err := parser.ParseFile(fset, "", string(contents), 0)
+		if err != nil {
+			return err
+		}
+
+		var source *models.EncodedNode
+
+		ast.Inspect(f, func(n ast.Node) bool {
+			id, ok := n.(*ast.Ident)
+			if !ok {
+				return true
+			}
+			loc := models.EncodedLocation{
+				Path:   path,
+				Offset: uint(n.Pos()) - 1, // HACK these appear to be one-indexed?
+			}
+			candidate, ok := c.loc2node[loc.Canonical()]
+			if ok {
+				source = &candidate
+			}
+
+			// if we've reached this point and still don't have a source then we are not yet
+			// in a node so subsequent operations are meaningless
+			if source == nil {
+				return true
+			}
+
+			// double check that the current node is in the decl to rule out false positives
+			// e.g. from types of decls that aren't accounted for
+			if uint(id.Pos()) < source.Location.Start || uint(id.End()) > source.Location.End {
+				return true
+			}
+			ref := models.EncodedLocation{
+				Path:   path,
+				Offset: uint(id.NamePos),
+			}
+			def, err := c.finder.Find(&build.Default, ref)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Got error: %s\n", err)
+				return true
+			}
+
+			dest, ok := c.loc2node[def.Canonical()]
+			if !ok {
+				fmt.Fprintf(os.Stderr, "Got miss on %#v\n", n)
+				return true
+			}
+			edge := models.EncodedEdge{
+				SourceUID: source.UID,
+				DestUID:   dest.UID,
+				// TODO location
+			}
+			c.graph.Relations[models.RelationReferences] = append(c.graph.Relations[models.RelationReferences], edge)
+			return true
+		})
+		return nil
+	})
 }
 
 func (c *Collector) Graph() *models.EncodedGraph {

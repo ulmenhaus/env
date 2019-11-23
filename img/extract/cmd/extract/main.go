@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"go/build"
 	"os"
 	"os/exec"
 	"strings"
@@ -21,8 +20,11 @@ func main() {
 		panic(err)
 	}
 	pkgs := strings.Split(buffer.String(), "\n")
-	c := NewCollector(pkgs)
-	err = c.CollectNodes()
+	c, err := NewCollector(pkgs)
+	if err != nil {
+		panic(err)
+	}
+	err = c.CollectAll()
 	if err != nil {
 		panic(err)
 	}

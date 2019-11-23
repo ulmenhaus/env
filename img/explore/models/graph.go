@@ -1,12 +1,32 @@
 package models
 
+import "fmt"
+
+const (
+	RelationReferences string = "references"
+)
+
+// An EncodedLocation represents the position within a file for a definition or reference
+type EncodedLocation struct {
+	Path   string `json:"path"`
+	Offset uint   `json:"offset"` // offset for the identifier
+	Start  uint   `json:"start"`  // the start of the correspnding node for the identified object
+	End    uint   `json:"end"`    // the end of the corresponding node for the identified object
+	Lines  uint   `json:"lines"`  // the total number of lines for the identified object
+}
+
+func (l EncodedLocation) Canonical() string {
+	// NOTE assumes the Paqth is canonical (e.g. is an absolute path)
+	return fmt.Sprintf("%s#%d", l.Path, l.Offset)
+}
+
 // Component is an abstraction over nodes and subsystems
 type Component struct {
-	UID         string `json:"uid"`
-	Kind        string `json:"kind"`
-	DisplayName string `json:"display_name"`
-	Description string `json:"description"`
-	Location    string `json:"location"`
+	UID         string          `json:"uid"`
+	Kind        string          `json:"kind"`
+	DisplayName string          `json:"display_name"`
+	Description string          `json:"description"`
+	Location    EncodedLocation `json:"location"`
 }
 
 type EncodedNode struct {
@@ -20,9 +40,9 @@ type EncodedSubsystem struct {
 }
 
 type EncodedGraph struct {
-	Nodes      []EncodedNode             `json:"nodes"`
-	Subsystems []EncodedSubsystem        `json:"subsystems"`
-	Relations  map[string]([]([]string)) `json:"relations"`
+	Nodes      []EncodedNode                `json:"nodes"`
+	Subsystems []EncodedSubsystem           `json:"subsystems"`
+	Relations  map[string]([](EncodedEdge)) `json:"relations"`
 }
 
 type SystemGraph struct {
@@ -32,9 +52,10 @@ type SystemGraph struct {
 	under      map[string]string    // Maps node uid to the subsystem the node is collapsed into
 }
 
-type Edge struct {
-	SourceDisplayName string
-	DestDisplayName   string
+type EncodedEdge struct {
+	SourceUID string          `json:"source_uid"`
+	DestUID   string          `json:"dest_uid"`
+	Location  EncodedLocation `json:"location"`
 }
 
 func NewSystemGraph() *SystemGraph {
@@ -42,7 +63,7 @@ func NewSystemGraph() *SystemGraph {
 		encoded: &EncodedGraph{
 			Nodes:      []EncodedNode{},
 			Subsystems: []EncodedSubsystem{},
-			Relations:  map[string]([]([]string)){},
+			Relations:  map[string]([]EncodedEdge){},
 		},
 	}
 }
@@ -94,6 +115,6 @@ func (sg *SystemGraph) Components(under string) []Component {
 	return components
 }
 
-func (sg *SystemGraph) Edges() []Edge {
+func (sg *SystemGraph) Edges() []EncodedEdge {
 	return nil
 }

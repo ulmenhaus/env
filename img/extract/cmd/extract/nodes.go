@@ -8,6 +8,15 @@ import (
 	"github.com/ulmenhaus/env/img/explore/models"
 )
 
+func pos2loc(path string, pos token.Pos, node ast.Node) models.EncodedLocation {
+	return models.EncodedLocation{
+		Path:   path,
+		Offset: uint(pos) - 1, // HACK these positions seem to be one-indexed?
+		Start:  uint(node.Pos()) - 1,
+		End:    uint(node.End()) - 1,
+	}
+}
+
 func NodeFromFunc(pkg, short, path string, f *ast.FuncDecl) models.EncodedNode {
 	doc := ""
 	if f.Doc != nil {
@@ -38,7 +47,7 @@ func NodeFromFunc(pkg, short, path string, f *ast.FuncDecl) models.EncodedNode {
 			DisplayName: fmt.Sprintf("%s.%s", short, name),
 			Description: doc,
 			Kind:        kind,
-			Location:    pos2loc(path, f.Name.NamePos),
+			Location:    pos2loc(path, f.Name.NamePos, f),
 		},
 		Public: public,
 	}
@@ -76,7 +85,9 @@ func NodesFromGlobal(pkg, short, path string, global *ast.GenDecl) []models.Enco
 					DisplayName: fmt.Sprintf("%s.%s", short, name),
 					Description: doc,
 					Kind:        kind,
-					Location:    pos2loc(path, id.NamePos),
+					// Using spec here instead of id in case the global references another
+					// global. This can get ambiguous with multiple ids in the same spec.
+					Location: pos2loc(path, id.NamePos, spec),
 				},
 				Public: public,
 			})
@@ -111,7 +122,7 @@ func NodesFromTypedef(pkg, short, path string, typed *ast.GenDecl) []models.Enco
 				DisplayName: fmt.Sprintf("%s.%s", short, name),
 				Description: doc,
 				Kind:        kind,
-				Location:    pos2loc(path, tspec.Name.NamePos),
+				Location:    pos2loc(path, tspec.Name.NamePos, spec),
 			},
 			Public: public,
 		})
@@ -129,7 +140,8 @@ func NodesFromTypedef(pkg, short, path string, typed *ast.GenDecl) []models.Enco
 							DisplayName: fmt.Sprintf("%s.%s.%s", short, name, fieldName.Name),
 							Description: fieldDoc,
 							Kind:        KindField,
-							Location:    pos2loc(path, fieldName.NamePos),
+							// NOTE for multiple fields on the same line this is ambiguous
+							Location: pos2loc(path, fieldName.NamePos, field),
 						},
 						Public: public,
 					})
@@ -148,7 +160,7 @@ func NodesFromTypedef(pkg, short, path string, typed *ast.GenDecl) []models.Enco
 							DisplayName: fmt.Sprintf("%s.%s.%s", short, name, methodName.Name),
 							Description: methodDoc,
 							Kind:        KindMethod,
-							Location:    pos2loc(path, methodName.NamePos),
+							Location:    pos2loc(path, methodName.NamePos, method),
 						},
 						Public: public,
 					})
