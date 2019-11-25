@@ -131,10 +131,12 @@ func (mv *MainView) tabulatedItems(components []models.Component) (string, []str
 	sort.Slice(components, func(i, j int) bool { return components[i].DisplayName < components[j].DisplayName })
 	rows := []string{}
 	maxKind := 0
+	loc := uint(0)
 	for _, comp := range components {
 		if len(comp.Kind) > maxKind {
 			maxKind = len(comp.Kind)
 		}
+		loc += comp.Location.Lines
 	}
 	maxKind += 10 // padding
 	for _, comp := range components {
@@ -145,7 +147,7 @@ func (mv *MainView) tabulatedItems(components []models.Component) (string, []str
 		system = "root system"
 	}
 	header := fmt.Sprintf(
-		"%s\n %d of %d Nodes     %d of %d Subsystems    %d of %d Components",
+		"%s\n %d of %d Nodes     %d of %d Subsystems    %d of %d Components   %d total lines of code",
 		system,
 		len(components),
 		len(components),
@@ -153,6 +155,7 @@ func (mv *MainView) tabulatedItems(components []models.Component) (string, []str
 		0,
 		len(components),
 		len(components),
+		loc,
 	)
 	return header, rows
 }
