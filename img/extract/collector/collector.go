@@ -1,4 +1,4 @@
-package main
+package collector
 
 import (
 	"fmt"
@@ -48,10 +48,6 @@ func NewCollector(pkgs []string) (*Collector, error) {
 		},
 		loc2node: map[string]models.EncodedNode{},
 	}, nil
-}
-
-func (c *Collector) CollectEdges(ids []*ast.Ident) error {
-	return nil
 }
 
 func (c *Collector) MapFiles(f func(pkg, short, path string) error) error {
@@ -160,7 +156,7 @@ func (c *Collector) CollectReferences() error {
 
 			// double check that the current node is in the decl to rule out false positives
 			// e.g. from types of decls that aren't accounted for
-			if uint(id.Pos()) < source.Location.Start || uint(id.End()) > source.Location.End {
+			if uint(id.Pos()-1) < source.Location.Start || uint(id.End()-1) > source.Location.End { // HACK these are one-indexed
 				return true
 			}
 			ref := models.EncodedLocation{
@@ -176,6 +172,10 @@ func (c *Collector) CollectReferences() error {
 			dest, ok := c.loc2node[def.Canonical()]
 			if !ok {
 				fmt.Fprintf(os.Stderr, "Got miss on %#v\n", n)
+				return true
+			}
+			if dest.UID == source.UID {
+				// every component will have a trival reference to itself which we ignore
 				return true
 			}
 			edge := models.EncodedEdge{

@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/ulmenhaus/env/img/extract/collector"
 )
 
 func main() {
@@ -20,7 +22,7 @@ func main() {
 		panic(err)
 	}
 	pkgs := strings.Split(buffer.String(), "\n")
-	c, err := NewCollector(pkgs)
+	c, err := collector.NewCollector(pkgs)
 	if err != nil {
 		panic(err)
 	}
