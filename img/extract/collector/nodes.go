@@ -97,9 +97,13 @@ func NodesFromGlobal(pkg, short, path string, global *ast.GenDecl) []models.Enco
 	return nodes
 }
 
-func NodesFromTypedef(pkg, short, path string, typed *ast.GenDecl) []models.EncodedNode {
+// NodesFromTypedef returns the nodes that belong to a GenDecl, a slice of UIDs for the
+// structs in the decl, and a slice of UIDs for the interfaces in the decl
+func NodesFromTypedef(pkg, short, path string, typed *ast.GenDecl) ([]models.EncodedNode, []string, []string) {
 	kind := KindType
 	nodes := []models.EncodedNode{}
+	structs := []string{}
+	ifaces := []string{}
 
 	for _, spec := range typed.Specs {
 		tspec, ok := spec.(*ast.TypeSpec)
@@ -116,9 +120,10 @@ func NodesFromTypedef(pkg, short, path string, typed *ast.GenDecl) []models.Enco
 			public = false
 		}
 
+		uid := fmt.Sprintf("%s.%s", pkg, name)
 		nodes = append(nodes, models.EncodedNode{
 			Component: models.Component{
-				UID:         fmt.Sprintf("%s.%s", pkg, name),
+				UID:         uid,
 				DisplayName: fmt.Sprintf("%s.%s", short, name),
 				Description: doc,
 				Kind:        kind,
@@ -128,6 +133,7 @@ func NodesFromTypedef(pkg, short, path string, typed *ast.GenDecl) []models.Enco
 		})
 		switch typeTyped := tspec.Type.(type) {
 		case *ast.StructType:
+			structs = append(structs, uid)
 			for _, field := range typeTyped.Fields.List {
 				fieldDoc := ""
 				if field.Comment != nil {
@@ -148,6 +154,7 @@ func NodesFromTypedef(pkg, short, path string, typed *ast.GenDecl) []models.Enco
 				}
 			}
 		case *ast.InterfaceType:
+			ifaces = append(ifaces, uid)
 			for _, method := range typeTyped.Methods.List {
 				methodDoc := ""
 				if method.Comment != nil {
@@ -169,5 +176,5 @@ func NodesFromTypedef(pkg, short, path string, typed *ast.GenDecl) []models.Enco
 		}
 	}
 
-	return nodes
+	return nodes, structs, ifaces
 }

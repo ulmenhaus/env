@@ -2,16 +2,15 @@ package collector
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/ulmenhaus/env/img/explore/models"
 )
 
 var (
-	GOPATH        = os.Getenv("GOPATH")
-	sourcePkgPath = "github.com/ulmenhaus/env/img/extract/tests/fixtures/source"
-	targetPkgPath = "github.com/ulmenhaus/env/img/extract/tests/fixtures/target"
+	fixturesPkgPath = "github.com/ulmenhaus/env/img/extract/tests/fixtures"
+	sourcePkgPath   = "github.com/ulmenhaus/env/img/extract/tests/fixtures/source"
+	targetPkgPath   = "github.com/ulmenhaus/env/img/extract/tests/fixtures/target"
 )
 
 var nodeTestCases = []struct {
@@ -27,7 +26,7 @@ var nodeTestCases = []struct {
 				DisplayName: "target.singleLinePrvConst",
 				Description: "a private const defined on a single line\n",
 				Location: models.EncodedLocation{
-					Path:   filepath.Join(GOPATH, "src", targetPkgPath, "intra.go"),
+					Path:   filepath.Join(GoPath, "src", targetPkgPath, "intra.go"),
 					Offset: 94,
 					Start:  94,
 					End:    116,
@@ -45,7 +44,7 @@ var nodeTestCases = []struct {
 				DisplayName: "target.SingleLinePubConst",
 				Description: "a private const defined on a single line\n",
 				Location: models.EncodedLocation{
-					Path:   filepath.Join(GOPATH, "src", targetPkgPath, "intra.go"),
+					Path:   filepath.Join(GoPath, "src", targetPkgPath, "intra.go"),
 					Offset: 167,
 					Start:  167,
 					End:    189,
@@ -63,7 +62,7 @@ var nodeTestCases = []struct {
 				DisplayName: "target.multiLinePrvConst",
 				Description: "a private const defined as a part of a multi-line definition\n",
 				Location: models.EncodedLocation{
-					Path:   filepath.Join(GOPATH, "src", targetPkgPath, "intra.go"),
+					Path:   filepath.Join(GoPath, "src", targetPkgPath, "intra.go"),
 					Offset: 244,
 					Start:  244,
 					End:    265,
@@ -81,7 +80,7 @@ var nodeTestCases = []struct {
 				DisplayName: "target.MultiLinePubConst",
 				Description: "a public const defined as a part of a multi-line definition\n",
 				Location: models.EncodedLocation{
-					Path:   filepath.Join(GOPATH, "src", targetPkgPath, "intra.go"),
+					Path:   filepath.Join(GoPath, "src", targetPkgPath, "intra.go"),
 					Offset: 331,
 					Start:  331,
 					End:    352,
@@ -99,7 +98,7 @@ var nodeTestCases = []struct {
 				DisplayName: "target.singleLinePrvVar",
 				Description: "a private var defined on a single line\n",
 				Location: models.EncodedLocation{
-					Path:   filepath.Join(GOPATH, "src", targetPkgPath, "intra.go"),
+					Path:   filepath.Join(GoPath, "src", targetPkgPath, "intra.go"),
 					Offset: 423,
 					Start:  423,
 					End:    443,
@@ -117,7 +116,7 @@ var nodeTestCases = []struct {
 				DisplayName: "target.SingleLinePubVar",
 				Description: "a private var defined on a single line\n",
 				Location: models.EncodedLocation{
-					Path:   filepath.Join(GOPATH, "src", targetPkgPath, "intra.go"),
+					Path:   filepath.Join(GoPath, "src", targetPkgPath, "intra.go"),
 					Offset: 490,
 					Start:  490,
 					End:    510,
@@ -135,7 +134,7 @@ var nodeTestCases = []struct {
 				DisplayName: "target.multiLinePrvVar",
 				Description: "a private var defined as a part of a multi-line definition\n",
 				Location: models.EncodedLocation{
-					Path:   filepath.Join(GOPATH, "src", targetPkgPath, "intra.go"),
+					Path:   filepath.Join(GoPath, "src", targetPkgPath, "intra.go"),
 					Offset: 561,
 					Start:  561,
 					End:    580,
@@ -153,7 +152,7 @@ var nodeTestCases = []struct {
 				DisplayName: "target.MultiLinePubVar",
 				Description: "a public var defined as a part of a multi-line definition\n",
 				Location: models.EncodedLocation{
-					Path:   filepath.Join(GOPATH, "src", targetPkgPath, "intra.go"),
+					Path:   filepath.Join(GoPath, "src", targetPkgPath, "intra.go"),
 					Offset: 644,
 					Start:  644,
 					End:    663,
@@ -171,7 +170,7 @@ var nodeTestCases = []struct {
 				DisplayName: "target.slVar2var",
 				Description: "a var that references other vars\n",
 				Location: models.EncodedLocation{
-					Path:   filepath.Join(GOPATH, "src", targetPkgPath, "intra.go"),
+					Path:   filepath.Join(GoPath, "src", targetPkgPath, "intra.go"),
 					Offset: 732,
 					Start:  732,
 					End:    792,
@@ -189,7 +188,7 @@ var nodeTestCases = []struct {
 				DisplayName: "target.SingleLineType",
 				Description: "",
 				Location: models.EncodedLocation{
-					Path:   filepath.Join(GOPATH, "src", targetPkgPath, "intra.go"),
+					Path:   filepath.Join(GoPath, "src", targetPkgPath, "intra.go"),
 					Offset: 898,
 					Start:  898,
 					End:    916,
@@ -207,7 +206,7 @@ var nodeTestCases = []struct {
 				DisplayName: "target.MultiLineType",
 				Description: "",
 				Location: models.EncodedLocation{
-					Path:   filepath.Join(GOPATH, "src", targetPkgPath, "intra.go"),
+					Path:   filepath.Join(GoPath, "src", targetPkgPath, "intra.go"),
 					Offset: 986,
 					Start:  986,
 					End:    1135,
@@ -225,7 +224,7 @@ var nodeTestCases = []struct {
 				DisplayName: "target.MultiLineType.SimpleField",
 				Description: "a primitive field\n",
 				Location: models.EncodedLocation{
-					Path:   filepath.Join(GOPATH, "src", targetPkgPath, "intra.go"),
+					Path:   filepath.Join(GoPath, "src", targetPkgPath, "intra.go"),
 					Offset: 1010,
 					Start:  1010,
 					End:    1029,
@@ -243,7 +242,7 @@ var nodeTestCases = []struct {
 				DisplayName: "target.MultiLineType.TypeToTypeField",
 				Description: "a field that references another type\n",
 				Location: models.EncodedLocation{
-					Path:   filepath.Join(GOPATH, "src", targetPkgPath, "intra.go"),
+					Path:   filepath.Join(GoPath, "src", targetPkgPath, "intra.go"),
 					Offset: 1063,
 					Start:  1063,
 					End:    1093,
@@ -261,7 +260,7 @@ var nodeTestCases = []struct {
 				DisplayName: "target.MultiLineInterface",
 				Description: "",
 				Location: models.EncodedLocation{
-					Path:   filepath.Join(GOPATH, "src", targetPkgPath, "intra.go"),
+					Path:   filepath.Join(GoPath, "src", targetPkgPath, "intra.go"),
 					Offset: 1216,
 					Start:  1216,
 					End:    1507,
@@ -279,7 +278,7 @@ var nodeTestCases = []struct {
 				DisplayName: "target.MultiLineInterface.SimpleMethod",
 				Description: "",
 				Location: models.EncodedLocation{
-					Path:   filepath.Join(GOPATH, "src", targetPkgPath, "intra.go"),
+					Path:   filepath.Join(GoPath, "src", targetPkgPath, "intra.go"),
 					Offset: 1312,
 					Start:  1312,
 					End:    1335,
@@ -297,7 +296,7 @@ var nodeTestCases = []struct {
 				DisplayName: "target.MultiLineFunc",
 				Description: "MultiLineFunc is a multi-line function that references a const, var, type, and field\n",
 				Location: models.EncodedLocation{
-					Path:   filepath.Join(GOPATH, "src", targetPkgPath, "intra.go"),
+					Path:   filepath.Join(GoPath, "src", targetPkgPath, "intra.go"),
 					Offset: 1849,
 					Start:  1844,
 					End:    2066,
@@ -451,6 +450,151 @@ var edgeTestCases = []struct {
 		edge: models.EncodedEdge{
 			SourceUID: fmt.Sprintf("%s.%s", sourcePkgPath, "InterPackageFunc"),
 			DestUID:   fmt.Sprintf("%s.%s", targetPkgPath, "MultiLineInterface.SimpleMethod"),
+		},
+	},
+}
+
+var subsystemTestCases = []struct {
+	name      string
+	subsystem models.EncodedSubsystem
+}{
+	{
+		name: "interface-with-methods",
+		subsystem: models.EncodedSubsystem{
+			Component: models.Component{
+				UID:         fmt.Sprintf("%s.%s", targetPkgPath, "MultiLineInterface.interface"),
+				Kind:        KindIface,
+				DisplayName: "target.MultiLineInterface.interface",
+				Location: models.EncodedLocation{
+					Path:   filepath.Join(GoPath, "src", targetPkgPath, "intra.go"),
+					Offset: 1216,
+					Start:  1216,
+					End:    1507,
+				},
+			},
+			Parts: []string{
+				fmt.Sprintf("%s.%s", targetPkgPath, "MultiLineInterface"),
+				fmt.Sprintf("%s.%s", targetPkgPath, "MultiLineInterface.CompositeMethod"),
+				fmt.Sprintf("%s.%s", targetPkgPath, "MultiLineInterface.CompositeReturn"),
+				fmt.Sprintf("%s.%s", targetPkgPath, "MultiLineInterface.SimpleMethod"),
+			},
+		},
+	},
+	{
+		name: "struct-with-fields-and-methods",
+		subsystem: models.EncodedSubsystem{
+			Component: models.Component{
+				UID:         fmt.Sprintf("%s.%s", targetPkgPath, "MultiLineType.struct"),
+				Kind:        KindStruct,
+				DisplayName: "target.MultiLineType.struct",
+				Location: models.EncodedLocation{
+					Path:   filepath.Join(GoPath, "src", targetPkgPath, "intra.go"),
+					Offset: 986,
+					Start:  986,
+					End:    1135,
+				},
+			},
+			Parts: []string{
+				fmt.Sprintf("%s.%s", targetPkgPath, "MultiLineType"),
+				fmt.Sprintf("%s.%s", targetPkgPath, "MultiLineType.MultiLineMethod"),
+				fmt.Sprintf("%s.%s", targetPkgPath, "MultiLineType.SimpleField"),
+				fmt.Sprintf("%s.%s", targetPkgPath, "MultiLineType.TypeToTypeField"),
+			},
+		},
+	},
+	{
+		name: "file-with-const-var-type-func",
+		subsystem: models.EncodedSubsystem{
+			Component: models.Component{
+				UID:         fmt.Sprintf("%s/%s", targetPkgPath, "intra.go"),
+				Kind:        KindFile,
+				DisplayName: fmt.Sprintf("%s/%s", targetPkgPath, "intra.go"),
+				Location: models.EncodedLocation{
+					Path: filepath.Join(GoPath, "src", targetPkgPath, "intra.go"),
+				},
+			},
+			Parts: []string{
+				fmt.Sprintf("%s.%s", targetPkgPath, "MultiLineFunc"),
+				fmt.Sprintf("%s.%s", targetPkgPath, "MultiLineInterface.interface"),
+				fmt.Sprintf("%s.%s", targetPkgPath, "MultiLinePubConst"),
+				fmt.Sprintf("%s.%s", targetPkgPath, "MultiLinePubVar"),
+				fmt.Sprintf("%s.%s", targetPkgPath, "MultiLineType.struct"),
+				fmt.Sprintf("%s.%s", targetPkgPath, "SingleLineFuncCompositeInput"),
+				fmt.Sprintf("%s.%s", targetPkgPath, "SingleLineFuncCompositeReturn"),
+				fmt.Sprintf("%s.%s", targetPkgPath, "SingleLinePubConst"),
+				fmt.Sprintf("%s.%s", targetPkgPath, "SingleLinePubVar"),
+				fmt.Sprintf("%s.%s", targetPkgPath, "SingleLineType"),
+				fmt.Sprintf("%s.%s", targetPkgPath, "multiLinePrvConst"),
+				fmt.Sprintf("%s.%s", targetPkgPath, "multiLinePrvVar"),
+				fmt.Sprintf("%s.%s", targetPkgPath, "singleLinePrvConst"),
+				fmt.Sprintf("%s.%s", targetPkgPath, "singleLinePrvVar"),
+				fmt.Sprintf("%s.%s", targetPkgPath, "slVar2var"),
+			},
+		},
+	},
+	{
+		name: "package-with-const-var-type-func",
+		subsystem: models.EncodedSubsystem{
+			Component: models.Component{
+				UID:         targetPkgPath,
+				Kind:        KindPkg,
+				DisplayName: targetPkgPath,
+				Location: models.EncodedLocation{
+					Path: filepath.Join(GoPath, "src", targetPkgPath),
+				},
+			},
+			Parts: []string{
+				fmt.Sprintf("%s.%s", targetPkgPath, "InterFileFunc"),
+				fmt.Sprintf("%s.%s", targetPkgPath, "MultiLineFunc"),
+				fmt.Sprintf("%s.%s", targetPkgPath, "MultiLineInterface.interface"),
+				fmt.Sprintf("%s.%s", targetPkgPath, "MultiLinePubConst"),
+				fmt.Sprintf("%s.%s", targetPkgPath, "MultiLinePubVar"),
+				fmt.Sprintf("%s.%s", targetPkgPath, "MultiLineType.struct"),
+				fmt.Sprintf("%s.%s", targetPkgPath, "SingleLineFuncCompositeInput"),
+				fmt.Sprintf("%s.%s", targetPkgPath, "SingleLineFuncCompositeReturn"),
+				fmt.Sprintf("%s.%s", targetPkgPath, "SingleLinePubConst"),
+				fmt.Sprintf("%s.%s", targetPkgPath, "SingleLinePubVar"),
+				fmt.Sprintf("%s.%s", targetPkgPath, "SingleLineType"),
+				fmt.Sprintf("%s.%s", targetPkgPath, "multiLinePrvConst"),
+				fmt.Sprintf("%s.%s", targetPkgPath, "multiLinePrvVar"),
+				fmt.Sprintf("%s.%s", targetPkgPath, "singleLinePrvConst"),
+				fmt.Sprintf("%s.%s", targetPkgPath, "singleLinePrvVar"),
+				fmt.Sprintf("%s.%s", targetPkgPath, "slVar2var"),
+			},
+		},
+	},
+	{
+		name: "directory-with-files",
+		subsystem: models.EncodedSubsystem{
+			Component: models.Component{
+				UID:         targetPkgPath + "/",
+				Kind:        KindDir,
+				DisplayName: targetPkgPath + "/",
+				Location: models.EncodedLocation{
+					Path: filepath.Join(GoPath, "src", targetPkgPath),
+				},
+			},
+			Parts: []string{
+				fmt.Sprintf("%s/%s", targetPkgPath, "inter.go"),
+				fmt.Sprintf("%s/%s", targetPkgPath, "intra.go"),
+			},
+		},
+	},
+	{
+		name: "directory-with-subdirs",
+		subsystem: models.EncodedSubsystem{
+			Component: models.Component{
+				UID:         fixturesPkgPath + "/",
+				Kind:        KindDir,
+				DisplayName: fixturesPkgPath + "/",
+				Location: models.EncodedLocation{
+					Path: filepath.Join(GoPath, "src", fixturesPkgPath),
+				},
+			},
+			Parts: []string{
+				sourcePkgPath + "/",
+				targetPkgPath + "/",
+			},
 		},
 	},
 }

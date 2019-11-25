@@ -9,17 +9,31 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"github.com/ulmenhaus/env/img/explore/models"
 )
 
 const (
+	// node types
 	KindConst    string = "const"
 	KindField    string = "field"
 	KindFunction string = "function"
 	KindMethod   string = "method"
 	KindType     string = "type"
 	KindVar      string = "var"
+
+	// subsystem types
+	KindDir    string = "directory"
+	KindFile   string = "file"
+	KindIface  string = "interface"
+	KindPkg    string = "package"
+	KindStruct string = "struct"
+)
+
+var (
+	GoPath = os.Getenv("GOPATH")
 )
 
 type Collector struct {
@@ -28,6 +42,8 @@ type Collector struct {
 	finder   *DefinitionFinder
 	graph    *models.EncodedGraph
 	loc2node map[string]models.EncodedNode // maps node canonical location to copy of corresponding node
+	structs  map[string]bool               // tracks UIDs for structs so they can be distinguished from other typs
+	ifaces   map[string]bool               // tracks UIDs for interfaces so they can be distinguished from other typs
 }
 
 func NewCollector(pkgs []string) (*Collector, error) {
@@ -45,15 +61,17 @@ func NewCollector(pkgs []string) (*Collector, error) {
 			Relations: map[string]([]models.EncodedEdge){
 				models.RelationReferences: []models.EncodedEdge{},
 			},
+			Subsystems: []models.EncodedSubsystem{},
 		},
 		loc2node: map[string]models.EncodedNode{},
+		structs:  map[string]bool{},
+		ifaces:   map[string]bool{},
 	}, nil
 }
 
 func (c *Collector) MapFiles(f func(pkg, short, path string) error) error {
-	gopath := os.Getenv("GOPATH")
 	for _, pkg := range c.pkgs {
-		glob := filepath.Join(gopath, "src", pkg, "*.go")
+		glob := filepath.Join(GoPath, "src", pkg, "*.go")
 		// TODO would be good to be able to filter out test files
 		paths, err := filepath.Glob(glob)
 		if err != nil {
@@ -89,7 +107,14 @@ func (c *Collector) collectNodesInFile(pkg, short, path string) error {
 			case token.CONST, token.VAR:
 				c.graph.Nodes = append(c.graph.Nodes, NodesFromGlobal(pkg, short, path, typed)...)
 			case token.TYPE:
-				c.graph.Nodes = append(c.graph.Nodes, NodesFromTypedef(pkg, short, path, typed)...)
+				nodes, structs, ifaces := NodesFromTypedef(pkg, short, path, typed)
+				c.graph.Nodes = append(c.graph.Nodes, nodes...)
+				for _, uid := range structs {
+					c.structs[uid] = true
+				}
+				for _, uid := range ifaces {
+					c.ifaces[uid] = true
+				}
 			default:
 				continue
 			}
@@ -112,6 +137,7 @@ func (c *Collector) CollectAll() error {
 	if err != nil {
 		return err
 	}
+	c.BuildSubsystems()
 	return nil
 }
 
@@ -188,6 +214,173 @@ func (c *Collector) CollectReferences() error {
 		})
 		return nil
 	})
+}
+
+func (c *Collector) subsystemsByUID() map[string]*models.EncodedSubsystem {
+	subsystems := map[string]*models.EncodedSubsystem{} // maps uid to subsystem
+
+	for _, node := range c.graph.Nodes {
+		// Technically will only work on Unix OSes but no intention of running on Windows soon
+		pkg := filepath.Dir(node.UID) + "/" + strings.Split(filepath.Base(node.UID), ".")[0]
+		file := pkg + "/" + filepath.Base(node.Location.Path)
+		parts := strings.Split(pkg, "/")
+
+		if node.Kind == KindType {
+			if _, ok := c.structs[node.UID]; ok {
+				uid := fmt.Sprintf("%s.struct", node.UID)
+				subsystems[uid] = &models.EncodedSubsystem{
+					Component: models.Component{
+						UID:         uid,
+						Kind:        KindStruct,
+						DisplayName: fmt.Sprintf("%s.struct", node.DisplayName),
+						Description: node.Description,
+						Location:    node.Location,
+					},
+					Parts: []string{},
+				}
+
+			}
+			if _, ok := c.ifaces[node.UID]; ok {
+				uid := fmt.Sprintf("%s.interface", node.UID)
+				subsystems[uid] = &models.EncodedSubsystem{
+					Component: models.Component{
+						UID:         uid,
+						Kind:        KindIface,
+						DisplayName: fmt.Sprintf("%s.interface", node.DisplayName),
+						Description: node.Description,
+						Location:    node.Location,
+					},
+					Parts: []string{},
+				}
+
+			}
+		}
+
+		if _, ok := subsystems[pkg]; !ok {
+			subsystems[pkg] = &models.EncodedSubsystem{
+				Component: models.Component{
+					UID:         pkg,
+					Kind:        KindPkg,
+					DisplayName: pkg,
+					Description: "", // TODO
+					Location: models.EncodedLocation{
+						Path: filepath.Dir(node.Location.Path),
+					},
+				},
+				Parts: []string{},
+			}
+		}
+		for i := range parts {
+			dir := strings.Join(parts[:i+1], "/") + "/"
+			if _, ok := subsystems[dir]; ok {
+				continue
+			}
+			subsystems[dir] = &models.EncodedSubsystem{
+				Component: models.Component{
+					UID:         dir,
+					Kind:        KindDir,
+					DisplayName: dir,
+					Description: "", // TODO
+					Location: models.EncodedLocation{
+						Path: filepath.Join(GoPath, "src", dir),
+					},
+				},
+				Parts: []string{},
+			}
+		}
+		if _, ok := subsystems[file]; !ok {
+			subsystems[file] = &models.EncodedSubsystem{
+				Component: models.Component{
+					UID:         file,
+					Kind:        KindFile,
+					DisplayName: file,
+					Description: "", // TODO
+					Location: models.EncodedLocation{
+						Path: node.Location.Path,
+					},
+				},
+				Parts: []string{},
+			}
+		}
+	}
+	return subsystems
+}
+
+func (c *Collector) BuildSubsystems() {
+	subsystems := c.subsystemsByUID()
+
+	for _, ss := range subsystems {
+		// Technically will only work on Unix OSes but no intention of running on Windows soon
+		pkg := filepath.Dir(ss.Component.UID) + "/" + strings.Split(filepath.Base(ss.Component.UID), ".")[0]
+		file := pkg + "/" + filepath.Base(ss.Component.Location.Path)
+
+		switch ss.Component.Kind {
+		case KindDir:
+			container := filepath.Dir(filepath.Dir(ss.UID)) + "/"
+			parent := subsystems[container]
+			if parent != nil {
+				parent.Parts = append(parent.Parts, ss.UID)
+			}
+		case KindFile:
+			container := filepath.Dir(ss.UID) + "/"
+			parent := subsystems[container]
+			parent.Parts = append(parent.Parts, ss.UID)
+		case KindIface, KindStruct: // Technically a struct + methods can span multiple files so we could make it a part of the directory
+			pkgParent := subsystems[pkg]
+			pkgParent.Parts = append(pkgParent.Parts, ss.UID)
+			fileParent := subsystems[file]
+			fileParent.Parts = append(fileParent.Parts, ss.UID)
+		case KindPkg:
+			// ignore
+		}
+	}
+	for _, node := range c.graph.Nodes {
+		// Technically will only work on Unix OSes but no intention of running on Windows soon
+		pkg := filepath.Dir(node.UID) + "/" + strings.Split(filepath.Base(node.UID), ".")[0]
+		file := pkg + "/" + filepath.Base(node.Location.Path)
+
+		switch node.Kind {
+		case KindConst, KindFunction, KindVar:
+			parentPkg := subsystems[pkg]
+			parentPkg.Parts = append(parentPkg.Parts, node.UID)
+			parentFile := subsystems[file]
+			parentFile.Parts = append(parentFile.Parts, node.UID)
+		case KindField, KindMethod:
+			parentShort := strings.Join(strings.Split(filepath.Base(node.UID), ".")[:2], ".")
+			parentType := filepath.Dir(node.UID) + "/" + parentShort
+			if _, ok := c.structs[parentType]; ok {
+				parentType = parentType + ".struct"
+			} else if _, ok := c.ifaces[parentType]; ok {
+				parentType = parentType + ".interface"
+			} else {
+				continue
+			}
+			parent := subsystems[parentType]
+			parent.Parts = append(parent.Parts, node.UID)
+			// Fields and methods will be subsystems of their parent types so will inherit their parent files and packages
+			// parentFile := subsystems[file]
+			// parentFile.Parts = append(parentFile.Parts, node.UID)
+		case KindType:
+			if _, ok := c.structs[node.UID]; ok {
+				parent := subsystems[node.UID+".struct"]
+				parent.Parts = append(parent.Parts, node.UID)
+			} else if _, ok := c.ifaces[node.UID]; ok {
+				parent := subsystems[node.UID+".interface"]
+				parent.Parts = append(parent.Parts, node.UID)
+			} else {
+				// non struct or interface types are fine to be children of their respective files and packages
+				parentPkg := subsystems[pkg]
+				parentPkg.Parts = append(parentPkg.Parts, node.UID)
+				parentFile := subsystems[file]
+				parentFile.Parts = append(parentFile.Parts, node.UID)
+			}
+		}
+	}
+
+	for _, subsystem := range subsystems {
+		sort.Slice(subsystem.Parts, func(i, j int) bool { return subsystem.Parts[i] < subsystem.Parts[j] })
+		c.graph.Subsystems = append(c.graph.Subsystems, *subsystem)
+	}
 }
 
 func (c *Collector) Graph() *models.EncodedGraph {

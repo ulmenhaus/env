@@ -61,4 +61,17 @@ func TestCollectAll(t *testing.T) {
 			})
 		}
 	})
+
+	t.Run("build subsystems", func(t *testing.T) {
+		subsystemsByUID := map[string]models.EncodedSubsystem{}
+		for _, ss := range graph.Subsystems {
+			subsystemsByUID[ss.UID] = ss
+		}
+		for _, tc := range subsystemTestCases {
+			t.Run(fmt.Sprintf("case %s", tc.name), func(t *testing.T) {
+				require.Contains(t, subsystemsByUID, tc.subsystem.UID)
+				require.Equal(t, tc.subsystem, subsystemsByUID[tc.subsystem.UID])
+			})
+		}
+	})
 }
