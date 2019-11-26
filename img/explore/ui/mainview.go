@@ -161,6 +161,9 @@ func (mv *MainView) tabulatedItems(components []models.Component) (string, []str
 }
 
 func (mv *MainView) detailContents(components []models.Component, selected int) string {
+	if components[selected].Description == "" {
+		return "No Documentation Provided"
+	}
 	return fmt.Sprintf("Description: %s", components[selected].Description)
 }
 

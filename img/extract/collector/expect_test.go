@@ -193,7 +193,7 @@ var nodeTestCases = []struct {
 		node: models.EncodedNode{
 			Component: models.Component{
 				UID:         fmt.Sprintf("%s.%s", targetPkgPath, "SingleLineType"),
-				Kind:        KindType,
+				Kind:        KindTypename,
 				DisplayName: "target.SingleLineType",
 				Description: "",
 				Location: models.EncodedLocation{
@@ -212,7 +212,7 @@ var nodeTestCases = []struct {
 		node: models.EncodedNode{
 			Component: models.Component{
 				UID:         fmt.Sprintf("%s.%s", targetPkgPath, "MultiLineType"),
-				Kind:        KindType,
+				Kind:        KindTypename,
 				DisplayName: "target.MultiLineType",
 				Description: "",
 				Location: models.EncodedLocation{
@@ -269,7 +269,7 @@ var nodeTestCases = []struct {
 		node: models.EncodedNode{
 			Component: models.Component{
 				UID:         fmt.Sprintf("%s.%s", targetPkgPath, "MultiLineInterface"),
-				Kind:        KindType,
+				Kind:        KindTypename,
 				DisplayName: "target.MultiLineInterface",
 				Description: "",
 				Location: models.EncodedLocation{
@@ -478,9 +478,9 @@ var subsystemTestCases = []struct {
 		name: "interface-with-methods",
 		subsystem: models.EncodedSubsystem{
 			Component: models.Component{
-				UID:         fmt.Sprintf("%s.%s", targetPkgPath, "MultiLineInterface.interface"),
+				UID:         fmt.Sprintf("%s.%s", targetPkgPath, "MultiLineInterface.type"),
 				Kind:        KindIface,
-				DisplayName: "target.MultiLineInterface.interface",
+				DisplayName: "target.MultiLineInterface.type",
 				Location: models.EncodedLocation{
 					Path:   filepath.Join(GoPath, "src", targetPkgPath, "intra.go"),
 					Offset: 1216,
@@ -501,9 +501,9 @@ var subsystemTestCases = []struct {
 		name: "struct-with-fields-and-methods",
 		subsystem: models.EncodedSubsystem{
 			Component: models.Component{
-				UID:         fmt.Sprintf("%s.%s", targetPkgPath, "MultiLineType.struct"),
+				UID:         fmt.Sprintf("%s.%s", targetPkgPath, "MultiLineType.type"),
 				Kind:        KindStruct,
-				DisplayName: "target.MultiLineType.struct",
+				DisplayName: "target.MultiLineType.type",
 				Location: models.EncodedLocation{
 					Path:   filepath.Join(GoPath, "src", targetPkgPath, "intra.go"),
 					Offset: 986,
@@ -533,15 +533,15 @@ var subsystemTestCases = []struct {
 			},
 			Parts: []string{
 				fmt.Sprintf("%s.%s", targetPkgPath, "MultiLineFunc"),
-				fmt.Sprintf("%s.%s", targetPkgPath, "MultiLineInterface.interface"),
+				fmt.Sprintf("%s.%s", targetPkgPath, "MultiLineInterface.type"),
 				fmt.Sprintf("%s.%s", targetPkgPath, "MultiLinePubConst"),
 				fmt.Sprintf("%s.%s", targetPkgPath, "MultiLinePubVar"),
-				fmt.Sprintf("%s.%s", targetPkgPath, "MultiLineType.struct"),
+				fmt.Sprintf("%s.%s", targetPkgPath, "MultiLineType.type"),
 				fmt.Sprintf("%s.%s", targetPkgPath, "SingleLineFuncCompositeInput"),
 				fmt.Sprintf("%s.%s", targetPkgPath, "SingleLineFuncCompositeReturn"),
 				fmt.Sprintf("%s.%s", targetPkgPath, "SingleLinePubConst"),
 				fmt.Sprintf("%s.%s", targetPkgPath, "SingleLinePubVar"),
-				fmt.Sprintf("%s.%s", targetPkgPath, "SingleLineType"),
+				fmt.Sprintf("%s.%s", targetPkgPath, "SingleLineType.type"),
 				fmt.Sprintf("%s.%s", targetPkgPath, "multiLinePrvConst"),
 				fmt.Sprintf("%s.%s", targetPkgPath, "multiLinePrvVar"),
 				fmt.Sprintf("%s.%s", targetPkgPath, "singleLinePrvConst"),
@@ -564,15 +564,15 @@ var subsystemTestCases = []struct {
 			Parts: []string{
 				fmt.Sprintf("%s.%s", targetPkgPath, "InterFileFunc"),
 				fmt.Sprintf("%s.%s", targetPkgPath, "MultiLineFunc"),
-				fmt.Sprintf("%s.%s", targetPkgPath, "MultiLineInterface.interface"),
+				fmt.Sprintf("%s.%s", targetPkgPath, "MultiLineInterface.type"),
 				fmt.Sprintf("%s.%s", targetPkgPath, "MultiLinePubConst"),
 				fmt.Sprintf("%s.%s", targetPkgPath, "MultiLinePubVar"),
-				fmt.Sprintf("%s.%s", targetPkgPath, "MultiLineType.struct"),
+				fmt.Sprintf("%s.%s", targetPkgPath, "MultiLineType.type"),
 				fmt.Sprintf("%s.%s", targetPkgPath, "SingleLineFuncCompositeInput"),
 				fmt.Sprintf("%s.%s", targetPkgPath, "SingleLineFuncCompositeReturn"),
 				fmt.Sprintf("%s.%s", targetPkgPath, "SingleLinePubConst"),
 				fmt.Sprintf("%s.%s", targetPkgPath, "SingleLinePubVar"),
-				fmt.Sprintf("%s.%s", targetPkgPath, "SingleLineType"),
+				fmt.Sprintf("%s.%s", targetPkgPath, "SingleLineType.type"),
 				fmt.Sprintf("%s.%s", targetPkgPath, "multiLinePrvConst"),
 				fmt.Sprintf("%s.%s", targetPkgPath, "multiLinePrvVar"),
 				fmt.Sprintf("%s.%s", targetPkgPath, "singleLinePrvConst"),

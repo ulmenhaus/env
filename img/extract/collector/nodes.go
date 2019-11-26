@@ -109,7 +109,7 @@ func NodesFromGlobal(pkg, short, path string, global *ast.GenDecl) []models.Enco
 // NodesFromTypedef returns the nodes that belong to a GenDecl, a slice of UIDs for the
 // structs in the decl, and a slice of UIDs for the interfaces in the decl
 func NodesFromTypedef(pkg, short, path string, typed *ast.GenDecl) ([]models.EncodedNode, []string, []string) {
-	kind := KindType
+	kind := KindTypename
 	nodes := []models.EncodedNode{}
 	structs := []string{}
 	ifaces := []string{}

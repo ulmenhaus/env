@@ -21,15 +21,16 @@ const (
 	KindField    string = "field"
 	KindFunction string = "function"
 	KindMethod   string = "method"
-	KindType     string = "type"
+	KindTypename string = "typename"
 	KindVar      string = "var"
 
 	// subsystem types
-	KindDir    string = "directory"
-	KindFile   string = "file"
-	KindIface  string = "interface"
-	KindPkg    string = "package"
-	KindStruct string = "struct"
+	KindDir     string = "directory"
+	KindFile    string = "file"
+	KindGeneric string = "generic" // generic type (i.e. not a struct or an interface)
+	KindIface   string = "interface"
+	KindPkg     string = "package"
+	KindStruct  string = "struct"
 )
 
 var (
@@ -225,34 +226,45 @@ func (c *Collector) subsystemsByUID() map[string]*models.EncodedSubsystem {
 		file := pkg + "/" + filepath.Base(node.Location.Path)
 		parts := strings.Split(pkg, "/")
 
-		if node.Kind == KindType {
+		if node.Kind == KindTypename {
 			if _, ok := c.structs[node.UID]; ok {
-				uid := fmt.Sprintf("%s.struct", node.UID)
+				uid := fmt.Sprintf("%s.type", node.UID)
 				subsystems[uid] = &models.EncodedSubsystem{
 					Component: models.Component{
 						UID:         uid,
 						Kind:        KindStruct,
-						DisplayName: fmt.Sprintf("%s.struct", node.DisplayName),
+						DisplayName: fmt.Sprintf("%s.type", node.DisplayName),
 						Description: node.Description,
 						Location:    node.Location,
 					},
 					Parts: []string{},
 				}
 
-			}
-			if _, ok := c.ifaces[node.UID]; ok {
-				uid := fmt.Sprintf("%s.interface", node.UID)
+			} else if _, ok := c.ifaces[node.UID]; ok {
+				uid := fmt.Sprintf("%s.type", node.UID)
 				subsystems[uid] = &models.EncodedSubsystem{
 					Component: models.Component{
 						UID:         uid,
 						Kind:        KindIface,
-						DisplayName: fmt.Sprintf("%s.interface", node.DisplayName),
+						DisplayName: fmt.Sprintf("%s.type", node.DisplayName),
 						Description: node.Description,
 						Location:    node.Location,
 					},
 					Parts: []string{},
 				}
 
+			} else {
+				uid := fmt.Sprintf("%s.type", node.UID)
+				subsystems[uid] = &models.EncodedSubsystem{
+					Component: models.Component{
+						UID:         uid,
+						Kind:        KindGeneric,
+						DisplayName: fmt.Sprintf("%s.type", node.DisplayName),
+						Description: node.Description,
+						Location:    node.Location,
+					},
+					Parts: []string{},
+				}
 			}
 		}
 
@@ -325,7 +337,7 @@ func (c *Collector) BuildSubsystems() {
 			container := filepath.Dir(ss.UID) + "/"
 			parent := subsystems[container]
 			parent.Parts = append(parent.Parts, ss.UID)
-		case KindIface, KindStruct: // Technically a struct + methods can span multiple files so we could make it a part of the directory
+		case KindIface, KindStruct, KindGeneric: // Technically a struct + methods can span multiple files so we could make it a part of the directory
 			pkgParent := subsystems[pkg]
 			pkgParent.Parts = append(pkgParent.Parts, ss.UID)
 			fileParent := subsystems[file]
@@ -347,33 +359,15 @@ func (c *Collector) BuildSubsystems() {
 			parentFile.Parts = append(parentFile.Parts, node.UID)
 		case KindField, KindMethod:
 			parentShort := strings.Join(strings.Split(filepath.Base(node.UID), ".")[:2], ".")
-			parentType := filepath.Dir(node.UID) + "/" + parentShort
-			if _, ok := c.structs[parentType]; ok {
-				parentType = parentType + ".struct"
-			} else if _, ok := c.ifaces[parentType]; ok {
-				parentType = parentType + ".interface"
-			} else {
-				continue
-			}
+			parentType := fmt.Sprintf("%s/%s.type", filepath.Dir(node.UID), parentShort)
 			parent := subsystems[parentType]
 			parent.Parts = append(parent.Parts, node.UID)
 			// Fields and methods will be subsystems of their parent types so will inherit their parent files and packages
 			// parentFile := subsystems[file]
 			// parentFile.Parts = append(parentFile.Parts, node.UID)
-		case KindType:
-			if _, ok := c.structs[node.UID]; ok {
-				parent := subsystems[node.UID+".struct"]
-				parent.Parts = append(parent.Parts, node.UID)
-			} else if _, ok := c.ifaces[node.UID]; ok {
-				parent := subsystems[node.UID+".interface"]
-				parent.Parts = append(parent.Parts, node.UID)
-			} else {
-				// non struct or interface types are fine to be children of their respective files and packages
-				parentPkg := subsystems[pkg]
-				parentPkg.Parts = append(parentPkg.Parts, node.UID)
-				parentFile := subsystems[file]
-				parentFile.Parts = append(parentFile.Parts, node.UID)
-			}
+		case KindTypename:
+			parent := subsystems[node.UID+".type"]
+			parent.Parts = append(parent.Parts, node.UID)
 		}
 	}
 

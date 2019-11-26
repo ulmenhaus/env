@@ -30,7 +30,7 @@ func main() {
 		panic(err)
 	}
 	defer g.Close()
-	mv, err := ui.NewMainView(models.DecodeGraph(encoded), g)
+	mv, err := ui.NewMainView(models.NewSystemGraph(encoded), g)
 	if err != nil {
 		panic(err)
 	}

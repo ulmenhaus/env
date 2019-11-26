@@ -4,6 +4,7 @@ import "fmt"
 
 const (
 	RelationReferences string = "references"
+	RootSystem         string = "root"
 )
 
 // An EncodedLocation represents the position within a file for a definition or reference
@@ -48,8 +49,10 @@ type EncodedGraph struct {
 type SystemGraph struct {
 	encoded *EncodedGraph
 
-	components map[string]Component // Maps UID to associated Component struct
-	under      map[string]string    // Maps node uid to the subsystem the node is collapsed into
+	components map[string]Component         // Maps UID to associated Component struct
+	contains   map[string](map[string]bool) // Maps each subsystem recursively to the UID of avery node and subsystem it contains
+	inside     map[string](map[string]bool) // Reverse map for contains
+	under      map[string][]string          // Maps node uid to a stack of subsystems into which the node has been collapsed
 }
 
 type EncodedEdge struct {
@@ -58,34 +61,93 @@ type EncodedEdge struct {
 	Location  EncodedLocation `json:"location"`
 }
 
-func NewSystemGraph() *SystemGraph {
+func NewSystemGraph(encoded *EncodedGraph) *SystemGraph {
+	components := map[string]Component{}
+	for _, node := range encoded.Nodes {
+		components[node.UID] = node.Component
+	}
+	for _, ss := range encoded.Subsystems {
+		components[ss.UID] = ss.Component
+	}
+	contains := map[string](map[string]bool){}
+	buildContainmaentGraph(encoded, contains)
+	inside := reverse(contains)
+
 	return &SystemGraph{
-		encoded: &EncodedGraph{
-			Nodes:      []EncodedNode{},
-			Subsystems: []EncodedSubsystem{},
-			Relations:  map[string]([]EncodedEdge){},
-		},
+		encoded: encoded,
+
+		components: components,
+		contains:   contains,
+		inside:     inside,
+		under:      map[string][]string{},
 	}
 }
 
-func DecodeGraph(eg *EncodedGraph) *SystemGraph {
-	graph := &SystemGraph{
-		encoded: eg,
-
-		components: map[string]Component{},
-		under:      map[string]string{},
+func buildContainmaentGraph(eg *EncodedGraph, c map[string](map[string]bool)) {
+	contained := map[string]bool{}
+	subsystems := map[string]EncodedSubsystem{}
+	for _, ss := range eg.Subsystems {
+		subsystems[ss.UID] = ss
 	}
 
-	// At the start every node and subsystem will be shown under root aka ""
+	var buildFrom func(start string) // to support recursive closure
+
+	buildFrom = func(start string) {
+		if _, ok := c[start]; ok {
+			return
+		}
+		ss, ok := subsystems[start]
+		if !ok {
+			// it's a node
+			contained[start] = true
+			return
+		}
+		contains := map[string]bool{}
+		for _, part := range ss.Parts {
+			contained[part] = true
+			buildFrom(part)
+			contains[part] = true
+			for target := range c[part] {
+				contains[target] = true
+			}
+		}
+		c[start] = contains
+	}
+
+	for _, ss := range eg.Subsystems {
+		buildFrom(ss.UID)
+	}
+	// "root" will contain any dangling nodes and subsystems
+	root := map[string]bool{}
 	for _, node := range eg.Nodes {
-		graph.components[node.UID] = node.Component
-		graph.under[node.UID] = ""
+		if _, ok := contained[node.UID]; !ok {
+			root[node.UID] = true
+		}
 	}
-	for _, subsystem := range eg.Subsystems {
-		graph.components[subsystem.UID] = subsystem.Component
-		graph.under[subsystem.UID] = ""
+	for _, ss := range eg.Subsystems {
+		if _, ok := contained[ss.UID]; !ok {
+			root[ss.UID] = true
+		}
 	}
-	return graph
+	c[RootSystem] = root
+}
+
+func reverse(m map[string](map[string]bool)) map[string](map[string]bool) {
+	r := map[string](map[string]bool){}
+
+	for source, targets := range m {
+		r[source] = map[string]bool{}
+		for target := range targets {
+			r[target] = map[string]bool{}
+		}
+	}
+
+	for source, targets := range m {
+		for target := range targets {
+			r[target][source] = true
+		}
+	}
+	return r
 }
 
 func (sg *SystemGraph) DeleteEntry(uid string) {
@@ -104,15 +166,7 @@ func (sg *SystemGraph) ExpandToLeaves(uid string) {
 }
 
 func (sg *SystemGraph) Components(under string) []Component {
-	// Reversed map would be better here, but shmeh
-	components := []Component{}
-	for uid, parentUID := range sg.under {
-		if parentUID != under {
-			continue
-		}
-		components = append(components, sg.components[uid])
-	}
-	return components
+	return nil
 }
 
 func (sg *SystemGraph) Edges() []EncodedEdge {
