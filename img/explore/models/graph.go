@@ -52,7 +52,8 @@ type SystemGraph struct {
 	components map[string]Component         // Maps UID to associated Component struct
 	contains   map[string](map[string]bool) // Maps each subsystem recursively to the UID of avery node and subsystem it contains
 	inside     map[string](map[string]bool) // Reverse map for contains
-	under      map[string][]string          // Maps node uid to a stack of subsystems into which the node has been collapsed
+	over       map[string](map[string]bool) // Reverse map of under
+	under      map[string]string            // Maps node uid to the subsystem into which the node has been collapsed
 }
 
 type EncodedEdge struct {
@@ -63,11 +64,21 @@ type EncodedEdge struct {
 
 func NewSystemGraph(encoded *EncodedGraph) *SystemGraph {
 	components := map[string]Component{}
+	over := map[string](map[string]bool){
+		RootSystem: map[string]bool{},
+	}
+	under := map[string]string{}
 	for _, node := range encoded.Nodes {
 		components[node.UID] = node.Component
+		over[node.UID] = map[string]bool{}
+		over[RootSystem][node.UID] = true
+		under[node.UID] = RootSystem
 	}
 	for _, ss := range encoded.Subsystems {
 		components[ss.UID] = ss.Component
+		over[ss.UID] = map[string]bool{}
+		over[RootSystem][ss.UID] = true
+		under[ss.UID] = RootSystem
 	}
 	contains := map[string](map[string]bool){}
 	buildContainmaentGraph(encoded, contains)
@@ -79,7 +90,9 @@ func NewSystemGraph(encoded *EncodedGraph) *SystemGraph {
 		components: components,
 		contains:   contains,
 		inside:     inside,
-		under:      map[string][]string{},
+
+		under: under,
+		over:  over,
 	}
 }
 
@@ -150,25 +163,40 @@ func reverse(m map[string](map[string]bool)) map[string](map[string]bool) {
 	return r
 }
 
-func (sg *SystemGraph) DeleteEntry(uid string) {
+// Uncontained returns all descendants of a subsystem that are currently
+// within another subsystem (usually root)
+//
+// NOTE this procedure will only look directly, not recursively, within the
+// subsystem, but this is ok if containment is hierarchical
+func (sg *SystemGraph) Uncontained(parentUID string, lookin string) []string {
+	components := []string{}
+	for containedUID := range sg.over[lookin] {
+		if sg.contains[parentUID][containedUID] {
+			components = append(components, containedUID)
+		}
+	}
+	return components
 }
 
-func (sg *SystemGraph) DeleteSubsystem(uid string) {
-}
-
-func (sg *SystemGraph) CollapseChildren(uid string) {
-}
-
-func (sg *SystemGraph) ExpandChildren(uid string) {
-}
-
-func (sg *SystemGraph) ExpandToLeaves(uid string) {
+func (sg *SystemGraph) MoveInto(uid string, target string) {
+	current := sg.under[uid]
+	sg.under[uid] = target
+	delete(sg.over[current], uid)
+	sg.over[target][uid] = true
 }
 
 func (sg *SystemGraph) Components(under string) []Component {
-	return nil
+	components := []Component{}
+	for uid := range sg.over[under] {
+		components = append(components, sg.components[uid])
+	}
+	return components
 }
 
 func (sg *SystemGraph) Edges() []EncodedEdge {
 	return nil
+}
+
+func (sg *SystemGraph) Parent(uid string) string {
+	return sg.under[uid]
 }

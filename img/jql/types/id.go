@@ -2,9 +2,9 @@ package types
 
 import (
 	"fmt"
+	"math/rand"
 	"time"
 
-	"github.com/golang/go/src/math/rand"
 	"github.com/ulmenhaus/env/img/jql/storage"
 )
 

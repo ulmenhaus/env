@@ -28,16 +28,18 @@ type MainView struct {
 	show      map[string]bool // determines which types of things will be shown
 	subsystem string          // the subsystem that's currently in view (nil means the whole system)
 
-	mode MainViewMode
+	components []models.Component // the current list of components being shown in the UI
+	mode       MainViewMode
 }
 
 // NewMainView returns a MainView initialized with a given Table
 func NewMainView(graph *models.SystemGraph, g *gocui.Gui) (*MainView, error) {
 	mv := &MainView{
-		graph: graph,
-		show:  map[string]bool{},
+		graph:     graph,
+		show:      map[string]bool{},
+		subsystem: models.RootSystem,
 	}
-	for _, comp := range graph.Components("") {
+	for _, comp := range graph.Components(mv.subsystem) {
 		mv.show[comp.Kind] = true
 	}
 	return mv, nil
@@ -94,15 +96,15 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 	items.SelFgColor = gocui.ColorBlack
 	items.Highlight = true
 
-	components := mv.graph.Components(mv.subsystem)
-	headerS, rows := mv.tabulatedItems(components)
+	mv.components = mv.graph.Components(mv.subsystem)
+	headerS, rows := mv.tabulatedItems(mv.components)
 	for _, row := range rows {
 		fmt.Fprintf(items, "%s\n", row)
 	}
 	fmt.Fprintf(header, headerS)
 	_, oy := items.Origin()
 	_, cy := items.Cursor()
-	detailContents := mv.detailContents(components, oy+cy)
+	detailContents := mv.detailContents(mv.components, oy+cy)
 	fmt.Fprintf(detail, detailContents)
 
 	return nil
@@ -161,6 +163,9 @@ func (mv *MainView) tabulatedItems(components []models.Component) (string, []str
 }
 
 func (mv *MainView) detailContents(components []models.Component, selected int) string {
+	if selected >= len(components) {
+		return ""
+	}
 	if components[selected].Description == "" {
 		return "No Documentation Provided"
 	}
@@ -208,6 +213,18 @@ func (mv *MainView) setKeyBindings(view string, g *gocui.Gui) error {
 	if err != nil {
 		return err
 	}
+	err = g.SetKeybinding(view, 'c', gocui.ModNone, mv.toggleCurrentEntry)
+	if err != nil {
+		return err
+	}
+	err = g.SetKeybinding(view, gocui.KeyEnter, gocui.ModNone, mv.enterSubsystem)
+	if err != nil {
+		return err
+	}
+	err = g.SetKeybinding(view, 'u', gocui.ModNone, mv.exitSubsystem)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -218,6 +235,38 @@ func (mv *MainView) toggleShowToggle(g *gocui.Gui, v *gocui.View) error {
 	case MainViewModeToggleShow:
 		mv.mode = MainViewModeListBar
 	}
+	return nil
+}
+
+func (mv *MainView) toggleCurrentEntry(g *gocui.Gui, v *gocui.View) error {
+	_, oy := v.Origin()
+	_, cy := v.Cursor()
+	uid := mv.components[oy+cy].UID
+	uncontained := mv.graph.Uncontained(uid, mv.subsystem)
+	// If there are entries to move then we will move them. Otherwise
+	// we will expand the subsystem instead.
+	if len(uncontained) > 0 {
+		for _, tomove := range uncontained {
+			mv.graph.MoveInto(tomove, uid)
+		}
+	} else {
+		for _, tomove := range mv.graph.Components(uid) {
+			mv.graph.MoveInto(tomove.UID, mv.subsystem)
+		}
+	}
+	return nil
+}
+
+func (mv *MainView) enterSubsystem(g *gocui.Gui, v *gocui.View) error {
+	_, oy := v.Origin()
+	_, cy := v.Cursor()
+	uid := mv.components[oy+cy].UID
+	mv.subsystem = uid
+	return nil
+}
+
+func (mv *MainView) exitSubsystem(g *gocui.Gui, v *gocui.View) error {
+	mv.subsystem = mv.graph.Parent(mv.subsystem)
 	return nil
 }
 
