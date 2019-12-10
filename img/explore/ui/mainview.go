@@ -29,6 +29,7 @@ type MainView struct {
 	subsystem string          // the subsystem that's currently in view (nil means the whole system)
 
 	components []models.Component // the current list of components being shown in the UI
+	kind2count map[string]int     // breakdown of the counts of components under the current subsystem
 	mode       MainViewMode
 }
 
@@ -40,8 +41,9 @@ func NewMainView(graph *models.SystemGraph, g *gocui.Gui) (*MainView, error) {
 		subsystem: models.RootSystem,
 	}
 	for _, comp := range graph.Components(mv.subsystem) {
-		mv.show[comp.Kind] = true
+		mv.show[comp.Kind] = false
 	}
+	mv.show["struct"] = true
 	return mv, nil
 }
 
@@ -70,7 +72,12 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 
 	if mv.mode == MainViewModeToggleShow {
 		showToggle, err := g.SetView(ShowView, maxX/2-30, maxY/2-10, maxX/2+30, maxY/2+10)
-		if err != nil && err != gocui.ErrUnknownView {
+		if err == gocui.ErrUnknownView {
+			err = mv.setKeyBindings(ShowView, g)
+			if err != nil {
+				return err
+			}
+		} else if err != nil {
 			return err
 		}
 		showToggle.Clear()
@@ -79,10 +86,6 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 		showToggle.SelBgColor = gocui.ColorWhite
 		showToggle.SelFgColor = gocui.ColorBlack
 		showToggle.Highlight = true
-		err = mv.setKeyBindings(ShowView, g)
-		if err != nil {
-			return err
-		}
 		g.SetCurrentView(ShowView)
 	} else {
 		err := g.DeleteView(ShowView)
@@ -96,7 +99,9 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 	items.SelFgColor = gocui.ColorBlack
 	items.Highlight = true
 
-	mv.components = mv.graph.Components(mv.subsystem)
+	allComponents := mv.graph.Components(mv.subsystem)
+	mv.kind2count = breakdown(allComponents)
+	mv.components = mv.filterComponents(allComponents)
 	headerS, rows := mv.tabulatedItems(mv.components)
 	for _, row := range rows {
 		fmt.Fprintf(items, "%s\n", row)
@@ -108,6 +113,24 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 	fmt.Fprintf(detail, detailContents)
 
 	return nil
+}
+
+func breakdown(c []models.Component) map[string]int {
+	m := map[string]int{}
+	for _, component := range c {
+		m[component.Kind] += 1
+	}
+	return m
+}
+
+func (mv *MainView) filterComponents(c []models.Component) []models.Component {
+	filtered := []models.Component{}
+	for _, component := range c {
+		if mv.show[component.Kind] {
+			filtered = append(filtered, component)
+		}
+	}
+	return filtered
 }
 
 func map2slice(m map[string]bool) []string {
@@ -175,14 +198,34 @@ func (mv *MainView) detailContents(components []models.Component, selected int) 
 func (mv *MainView) showToggleContents() string {
 	contents := ""
 	keys := map2slice(mv.show)
+
+	padding := 10
+	width := 0
+
+	for _, key := range keys {
+		if len(key) > width {
+			width = len(key)
+		}
+	}
+
 	for _, key := range keys {
 		mark := " "
 		if mv.show[key] {
 			mark = "x"
 		}
-		contents += fmt.Sprintf("[%s] %s\n", mark, key)
+		spacing := stringMult(" ", width - len(key) + padding)
+		contents += fmt.Sprintf("[%s] %s%s%d\n", mark, key, spacing, mv.kind2count[key])
 	}
 	return contents
+}
+
+func (mv *MainView) toggleToggle(g *gocui.Gui, v *gocui.View) error {
+	keys := map2slice(mv.show)
+	_, oy := v.Origin()
+	_, cy := v.Cursor()
+	key := keys[oy+cy]
+	mv.show[key] = !mv.show[key]
+	return nil
 }
 
 func (mv *MainView) InitKeyBindings(g *gocui.Gui) error {
@@ -222,6 +265,10 @@ func (mv *MainView) setKeyBindings(view string, g *gocui.Gui) error {
 		return err
 	}
 	err = g.SetKeybinding(view, 'u', gocui.ModNone, mv.exitSubsystem)
+	if err != nil {
+		return err
+	}
+	err = g.SetKeybinding(view, gocui.KeySpace, gocui.ModNone, mv.toggleToggle)
 	if err != nil {
 		return err
 	}
@@ -325,4 +372,12 @@ func (mv *MainView) bottomOfList(g *gocui.Gui, v *gocui.View) error {
 		}
 	}
 	return nil
+}
+
+func stringMult(s string, count int) string {
+	mult := ""
+	for i := 0; i < count; i++ {
+		mult += s
+	}
+	return mult
 }
