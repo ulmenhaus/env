@@ -42,12 +42,17 @@ func (d Date) Reverse(ft, input string) (Entry, error) {
 	if ft == "" {
 		ft = "02 Jan 2006"
 	}
-	noLoc, err := time.Parse(ft, input)
-	if err != nil {
-		return nil, err
+	var t time.Time
+	if input == "" {
+		t = time.Now()
+	} else {
+		noLoc, err := time.Parse(ft, input)
+		if err != nil {
+			return nil, err
+		}
+		t = time.Date(noLoc.Year(), noLoc.Month(), noLoc.Day(), noLoc.Hour(), noLoc.Minute(),
+			noLoc.Second(), noLoc.Nanosecond(), loc)
 	}
-	t := time.Date(noLoc.Year(), noLoc.Month(), noLoc.Day(), noLoc.Hour(), noLoc.Minute(),
-		noLoc.Second(), noLoc.Nanosecond(), loc)
 	return Date(t.Sub(epoch) / (time.Hour * 24)), nil
 }
 

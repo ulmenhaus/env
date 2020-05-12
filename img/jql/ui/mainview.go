@@ -36,6 +36,9 @@ const (
 	// MainViewModeSearch is for when the user is typing
 	// a search query into the view
 	MainViewModeSearch
+	// MainViewModeSelectBox is for when the user is selecting
+	// from a collection of predefined values for a field
+	MainViewModeSelectBox
 )
 
 // A MainView is the overall view of the table including headers,
@@ -56,11 +59,12 @@ type MainView struct {
 	TableView *TableView
 	Mode      MainViewMode
 
-	switching  bool // on when transitioning modes has not yet been acknowleged by Layout
-	alert      string
-	promptText string
-	tableName  string
-	searchText string
+	switching     bool // on when transitioning modes has not yet been acknowleged by Layout
+	alert         string
+	promptText    string
+	tableName     string
+	searchText    string
+	selectOptions []string
 }
 
 // NewMainView returns a MainView initialized with a given Table
@@ -172,6 +176,21 @@ func (mv *MainView) loadTable(t string) error {
 	return mv.updateTableViewContents()
 }
 
+func (mv *MainView) filteredSelectOptions(g *gocui.Gui) []string {
+	searchBox, err := g.SetCurrentView("searchBox")
+	if err != nil {
+		return []string{}
+	}
+	query := strings.TrimSuffix(searchBox.Buffer(), "\n")
+	filtered := []string{}
+	for _, pk := range mv.selectOptions {
+		if strings.Contains(strings.ToLower(pk), strings.ToLower(query)) {
+			filtered = append(filtered, pk)
+		}
+	}
+	return filtered
+}
+
 // Layout returns the gocui object
 func (mv *MainView) Layout(g *gocui.Gui) error {
 	switching := mv.switching
@@ -216,7 +235,51 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 	if switching {
 		prompt.Clear()
 	}
+	if mv.Mode == MainViewModeSelectBox {
+		selectBox, err := g.SetView("selectBox", maxX/2-30, maxY/2-10, maxX/2+30, maxY/2+10)
+		if err != nil {
+			if err != gocui.ErrUnknownView {
+				return err
+			}
+			selectBox.SelBgColor = gocui.ColorWhite
+			selectBox.SelFgColor = gocui.ColorBlack
+			selectBox.Highlight = true
+			searchBox, err := g.SetView("searchBox", maxX/2-30, maxY/2-12, maxX/2+30, maxY/2-10)
+			if err != nil {
+				if err != gocui.ErrUnknownView {
+					return err
+				}
+				searchBox.Editable = true
+				g.SetKeybinding("searchBox", gocui.KeyEnter, gocui.ModNone, func(*gocui.Gui, *gocui.View) error {
+					return mv.handleSelectInput(g, selectBox)
+				})
+				g.SetKeybinding("searchBox", gocui.KeyArrowUp, gocui.ModNone, func(*gocui.Gui, *gocui.View) error {
+					return mv.cursorUp(g, selectBox)
+				})
+				g.SetKeybinding("searchBox", gocui.KeyArrowDown, gocui.ModNone, func(*gocui.Gui, *gocui.View) error {
+					return mv.cursorDown(g, selectBox)
+				})
+			}
+		}
+	} else {
+		for _, elem := range []string{"searchBox", "selectBox"} {
+			err := g.DeleteView(elem)
+			if err != nil && err != gocui.ErrUnknownView {
+				return err
+			}
+		}
+	}
 	switch mv.Mode {
+	case MainViewModeSelectBox:
+		selectBox, err := g.View("selectBox")
+		if err != nil {
+			return err
+		}
+		selectBox.Clear()
+		_, err = selectBox.Write([]byte(strings.Join(mv.filteredSelectOptions(g), "\n")))
+		if err != nil {
+			return err
+		}
 	case MainViewModeTable:
 		header, err := g.SetCurrentView("header")
 		if err != nil {
@@ -307,6 +370,15 @@ func (mv *MainView) saveSilent() error {
 	return mv.OSM.Dump(mv.DB, f)
 }
 
+func (mv *MainView) handleSelectInput(g *gocui.Gui, v *gocui.View) error {
+	options := mv.filteredSelectOptions(g)
+	_, cy := v.Cursor()
+	_, oy := v.Origin()
+	selected := options[cy + oy]
+	mv.switchMode(MainViewModeTable)
+	return mv.updateEntryValue(selected)
+}
+
 func (mv *MainView) handleSearchInput(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifier) error {
 	if key == gocui.KeyEnter || key == gocui.KeyEsc {
 		mv.searchText = ""
@@ -332,6 +404,36 @@ func (mv *MainView) handleSearchInput(v *gocui.View, key gocui.Key, ch rune, mod
 		Formatted: mv.searchText,
 	}
 	return mv.updateTableViewContents()
+}
+
+func (mv *MainView) triggerEdit() error {
+	row, col := mv.TableView.PrimarySelection()
+	// TODO leaky abstraction. Maybe better to support
+	// an interface method for detecting possible values
+	switch f := mv.response.Entries[row][col].(type) {
+	case types.Enum:
+		mv.selectOptions = f.Values()
+		mv.switchMode(MainViewModeSelectBox)
+	case types.ForeignKey:
+		ftable := mv.DB.Tables[f.Table]
+		// TODO not cache mapping
+		fresp, err := ftable.Query(types.QueryParams{
+			OrderBy: ftable.Columns[ftable.Primary()],
+		})
+		if err != nil {
+			return err
+		}
+		values := []string{}
+		for _, frow := range fresp.Entries {
+			values = append(values, frow[ftable.Primary()].Format(""))
+		}
+		mv.selectOptions = values
+		mv.switchMode(MainViewModeSelectBox)
+	default:
+		mv.promptText = mv.TableView.Values[row][col]
+		mv.switchMode(MainViewModeEdit)
+	}
+	return nil
 }
 
 // Edit handles keyboard inputs while in table mode
@@ -363,9 +465,7 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 	case gocui.KeyArrowDown:
 		mv.TableView.Move(DirectionDown)
 	case gocui.KeyEnter:
-		mv.switchMode(MainViewModeEdit)
-		row, column := mv.TableView.PrimarySelection()
-		mv.promptText = mv.TableView.Values[row][column]
+		err = mv.triggerEdit()
 	case gocui.KeyEsc:
 		mv.TableView.SelectNone()
 	case gocui.KeyPgdn:
@@ -887,4 +987,32 @@ func (mv *MainView) switchView(reverse bool) error {
 
 	err = syscall.Exec(binary, args, env)
 	return err
+}
+
+func (mv *MainView) cursorDown(g *gocui.Gui, v *gocui.View) error {
+	if v == nil {
+		return nil
+	}
+	cx, cy := v.Cursor()
+	if err := v.SetCursor(cx, cy+1); err != nil {
+		ox, oy := v.Origin()
+		if err := v.SetOrigin(ox, oy+1); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (mv *MainView) cursorUp(g *gocui.Gui, v *gocui.View) error {
+	if v == nil {
+		return nil
+	}
+	ox, oy := v.Origin()
+	cx, cy := v.Cursor()
+	if err := v.SetCursor(cx, cy-1); err != nil && oy > 0 {
+		if err := v.SetOrigin(ox, oy-1); err != nil {
+			return err
+		}
+	}
+	return nil
 }

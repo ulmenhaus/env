@@ -24,15 +24,15 @@ const (
 	MainViewModeListBar MainViewMode = iota
 )
 
-// A MainView is the overall view including a resource list
-// and a detailed view of the current resource
+// A MainView is the overall view including a project list
+// and a detailed view of the current project
 type MainView struct {
 	OSM *osm.ObjectStoreMapper
 	DB  *types.Database
 
 	Mode MainViewMode
 
-	items [][]types.Entry
+	tasks [][]types.Entry
 	log   [][]types.Entry
 	path  string
 }
@@ -74,23 +74,23 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 
 func (mv *MainView) Layout(g *gocui.Gui) error {
 	maxX, maxY := g.Size()
-	items, err := g.SetView(ItemsView, 0, 0, (maxX*3)/4, maxY-1)
+	tasks, err := g.SetView(TasksView, 0, 0, (maxX*3)/4, maxY-1)
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	}
-	items.Clear()
-	g.SetCurrentView(ItemsView)
+	tasks.Clear()
+	g.SetCurrentView(TasksView)
 	log, err := g.SetView(LogView, (maxX*3/4)+1, 0, maxX-1, maxY-1)
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	}
 	log.Clear()
-	items.SelBgColor = gocui.ColorWhite
-	items.SelFgColor = gocui.ColorBlack
-	items.Highlight = true
+	tasks.SelBgColor = gocui.ColorWhite
+	tasks.SelFgColor = gocui.ColorBlack
+	tasks.Highlight = true
 
-	for _, desc := range mv.tabulatedItems() {
-		fmt.Fprintf(items, "%s\n", desc)
+	for _, desc := range mv.tabulatedTasks() {
+		fmt.Fprintf(tasks, "%s\n", desc)
 	}
 
 	logTable := mv.DB.Tables[TableLog]
@@ -111,28 +111,28 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 	return nil
 }
 
-func (mv *MainView) tabulatedItems() []string {
-	itemTable := mv.DB.Tables[TableItems]
-	resourceField := itemTable.IndexOfField(FieldResource)
-	descriptionField := itemTable.IndexOfField(FieldDescription)
+func (mv *MainView) tabulatedTasks() []string {
+	taskTable := mv.DB.Tables[TableTasks]
+	projectField := taskTable.IndexOfField(FieldProject)
+	descriptionField := taskTable.IndexOfField(FieldDescription)
 
 	// 10 char buffer
 	buffer := 10
 	maxChars := buffer
-	for _, item := range mv.items {
-		itemChars := len(item[resourceField].Format("")) + buffer
-		if itemChars > maxChars {
-			maxChars = itemChars
+	for _, task := range mv.tasks {
+		taskChars := len(task[projectField].Format("")) + buffer
+		if taskChars > maxChars {
+			maxChars = taskChars
 		}
 	}
 
 	toret := []string{}
 
-	for _, item := range mv.items {
-		itemBuffer := maxChars - len(item[resourceField].Format(""))
+	for _, task := range mv.tasks {
+		taskBuffer := maxChars - len(task[projectField].Format(""))
 		toret = append(toret,
-			fmt.Sprintf("%s%s%s", item[resourceField].Format(""), strings.Repeat(" ", itemBuffer),
-				item[descriptionField].Format("")))
+			fmt.Sprintf("%s%s%s", task[projectField].Format(""), strings.Repeat(" ", taskBuffer),
+				task[descriptionField].Format("")))
 	}
 	return toret
 }
@@ -151,30 +151,30 @@ func (mv *MainView) saveContents(g *gocui.Gui, v *gocui.View) error {
 }
 
 func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
-	err := g.SetKeybinding(ItemsView, 'k', gocui.ModNone, mv.cursorUp)
+	err := g.SetKeybinding(TasksView, 'k', gocui.ModNone, mv.cursorUp)
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(ItemsView, 'j', gocui.ModNone, mv.cursorDown)
+	err = g.SetKeybinding(TasksView, 'j', gocui.ModNone, mv.cursorDown)
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(ItemsView, 's', gocui.ModNone, mv.saveContents)
+	err = g.SetKeybinding(TasksView, 's', gocui.ModNone, mv.saveContents)
 	if err != nil {
 		return err
 	}
-	if err := g.SetKeybinding(ItemsView, gocui.KeyEnter, gocui.ModNone, mv.logTime); err != nil {
+	if err := g.SetKeybinding(TasksView, gocui.KeyEnter, gocui.ModNone, mv.logTime); err != nil {
 		return err
 	}
-	err = g.SetKeybinding(ItemsView, 'w', gocui.ModNone, mv.openLink)
+	err = g.SetKeybinding(TasksView, 'w', gocui.ModNone, mv.openLink)
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(ItemsView, 'i', gocui.ModNone, mv.markSatisfied)
+	err = g.SetKeybinding(TasksView, 'i', gocui.ModNone, mv.markSatisfied)
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(ItemsView, 'q', gocui.ModNone, mv.switchToJQL)
+	err = g.SetKeybinding(TasksView, 'q', gocui.ModNone, mv.switchToJQL)
 	if err != nil {
 		return err
 	}
@@ -183,10 +183,10 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 }
 
 func (mv *MainView) markSatisfied(g *gocui.Gui, v *gocui.View) error {
-	// TODO getting selected item is very common. Should factor out.
-	itemTable := mv.DB.Tables[TableItems]
+	// TODO getting selected task is very common. Should factor out.
+	taskTable := mv.DB.Tables[TableTasks]
 	var cy, oy int
-	view, err := g.View(ItemsView)
+	view, err := g.View(TasksView)
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	} else if err == nil {
@@ -194,14 +194,14 @@ func (mv *MainView) markSatisfied(g *gocui.Gui, v *gocui.View) error {
 		_, cy = view.Cursor()
 	}
 
-	selectedItem := mv.items[oy+cy]
-	pk := selectedItem[itemTable.IndexOfField(FieldDescription)].Format("")
+	selectedTask := mv.tasks[oy+cy]
+	pk := selectedTask[taskTable.IndexOfField(FieldDescription)].Format("")
 
-	new, err := selectedItem[itemTable.IndexOfField(FieldStatus)].Add(1)
+	new, err := selectedTask[taskTable.IndexOfField(FieldStatus)].Add(1)
 	if err != nil {
 		return err
 	}
-	itemTable.Entries[pk][itemTable.IndexOfField(FieldStatus)] = new
+	taskTable.Entries[pk][taskTable.IndexOfField(FieldStatus)] = new
 	err = mv.saveContents(g, v)
 	if err != nil {
 		return err
@@ -210,9 +210,9 @@ func (mv *MainView) markSatisfied(g *gocui.Gui, v *gocui.View) error {
 }
 
 func (mv *MainView) openLink(g *gocui.Gui, v *gocui.View) error {
-	itemTable := mv.DB.Tables[TableItems]
+	taskTable := mv.DB.Tables[TableTasks]
 	var cy, oy int
-	view, err := g.View(ItemsView)
+	view, err := g.View(TasksView)
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	} else if err == nil {
@@ -220,16 +220,16 @@ func (mv *MainView) openLink(g *gocui.Gui, v *gocui.View) error {
 		_, cy = view.Cursor()
 	}
 
-	selectedItem := mv.items[oy+cy]
-	cmd := exec.Command("open", selectedItem[itemTable.IndexOfField(FieldLink)].Format(""))
+	selectedTask := mv.tasks[oy+cy]
+	cmd := exec.Command("open", selectedTask[taskTable.IndexOfField(FieldLink)].Format(""))
 	return cmd.Run()
 }
 
 func (mv *MainView) logTime(g *gocui.Gui, v *gocui.View) error {
-	itemTable := mv.DB.Tables[TableItems]
+	taskTable := mv.DB.Tables[TableTasks]
 	logTable := mv.DB.Tables[TableLog]
 	var cy, oy int
-	view, err := g.View(ItemsView)
+	view, err := g.View(TasksView)
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	} else if err == nil {
@@ -237,12 +237,12 @@ func (mv *MainView) logTime(g *gocui.Gui, v *gocui.View) error {
 		_, cy = view.Cursor()
 	}
 
-	selectedItem := mv.items[oy+cy]
+	selectedTask := mv.tasks[oy+cy]
 
 	// XXX this is a really janky way to check the value of the time entry
 	// and create the next valid entry
 	if len(mv.log) == 0 {
-		err = mv.newTime(g, fmt.Sprintf("%s (0001)", selectedItem[itemTable.IndexOfField(FieldDescription)].Format("")), selectedItem)
+		err = mv.newTime(g, fmt.Sprintf("%s (0001)", selectedTask[taskTable.IndexOfField(FieldDescription)].Format("")), selectedTask)
 		if err != nil {
 			return err
 		}
@@ -260,7 +260,7 @@ func (mv *MainView) logTime(g *gocui.Gui, v *gocui.View) error {
 			return err
 		}
 		newPK := fmt.Sprintf("%s%04d)", pk[:len(pk)-5], ordinalI+1)
-		err = mv.newTime(g, newPK, selectedItem)
+		err = mv.newTime(g, newPK, selectedTask)
 		if err != nil {
 			return err
 		}
@@ -272,8 +272,8 @@ func (mv *MainView) logTime(g *gocui.Gui, v *gocui.View) error {
 	return mv.refreshView(g)
 }
 
-func (mv *MainView) newTime(g *gocui.Gui, pk string, selectedItem []types.Entry) error {
-	itemTable := mv.DB.Tables[TableItems]
+func (mv *MainView) newTime(g *gocui.Gui, pk string, selectedTask []types.Entry) error {
+	taskTable := mv.DB.Tables[TableTasks]
 	logTable := mv.DB.Tables[TableLog]
 	err := logTable.Insert(pk)
 	if err != nil {
@@ -283,7 +283,7 @@ func (mv *MainView) newTime(g *gocui.Gui, pk string, selectedItem []types.Entry)
 	if err != nil {
 		return err
 	}
-	return logTable.Update(pk, FieldItem, selectedItem[itemTable.IndexOfField(FieldDescription)].Format(""))
+	return logTable.Update(pk, FieldTask, selectedTask[taskTable.IndexOfField(FieldDescription)].Format(""))
 }
 
 func (mv *MainView) cursorDown(g *gocui.Gui, v *gocui.View) error {
@@ -324,7 +324,7 @@ func (mv *MainView) switchToJQL(g *gocui.Gui, v *gocui.View) error {
 		return err
 	}
 
-	args := []string{JQLName, mv.path, TableItems}
+	args := []string{JQLName, mv.path, TableTasks}
 
 	env := os.Environ()
 
@@ -333,15 +333,15 @@ func (mv *MainView) switchToJQL(g *gocui.Gui, v *gocui.View) error {
 }
 
 func (mv *MainView) refreshView(g *gocui.Gui) error {
-	itemTable, ok := mv.DB.Tables[TableItems]
+	taskTable, ok := mv.DB.Tables[TableTasks]
 	if !ok {
-		return fmt.Errorf("expected resources table to exist")
+		return fmt.Errorf("expected projects table to exist")
 	}
-	resp, err := itemTable.Query(types.QueryParams{
+	resp, err := taskTable.Query(types.QueryParams{
 		Filters: []types.Filter{
 			&ui.EqualFilter{
 				Field:     FieldStatus,
-				Col:       itemTable.IndexOfField(FieldStatus),
+				Col:       taskTable.IndexOfField(FieldStatus),
 				Formatted: StatusPending,
 			},
 		},
@@ -350,23 +350,23 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 	if err != nil {
 		return err
 	}
-	mv.items = resp.Entries
+	mv.tasks = resp.Entries
 
-	descriptionField := itemTable.IndexOfField(FieldDescription)
-	resourceField := itemTable.IndexOfField(FieldResource)
+	descriptionField := taskTable.IndexOfField(FieldDescription)
+	projectField := taskTable.IndexOfField(FieldProject)
 
-	sort.Slice(mv.items, func(i, j int) bool {
-		iRes := mv.items[i][resourceField].Format("")
-		jRes := mv.items[j][resourceField].Format("")
+	sort.Slice(mv.tasks, func(i, j int) bool {
+		iRes := mv.tasks[i][projectField].Format("")
+		jRes := mv.tasks[j][projectField].Format("")
 
-		iDesc := mv.items[i][descriptionField].Format("")
-		jDesc := mv.items[j][descriptionField].Format("")
+		iDesc := mv.tasks[i][descriptionField].Format("")
+		jDesc := mv.tasks[j][descriptionField].Format("")
 
 		return (iRes < jRes) || ((iRes == jRes) && iDesc < jDesc)
 	})
 
 	var cy, oy int
-	view, err := g.View(ItemsView)
+	view, err := g.View(TasksView)
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	} else if err == nil {
@@ -374,7 +374,7 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 		_, cy = view.Cursor()
 	}
 
-	selectedItem := mv.items[oy+cy]
+	selectedTask := mv.tasks[oy+cy]
 	logTable, ok := mv.DB.Tables[TableLog]
 	if !ok {
 		return fmt.Errorf("Expected log table to exist")
@@ -382,9 +382,9 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 	resp, err = logTable.Query(types.QueryParams{
 		Filters: []types.Filter{
 			&ui.EqualFilter{
-				Field:     FieldItem,
-				Col:       logTable.IndexOfField(FieldItem),
-				Formatted: selectedItem[itemTable.IndexOfField(FieldDescription)].Format(""),
+				Field:     FieldTask,
+				Col:       logTable.IndexOfField(FieldTask),
+				Formatted: selectedTask[taskTable.IndexOfField(FieldDescription)].Format(""),
 			},
 		},
 		OrderBy: FieldBegin,

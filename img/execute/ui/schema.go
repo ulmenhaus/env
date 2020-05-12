@@ -11,24 +11,24 @@ const (
 	StatusPending    string = "Pending"
 	StatusSatisfied  string = "Satisfied"
 
-	ResourcesView string = "Resources"
+	ProjectsView string = "Projects"
 
 	FieldBegin          string = "Begin"
-	FieldDescription    string = "Description"
+	FieldDescription    string = "Auto Description"
 	FieldEnd            string = "End"
 	FieldFeed           string = "Feed"
-	FieldItem           string = "Item"
 	FieldLink           string = "Link"
 	FieldLogDescription string = "A Description"
-	FieldResource       string = "Resource"
+	FieldProject        string = "Project"
 	FieldStatus         string = "Status"
+	FieldTask           string = "A Task"
 
-	TableResources string = "resources"
-	TableItems     string = "items"
-	TableLog       string = "log"
+	TableLog      string = "log"
+	TableProjects string = "projects"
+	TableTasks    string = "tasks"
 
 	JQLName string = "jql"
 
-	ItemsView string = "items"
+	TasksView string = "tasks"
 	LogView   string = "log"
 )

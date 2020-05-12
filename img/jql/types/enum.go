@@ -98,3 +98,12 @@ func (e Enum) Add(i interface{}) (Entry, error) {
 func (e Enum) Encoded() storage.Primitive {
 	return e.values[e.value]
 }
+
+// Values returns the possible values for the Enum
+func (e Enum) Values() []string {
+	copy := make([]string, len(e.values))
+	for i := range e.values {
+		copy[i] = e.values[i]
+	}
+	return copy
+}
