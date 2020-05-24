@@ -374,7 +374,13 @@ func (mv *MainView) handleSelectInput(g *gocui.Gui, v *gocui.View) error {
 	options := mv.filteredSelectOptions(g)
 	_, cy := v.Cursor()
 	_, oy := v.Origin()
-	selected := options[cy + oy]
+	index := cy + oy
+	var selected string
+	if index >= len(options) {
+		selected = options[len(options) - 1]
+	} else {
+		selected = options[index]
+	}
 	mv.switchMode(MainViewModeTable)
 	return mv.updateEntryValue(selected)
 }

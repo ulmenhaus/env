@@ -113,7 +113,7 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 
 func (mv *MainView) tabulatedTasks() []string {
 	taskTable := mv.DB.Tables[TableTasks]
-	projectField := taskTable.IndexOfField(FieldProject)
+	projectField := taskTable.IndexOfField(FieldPrimaryGoal)
 	descriptionField := taskTable.IndexOfField(FieldDescription)
 
 	// 10 char buffer
@@ -342,7 +342,7 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 			&ui.EqualFilter{
 				Field:     FieldStatus,
 				Col:       taskTable.IndexOfField(FieldStatus),
-				Formatted: StatusPending,
+				Formatted: StatusActive,
 			},
 		},
 		OrderBy: FieldDescription,
@@ -353,7 +353,7 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 	mv.tasks = resp.Entries
 
 	descriptionField := taskTable.IndexOfField(FieldDescription)
-	projectField := taskTable.IndexOfField(FieldProject)
+	projectField := taskTable.IndexOfField(FieldPrimaryGoal)
 
 	sort.Slice(mv.tasks, func(i, j int) bool {
 		iRes := mv.tasks[i][projectField].Format("")
