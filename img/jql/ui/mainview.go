@@ -508,10 +508,22 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		mv.TableView.Move(DirectionLeft)
 	case 'j':
 		mv.TableView.Move(DirectionDown)
-	case 'g':
-		err = mv.goToSelectedValue()
-	case 'G':
-		err = mv.goFromSelectedValue()
+	case 'g', 'u':
+		tables := map[string]*types.Table{}
+		for tableName, table := range mv.DB.Tables {
+			if (tableName == mv.tableName) == (ch == 'u') {
+				tables[tableName] = table
+			}
+		}
+		err = mv.goToSelectedValue(tables)
+	case 'G', 'U':
+		tables := map[string]*types.Table{}
+		for tableName, table := range mv.DB.Tables {
+			if (tableName == mv.tableName) == (ch == 'U') {
+				tables[tableName] = table
+			}
+		}
+		err = mv.goFromSelectedValue(tables)
 	case 'f', 'F':
 		row, col := mv.TableView.PrimarySelection()
 		filterTarget := mv.response.Entries[row][col].Format("")
@@ -716,7 +728,7 @@ func (mv *MainView) promptExit(contents string, finish bool, err error) {
 	}
 }
 
-func (mv *MainView) goToSelectedValue() error {
+func (mv *MainView) goToSelectedValue(tables map[string]*types.Table) error {
 	row, col := mv.TableView.PrimarySelection()
 	// TODO leaky abstraction. Maybe better to support
 	// an interface method for detecting foreigns
@@ -730,11 +742,15 @@ loop:
 		case types.ForeignKey:
 			table = f.Table
 			keys = []string{f.Key}
-			break loop
+			if tables[table] != nil {
+				break loop
+			}
 		case types.ForeignList:
 			table = f.Table
 			keys = f.Keys
-			break loop
+			if tables[table] != nil {
+				break loop
+			}
 		}
 		col = (col + 1) % len(mv.response.Entries[row])
 		if col == mv.TableView.Selections.Primary.Column {
@@ -764,10 +780,10 @@ loop:
 	return mv.updateTableViewContents()
 }
 
-func (mv *MainView) goFromSelectedValue() error {
+func (mv *MainView) goFromSelectedValue(tables map[string]*types.Table) error {
 	row, _ := mv.TableView.PrimarySelection()
 	selected := mv.response.Entries[row][mv.Table.Primary()]
-	for name, table := range mv.DB.Tables {
+	for name, table := range tables {
 		col := table.HasForeign(mv.tableName)
 		if col == -1 {
 			continue
