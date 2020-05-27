@@ -13,7 +13,7 @@ const (
 
 	ProjectsView string = "Projects"
 
-	FieldAction          string = "Action"
+	FieldAction         string = "Action"
 	FieldBegin          string = "Begin"
 	FieldDescription    string = " Description"
 	FieldEnd            string = "End"
@@ -22,6 +22,7 @@ const (
 	FieldLink           string = "Link"
 	FieldLogDescription string = "A Description"
 	FieldPrimaryGoal    string = "Primary Goal"
+	FieldSpan           string = "Param Span"
 	FieldStatus         string = "Status"
 	FieldTask           string = "A Task"
 
@@ -31,14 +32,13 @@ const (
 
 	JQLName string = "jql"
 
+	CountsView string = "counts"
 	TasksView string = "tasks"
 	LogView   string = "log"
 
-	HabitRegularity     string = "regularity"
-	HabitIncrementality string = "incrementality"
-	HabitBreakdown      string = "breakdown"
-
-	ActionExtend string = "Extend"
-	ActionImprove string = "Improve"
-	ActionSustain string = "Sustain"
+	SpanDay   string = "Day"
+	SpanWeek  string = "Week"
+	SpanMonth string = "Month"
 )
+
+var Spans []string = []string{SpanDay, SpanWeek, SpanMonth}
