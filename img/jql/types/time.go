@@ -135,11 +135,11 @@ func (t Time) Compare(i interface{}) bool {
 
 // Add increments the Time by the provided number of days
 func (t Time) Add(i interface{}) (Entry, error) {
-	seconds, ok := i.(int)
+	days, ok := i.(int)
 	if !ok {
 		return nil, fmt.Errorf("Times can only be incremented by integers")
 	}
-	return Time(int(t) + seconds*10), nil
+	return Time(int(t) + days*24*60*60), nil
 }
 
 // Encoded returns the Time encoded as a string

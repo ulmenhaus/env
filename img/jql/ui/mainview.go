@@ -268,6 +268,14 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 				return err
 			}
 		}
+		for _, key := range []interface{}{gocui.KeyEnter, gocui.KeyArrowDown, gocui.KeyArrowUp} {
+			err := g.DeleteKeybinding("searchBox", key, gocui.ModNone)
+			if err != nil && err.Error() != "keybinding not found" {
+				return err
+			}
+
+		}
+
 	}
 	switch mv.Mode {
 	case MainViewModeSelectBox:
@@ -377,7 +385,7 @@ func (mv *MainView) handleSelectInput(g *gocui.Gui, v *gocui.View) error {
 	index := cy + oy
 	var selected string
 	if index >= len(options) {
-		selected = options[len(options) - 1]
+		selected = options[len(options)-1]
 	} else {
 		selected = options[index]
 	}
