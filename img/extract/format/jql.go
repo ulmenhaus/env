@@ -28,9 +28,6 @@ type ReferenceEntry struct {
 
 func schema() map[string]interface{} {
 	return map[string]interface{}{
-		// TODO for jql schema we use display name rather than UID --
-		// in case there are two items with the same name and package name
-		// this will be ambiguous so should distinguish
 		"components.DisplayName": map[string]interface{}{
 			"primary": true,
 			"type":    "string",
@@ -59,14 +56,14 @@ func schema() map[string]interface{} {
 		"components.SoParent": map[string]interface{}{
 			"type": "foreign.components",
 		},
-		"references.Location": map[string]interface{}{
+		"base_references.Location": map[string]interface{}{
 			"type":    "string",
 			"primary": true,
 		},
-		"references.SDSource": map[string]interface{}{
+		"base_references.SDSource": map[string]interface{}{
 			"type": "string",
 		},
-		"references.SDDest": map[string]interface{}{
+		"base_references.SDDest": map[string]interface{}{
 			"type": "string",
 		},
 		"macros.Key": map[string]interface{}{
@@ -109,11 +106,33 @@ func FormatJQL(g *models.EncodedGraph, stripPrefixes []string) map[string]interf
 		}
 		return ds
 	}
+	// For jql schema we use display name rather than UID --
+	// in case there are two items with the same name and package name
+	// we disambiguate
+	used := map[string]int{}
 	for _, en := range g.Nodes {
-		uid2ds[en.UID] = stripPrefix(en.DisplayName)
+		stripped := stripPrefix(en.DisplayName)
+		used[stripped] += 1
 	}
 	for _, ss := range g.Subsystems {
-		uid2ds[ss.UID] = stripPrefix(ss.DisplayName)
+		stripped := stripPrefix(ss.DisplayName)
+		used[stripped] += 1
+	}
+	for _, en := range g.Nodes {
+		stripped := stripPrefix(en.DisplayName)
+		if used[stripped] > 1 {
+			uid2ds[en.UID] = fmt.Sprintf("%s (%s)", stripPrefix(en.DisplayName), stripPrefix(en.UID))
+		} else {
+			uid2ds[en.UID] = stripPrefix(en.DisplayName)
+		}
+	}
+	for _, ss := range g.Subsystems {
+		stripped := stripPrefix(ss.DisplayName)
+		if used[stripped] > 1 {
+			uid2ds[ss.UID] = fmt.Sprintf("%s (%s)", stripPrefix(ss.DisplayName), stripPrefix(ss.UID))
+		} else {
+			uid2ds[ss.UID] = stripPrefix(ss.DisplayName)
+		}
 	}
 	parents := map[string]string{}
 	for _, parent := range g.Subsystems {
@@ -148,7 +167,7 @@ func FormatJQL(g *models.EncodedGraph, stripPrefixes []string) map[string]interf
 	}
 
 	m["components"] = components
-	m["references"] = references
+	m["base_references"] = references
 	m["macros"] = map[string]interface{}{
 		"E": map[string]interface{}{
 			"Location": "jql-system-accumulator",

@@ -10,8 +10,9 @@ class RefAccumulator(object):
         self.contents = contents
         self.database = json.loads(contents['snapshot'])
         self.components_table = self.database["components"]
-        self.refs_table = self.database["references"]
+        self.base_refs = self.database["base_references"]
         self.pt_table = {}
+        self.hidden_table = {}
 
         self.visible_pks = None
         current_view = self.contents["current_view"]
@@ -42,44 +43,62 @@ class RefAccumulator(object):
     def proper_ancestors(self, component_pk):
         return list(self.ancestors(component_pk))[1:]
 
-    def _add_passthroughs_schema(self):
+    def _add_references_schema(self):
         self.database["_schemata"].update({
-            "passthroughs.AID": {
+            "references.AID": {
                 "type": "string",
                 "primary": True,
             },
-            "passthroughs.Direction": {
+            "references.Direction": {
                 "type": "enum",
                 "features": {
                     "values": "In, Out, Within",
                 },
             },
-            "passthroughs.Passthrough": {
+            "references.Passthrough": {
                 "type": "foreign.components",
             },
-            "passthroughs.SDSource": {
+            "references.SDSource": {
                 "type": "string",
             },
-            "passthroughs.SDDest": {
+            "references.SDDest": {
                 "type": "string",
             },
-            "passthroughs.SrcLocation": {
+            "references.SrcLocation": {
+                "type": "string",
+            },
+            "hidden_references.AID": {
+                "type": "string",
+                "primary": True,
+            },
+            "hidden_references.Parent": {
+                "type": "foreign.references",
+            },
+            "hidden_references.SDSource": {
+                "type": "string",
+            },
+            "hidden_references.SDDest": {
+                "type": "string",
+            },
+            "hidden_references.SrcLocation": {
                 "type": "string",
             },
         })
 
-    def _build_passthroughs(self):
+    def _build_references(self):
         # maps (source EN, dest EN) -> list of locations
         effective_refs = collections.defaultdict(list)
-        for ref_pk, ref in self.refs_table.items():
+        for ref_pk, ref in self.base_refs.items():
             ef_src = self.effective_name(ref["SDSource"])
             ef_dst = self.effective_name(ref["SDDest"])
             if ef_src is None or ef_dst is None:
                 continue
             effective_refs[(ef_dst, ef_src)].append(ref_pk)
 
-        self.database["passthroughs"] = {}
-        self.pt_table = self.database["passthroughs"]
+        self.database["references"] = {}
+        self.pt_table = self.database["references"]
+        self.database["hidden_references"] = {}
+        self.hidden_table = self.database["hidden_references"]
         next_id = lambda: str(len(self.pt_table))
         for key, ref_pks in effective_refs.items():
             ef_dst, ef_src = key
@@ -94,13 +113,24 @@ class RefAccumulator(object):
                     direction = "Out"
                 elif anc in src_ancs:
                     direction = "Within"
-                self.pt_table[next_id()] = {
+                ptid = next_id()
+                self.pt_table[ptid] = {
                     "Direction": direction,
                     "Passthrough": anc,
                     "SDSource": ef_src,
                     "SDDest": ef_dst,
                     "SrcLocation": fmt_ref_pk,
                 }
+                if len(ref_pks) == 1:
+                    continue
+                for ref_pk in ref_pks:
+                    ref = self.base_refs[ref_pk]
+                    self.hidden_table[str(len(self.hidden_table))] = {
+                        "Parent": ptid,
+                        "SDSource": ref["SDSource"],
+                        "SDDest": ref["SDDest"],
+                        "SrcLocation": ref_pk,
+                    }
 
     def _reset_counts(self):
         comps = self.components_table.values()
@@ -110,7 +140,7 @@ class RefAccumulator(object):
             comp["RW"] = 0
             comp["Parts"] = 0
 
-    def _count_passthroughs(self):
+    def _count_references(self):
         comps = self.components_table
         for pt in self.pt_table.values():
             key = pt["Passthrough"]
@@ -142,9 +172,9 @@ class RefAccumulator(object):
 
     def accumulate_refs(self):
         self._reset_counts()
-        self._add_passthroughs_schema()
-        self._build_passthroughs()
-        self._count_passthroughs()
+        self._add_references_schema()
+        self._build_references()
+        self._count_references()
         self._count_loc()
         self._count_parts()
 
