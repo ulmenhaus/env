@@ -31,6 +31,9 @@ const (
 	KindIface   string = "interface"
 	KindPkg     string = "package"
 	KindStruct  string = "struct"
+
+	ModePkg  string = "package"
+	ModeFile string = "file"
 )
 
 var (
@@ -45,6 +48,7 @@ type Collector struct {
 	loc2node map[string]models.EncodedNode // maps node canonical location to copy of corresponding node
 	structs  map[string]bool               // tracks UIDs for structs so they can be distinguished from other typs
 	ifaces   map[string]bool               // tracks UIDs for interfaces so they can be distinguished from other typs
+	mode     string
 }
 
 func NewCollector(pkgs []string) (*Collector, error) {
@@ -208,7 +212,7 @@ func (c *Collector) CollectReferences() error {
 			edge := models.EncodedEdge{
 				SourceUID: source.UID,
 				DestUID:   dest.UID,
-				// TODO location
+				Location: ref,
 			}
 			c.graph.Relations[models.RelationReferences] = append(c.graph.Relations[models.RelationReferences], edge)
 			return true
@@ -377,6 +381,47 @@ func (c *Collector) BuildSubsystems() {
 	}
 }
 
-func (c *Collector) Graph() *models.EncodedGraph {
-	return c.graph
+func (c *Collector) Graph(mode string) *models.EncodedGraph {
+	fitsMode := func(kind string) bool {
+		if mode == ModeFile && kind == KindPkg {
+			return false
+		}
+		if mode == ModePkg && (kind == KindFile || kind == KindDir) {
+			return false
+		}
+		return true
+	}
+
+	eg := &models.EncodedGraph{
+		Relations: map[string]([]models.EncodedEdge){},
+	}
+	included := map[string]bool{}
+	for _, en := range c.graph.Nodes {
+		if !fitsMode(en.Kind) {
+			continue
+		}
+		eg.Nodes = append(eg.Nodes, en)
+		included[en.UID] = true
+	}
+
+	for _, ss := range c.graph.Subsystems {
+		if !fitsMode(ss.Kind) {
+			continue
+		}
+		// NOTE assumes if an item fits the mode then
+		// its parts do as well
+		eg.Subsystems = append(eg.Subsystems, ss)
+		included[ss.UID] = true
+	}
+	for name, relation := range c.graph.Relations {
+		copy := []models.EncodedEdge{}
+		for _, edge := range relation {
+			if !included[edge.SourceUID] || !included[edge.DestUID] {
+				continue
+			}
+			copy = append(copy, edge)
+		}
+		eg.Relations[name] = copy
+	}
+	return eg
 }

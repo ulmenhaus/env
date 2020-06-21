@@ -1,0 +1,159 @@
+#! /usr/bin/python
+
+import collections
+import json
+import sys
+
+
+class RefAccumulator(object):
+    def __init__(self, contents):
+        self.contents = contents
+        self.database = json.loads(contents['snapshot'])
+        self.components_table = self.database["components"]
+        self.refs_table = self.database["references"]
+        self.pt_table = {}
+
+        self.visible_pks = None
+        current_view = self.contents["current_view"]
+        if current_view["table"] == "components":
+            self.visible_pks = current_view["pks"]
+
+    def dump(self, f):
+        self.contents['snapshot'] = json.dumps(self.database)
+        json.dump(self.contents, f)
+
+    def effective_name(self, component_pk):
+        """
+        returns the name of the closest ancestor of the
+        component that is visible -- returns None iff no
+        ancestor is visible
+        """
+        if self.visible_pks is None:
+            return component_pk
+        for anc in self.ancestors(component_pk):
+            if anc in self.visible_pks:
+                return anc
+
+    def ancestors(self, component_pk):
+        while component_pk in self.components_table:
+            yield component_pk
+            component_pk = self.components_table[component_pk]["SoParent"]
+
+    def proper_ancestors(self, component_pk):
+        return list(self.ancestors(component_pk))[1:]
+
+    def _add_passthroughs_schema(self):
+        self.database["_schemata"].update({
+            "passthroughs.AID": {
+                "type": "string",
+                "primary": True,
+            },
+            "passthroughs.Direction": {
+                "type": "enum",
+                "features": {
+                    "values": "In, Out, Within",
+                },
+            },
+            "passthroughs.Passthrough": {
+                "type": "foreign.components",
+            },
+            "passthroughs.SDSource": {
+                "type": "string",
+            },
+            "passthroughs.SDDest": {
+                "type": "string",
+            },
+            "passthroughs.SrcLocation": {
+                "type": "string",
+            },
+        })
+
+    def _build_passthroughs(self):
+        # maps (source EN, dest EN) -> list of locations
+        effective_refs = collections.defaultdict(list)
+        for ref_pk, ref in self.refs_table.items():
+            ef_src = self.effective_name(ref["SDSource"])
+            ef_dst = self.effective_name(ref["SDDest"])
+            if ef_src is None or ef_dst is None:
+                continue
+            effective_refs[(ef_dst, ef_src)].append(ref_pk)
+
+        self.database["passthroughs"] = {}
+        self.pt_table = self.database["passthroughs"]
+        next_id = lambda: str(len(self.pt_table))
+        for key, ref_pks in effective_refs.items():
+            ef_dst, ef_src = key
+            src_ancs = set(self.ancestors(ef_src))
+            dst_ancs = set(self.ancestors(ef_dst))
+            fmt_ref_pk = "{} locations".format(len(ref_pks))
+            if len(ref_pks) == 1:
+                fmt_ref_pk = ref_pks[0]
+            for anc in (src_ancs | dst_ancs):
+                direction = "In"
+                if anc not in dst_ancs:
+                    direction = "Out"
+                elif anc in src_ancs:
+                    direction = "Within"
+                self.pt_table[next_id()] = {
+                    "Direction": direction,
+                    "Passthrough": anc,
+                    "SDSource": ef_src,
+                    "SDDest": ef_dst,
+                    "SrcLocation": fmt_ref_pk,
+                }
+
+    def _reset_counts(self):
+        comps = self.components_table.values()
+        for comp in comps:
+            comp["RI"] = 0
+            comp["RO"] = 0
+            comp["RW"] = 0
+            comp["Parts"] = 0
+
+    def _count_passthroughs(self):
+        comps = self.components_table
+        for pt in self.pt_table.values():
+            key = pt["Passthrough"]
+            dirxn = pt["Direction"]
+            if dirxn == "In":
+                comps[key]["RI"] += 1
+            elif dirxn == "Out":
+                comps[key]["RO"] += 1
+            elif dirxn == "Within":
+                comps[key]["RW"] += 1
+
+    def _count_loc(self):
+        comps = self.components_table
+        subsystems = set(comp["SoParent"] for comp in comps.values())
+        for comp_pk, comp in comps.items():
+            if comp_pk in subsystems:
+                comp["LoC"] = 0
+
+        for comp_pk, comp in comps.items():
+            if comp_pk in subsystems:
+                continue
+            for anc in self.proper_ancestors(comp_pk):
+                comps[anc]["LoC"] += comp["LoC"]
+
+    def _count_parts(self):
+        for pk in self.visible_pks:
+            for anc in self.proper_ancestors(pk):
+                self.components_table[anc]["Parts"] += 1
+
+    def accumulate_refs(self):
+        self._reset_counts()
+        self._add_passthroughs_schema()
+        self._build_passthroughs()
+        self._count_passthroughs()
+        self._count_loc()
+        self._count_parts()
+
+
+def main():
+    acc = RefAccumulator(json.load(sys.stdin))
+    acc.accumulate_refs()
+    acc.dump(sys.stdout)
+
+
+if __name__ == "__main__":
+    main()

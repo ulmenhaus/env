@@ -42,10 +42,11 @@ func NodeFromFunc(pkg, short, path string, f *ast.FuncDecl) models.EncodedNode {
 	if 'a' <= name[0] && name[0] <= 'z' {
 		public = false
 	}
-	// HACK for funcs we do # statements + one line for signature and one line for end
+	// HACK for funcs we do # chars / 27 + one line for signature and one line for end
+	// so approximates LoC -- would be good to test margin of error on large code base
 	lines := uint(2)
 	if f.Body != nil {
-		lines += uint(len(f.Body.List))
+		lines += uint((f.Body.Rbrace - f.Body.Lbrace) / 27)
 	}
 
 	return models.EncodedNode{

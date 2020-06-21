@@ -1,7 +1,10 @@
 package ui
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,6 +22,16 @@ import (
 // MainViewMode is the current mode of the MainView.
 // It determines which subview processes inputs.
 type MainViewMode int
+
+type MacroCurrentView struct {
+	Table string `json:"table"`
+	PKs   []string `json:"pks"`
+}
+
+type MacroInterface struct {
+	Snapshot    string           `json:"snapshot"`
+	CurrentView MacroCurrentView `json:"current_view"`
+}
 
 const (
 	// MainViewModeTable is the mode for standard table
@@ -39,6 +52,13 @@ const (
 	// MainViewModeSelectBox is for when the user is selecting
 	// from a collection of predefined values for a field
 	MainViewModeSelectBox
+
+	// MacroTable is the name of the standard table containing
+	// macros
+	MacroTable = "macros"
+	// MacroLocationCol is the name of the column of the macros
+	// table containing the location of the program to run
+	MacroLocationCol = "Location"
 )
 
 // A MainView is the overall view of the table including headers,
@@ -494,6 +514,9 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		err = mv.updateTableViewContents()
 	}
 
+	if int(ch) == 0 {
+		return
+	}
 	switch ch {
 	case 'a':
 		mv.TableView.SelectColumn()
@@ -606,6 +629,8 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		err = mv.pasteValue()
 	case 'e':
 		err = mv.editWorkspace()
+	default:
+		err = mv.runMacro(ch)
 	}
 }
 
@@ -1045,4 +1070,75 @@ func (mv *MainView) cursorUp(g *gocui.Gui, v *gocui.View) error {
 		}
 	}
 	return nil
+}
+
+func (mv *MainView) runMacro(ch rune) error {
+	macros := mv.DB.Tables[MacroTable]
+
+	entry, ok := macros.Entries[string(ch)]
+	if !ok {
+		return fmt.Errorf("No macro found for: '%s'", string(ch), ch)
+	}
+	loc := entry[macros.IndexOfField(MacroLocationCol)]
+	var stdout, snapshot, stderr bytes.Buffer
+	err := mv.OSM.Dump(mv.DB, &snapshot)
+	if err != nil {
+		return fmt.Errorf("Could not create snapshot: %s", err)
+	}
+	paramsNoLimit := types.QueryParams{
+		Filters: mv.Params.Filters,
+		OrderBy: mv.Params.OrderBy,
+	}
+	response, err := mv.Table.Query(paramsNoLimit)
+	if err != nil {
+		return err
+	}
+	pks := []string{}
+	for _, entry := range response.Entries {
+		pks = append(pks, entry[mv.Table.Primary()].Format(""))
+	}
+	input := MacroInterface{
+		Snapshot: string(snapshot.Bytes()),
+		CurrentView: MacroCurrentView{
+			Table: mv.tableName,
+			PKs:   pks,
+		},
+	}
+	inputEncoded, err := json.Marshal(input)
+	if err != nil {
+		return fmt.Errorf("Could not marshal input: %s", err)
+	}
+	cmd := exec.Command(loc.Format(""))
+	cmd.Stdin = bytes.NewBuffer(inputEncoded)
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err = cmd.Run()
+	if err != nil {
+		// TODO log stderr
+		writeErr := ioutil.WriteFile("/tmp/error.log", stderr.Bytes(), os.ModePerm)
+		if writeErr != nil {
+			return fmt.Errorf("Could not run macro or store stderr: %s", err)
+		}
+		return fmt.Errorf("Could not run macro: %s -- error at /tmp/error.log", err)
+	}
+	var output MacroInterface
+	err = json.Unmarshal(stdout.Bytes(), &output)
+	if err != nil {
+		return fmt.Errorf("Could not unmarshal macro output: %s", err)
+	}
+	mv.DB, err = mv.OSM.Load(bytes.NewBuffer([]byte(output.Snapshot)))
+	if err != nil {
+		return fmt.Errorf("Could not load database from macro: %s", err)
+	}
+	params := mv.Params
+	err = mv.loadTable(mv.tableName)
+	if err != nil {
+		return fmt.Errorf("Could not load table after macro: %s", err)
+	}
+	mv.Params = params
+	err = mv.updateTableViewContents()
+	if err != nil {
+		return fmt.Errorf("Could not update table view after macro: %s", err)
+	}
+	return fmt.Errorf("Ran macro %s", loc)
 }

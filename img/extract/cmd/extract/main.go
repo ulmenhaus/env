@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/ulmenhaus/env/img/extract/collector"
+	"github.com/ulmenhaus/env/img/extract/format"
 )
 
 func main() {
@@ -30,7 +31,9 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	serialized, err := json.MarshalIndent(c.Graph(), "", "    ")
+	// TODO take mode and format from command-line
+	graph := c.Graph(collector.ModePkg)
+	serialized, err := json.MarshalIndent(format.FormatJQL(graph), "", "    ")
 	if err != nil {
 		panic(err)
 	}
