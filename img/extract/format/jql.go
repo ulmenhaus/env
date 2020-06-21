@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/ulmenhaus/env/img/explore/models"
 )
@@ -93,16 +94,26 @@ func formatLocation(location models.EncodedLocation) string {
 	return fmt.Sprintf("%s#%d", path, location.Offset)
 }
 
-func FormatJQL(g *models.EncodedGraph) map[string]interface{} {
+func FormatJQL(g *models.EncodedGraph, stripPrefixes []string) map[string]interface{} {
 	// NOTE jql model assumes subsystem relation is hierarchical
 	// so no subsystem should be contained in more than one
 	// parent system
 	uid2ds := map[string]string{}
+	stripPrefix := func(ds string) string {
+		for _, prefix := range stripPrefixes {
+			if strings.HasPrefix(ds, prefix) {
+				return ds[len(prefix):]
+			} else if fmt.Sprintf("%s/", ds) == prefix {
+				return "."
+			}
+		}
+		return ds
+	}
 	for _, en := range g.Nodes {
-		uid2ds[en.UID] = en.DisplayName
+		uid2ds[en.UID] = stripPrefix(en.DisplayName)
 	}
 	for _, ss := range g.Subsystems {
-		uid2ds[ss.UID] = ss.DisplayName
+		uid2ds[ss.UID] = stripPrefix(ss.DisplayName)
 	}
 	parents := map[string]string{}
 	for _, parent := range g.Subsystems {
@@ -114,7 +125,7 @@ func FormatJQL(g *models.EncodedGraph) map[string]interface{} {
 	m["_schemata"] = schema()
 	components := map[string]ComponentEntry{}
 	for _, en := range g.Nodes {
-		components[en.DisplayName] = ComponentEntry{
+		components[uid2ds[en.UID]] = ComponentEntry{
 			Kind:        en.Kind,
 			LoC:         int(en.Location.Lines),
 			SoParent:    uid2ds[parents[en.UID]],
@@ -122,7 +133,7 @@ func FormatJQL(g *models.EncodedGraph) map[string]interface{} {
 		}
 	}
 	for _, ss := range g.Subsystems {
-		components[ss.DisplayName] = ComponentEntry{
+		components[uid2ds[ss.UID]] = ComponentEntry{
 			Kind:        ss.Kind,
 			SoParent:    uid2ds[parents[ss.UID]],
 			SrcLocation: formatLocation(ss.Location),
