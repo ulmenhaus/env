@@ -89,6 +89,12 @@ func schema() map[string]interface{} {
 		"macros.Params": map[string]interface{}{
 			"type": "string",
 		},
+		"macros.Reload": map[string]interface{}{
+			"type": "enum",
+			"features": map[string]interface{}{
+				"values": "no, yes",
+			},
+		},
 	}
 }
 
@@ -189,6 +195,14 @@ func FormatJQL(g *models.EncodedGraph, stripPrefixes []string, projectName strin
 		"e": map[string]interface{}{
 			"Location": "jql-component-edit",
 			"Params":   "",
+		},
+		"R": map[string]interface{}{
+			"Location": "extract --strip-current-workdir",
+			"Reload":   "yes",
+		},
+		"b": map[string]interface{}{
+			"Location": "extract --bookmarks-only",
+			"Reload":   "yes",
 		},
 	}
 	bookmarks, err := GetProjectBookmarks(projectName)

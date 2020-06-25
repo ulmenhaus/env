@@ -14,7 +14,9 @@ import (
 )
 
 var (
-	stripPrefixes []string
+	stripPrefixes       []string
+	stripCurrentWorkdir bool
+	bookmarksOnly       bool
 )
 
 var rootCmd = &cobra.Command{
@@ -24,6 +26,37 @@ var rootCmd = &cobra.Command{
                   that exist within it as well as the symbolic references
                   that exist between them .`,
 	Run: func(cmd *cobra.Command, pkgs []string) {
+		if bookmarksOnly {
+			contents, err := ioutil.ReadFile(".project.json")
+			if err != nil {
+				panic(err)
+			}
+			unmarshaled := map[string]interface{}{}
+			err = json.Unmarshal(contents, &unmarshaled)
+			if err != nil {
+				panic(err)
+			}
+			bookmarks, err := format.GetProjectBookmarks(os.Getenv("TMUX_WINDOW_NAME"))
+			if err != nil {
+				panic(err)
+			}
+			unmarshaled["bookmarks"] = bookmarks
+			marshaled, err := json.Marshal(unmarshaled)
+			if err != nil {
+				panic(err)
+			}
+			err = ioutil.WriteFile(".project.json", marshaled, os.ModePerm)
+			if err != nil {
+				panic(err)
+			}
+			return
+		}
+		if stripCurrentWorkdir {
+			path, err := os.Getwd()
+			if err == nil {
+				stripPrefixes = append(stripPrefixes, path[len(os.Getenv("GOPATH")+"/src/"):]+"/")
+			}
+		}
 		if len(pkgs) == 0 {
 			pkgs = []string{"./..."}
 		}
@@ -60,6 +93,8 @@ var rootCmd = &cobra.Command{
 
 func init() {
 	rootCmd.PersistentFlags().StringSliceVar(&stripPrefixes, "strip-prefix", []string{}, "a list of prefixes to strip from package names in the output")
+	rootCmd.PersistentFlags().BoolVar(&stripCurrentWorkdir, "strip-current-workdir", false, "strip the current working directory from all package names")
+	rootCmd.PersistentFlags().BoolVar(&bookmarksOnly, "bookmarks-only", false, "only update the bookmarks from the project file")
 }
 
 func main() {

@@ -8,8 +8,9 @@ import tabulate
 
 
 class ProjectManager(object):
-    def __init__(self, path="~/.projects.json"):
+    def __init__(self, path="~/.projects.json", project=""):
         self.path = os.path.expanduser(path)
+        self.project = project
         with open(self.path) as f:
             self._cache = json.load(f)
 
@@ -22,6 +23,26 @@ class ProjectManager(object):
             " ".join(project["tags"]),
         ] for name, project in self._cache["projects"].items()]
         print(tabulate.tabulate(table))
+
+    def add_bookmark(self, path, point):
+        project = self._cache["projects"][self.project]
+        project["bookmarks"][self._key_for_bookmark(path, point)] = {}
+        self._save_cache()
+
+    def add_bookmark(self, path, point):
+        project = self._cache["projects"][self.project]
+        del project["bookmarks"][self._key_for_bookmark(path, point)]
+        self._save_cache()
+
+    def _key_for_bookmark(self, path, point):
+        project = self._cache["projects"][self.project]
+        projdir = os.path.abspath(os.path.expanduser(project["workdir"]))
+        relpath = os.path.abspath(path)[len(projdir) + 1:]
+        return "{}#{}".format(relpath, point)
+
+    def _save_cache(self):
+        with open(self.path, 'w') as f:
+            json.dump(self._cache, f)
 
 
 @click.group()
@@ -38,12 +59,26 @@ def main():
     def bookmark_group():
         pass
 
-    pm = ProjectManager()
+    pm = ProjectManager(project=os.environ["TMUX_WINDOW_NAME"])
 
     def ls():
         return pm.list_projects()
 
     project_group.command()(ls)
+
+    @click.argument('path', type=click.STRING)
+    @click.argument('point', type=click.STRING)
+    def add(path, point):
+        return pm.add_bookmark(path, point)
+
+    @click.argument('path', type=click.STRING)
+    @click.argument('point', type=click.STRING)
+    def rm(path, point):
+        return pm.remove_bookmark(path, point)
+
+    bookmark_group.command()(add)
+    bookmark_group.command()(rm)
+
     cli(obj={})
 
 

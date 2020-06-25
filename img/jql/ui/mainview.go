@@ -1076,9 +1076,11 @@ func (mv *MainView) runMacro(ch rune) error {
 
 	entry, ok := macros.Entries[string(ch)]
 	if !ok {
-		return fmt.Errorf("No macro found for: '%s'", string(ch), ch)
+		return fmt.Errorf("No macro found for: '%s'", string(ch))
 	}
-	loc := entry[macros.IndexOfField(MacroLocationCol)]
+	loc := strings.Split(entry[macros.IndexOfField(MacroLocationCol)].Format(""), " ")
+	reloadIndex := macros.IndexOfField("Reload")
+	isReload := reloadIndex != -1 && entry[reloadIndex].Format("") == "yes"
 	var stdout, snapshot, stderr bytes.Buffer
 	err := mv.OSM.Dump(mv.DB, &snapshot)
 	if err != nil {
@@ -1111,7 +1113,7 @@ func (mv *MainView) runMacro(ch rune) error {
 	if err != nil {
 		return fmt.Errorf("Could not marshal input: %s", err)
 	}
-	cmd := exec.Command(loc.Format(""))
+	cmd := exec.Command(loc[0], loc[1:]...)
 	cmd.Stdin = bytes.NewBuffer(inputEncoded)
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -1124,12 +1126,22 @@ func (mv *MainView) runMacro(ch rune) error {
 		}
 		return fmt.Errorf("Could not run macro: %s -- error at /tmp/error.log", err)
 	}
-	var output MacroInterface
-	err = json.Unmarshal(stdout.Bytes(), &output)
-	if err != nil {
-		return fmt.Errorf("Could not unmarshal macro output: %s", err)
+	var newDB []byte
+
+	if isReload {
+		newDB, err = ioutil.ReadFile(mv.path)
+		if err != nil {
+			return fmt.Errorf("Could not reload db: %s", err)
+		}
+	} else {
+		var output MacroInterface
+		err = json.Unmarshal(stdout.Bytes(), &output)
+		if err != nil {
+			return fmt.Errorf("Could not unmarshal macro output: %s", err)
+		}
+		newDB = []byte(output.Snapshot)
 	}
-	mv.DB, err = mv.OSM.Load(bytes.NewBuffer([]byte(output.Snapshot)))
+	mv.DB, err = mv.OSM.Load(bytes.NewBuffer(newDB))
 	if err != nil {
 		return fmt.Errorf("Could not load database from macro: %s", err)
 	}
