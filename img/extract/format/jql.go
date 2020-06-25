@@ -173,6 +173,10 @@ func FormatJQL(g *models.EncodedGraph, stripPrefixes []string) map[string]interf
 			"Location": "jql-system-accumulator",
 			"Params":   "",
 		},
+		"e": map[string]interface{}{
+			"Location": "jql-component-edit",
+			"Params":   "",
+		},
 	}
 	return m
 }

@@ -24,8 +24,9 @@ import (
 type MainViewMode int
 
 type MacroCurrentView struct {
-	Table string `json:"table"`
-	PKs   []string `json:"pks"`
+	Table            string   `json:"table"`
+	PKs              []string `json:"pks"`
+	PrimarySelection string   `json:"primary_selection"`
 }
 
 type MacroInterface struct {
@@ -627,8 +628,6 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		err = mv.copyValue()
 	case 'Y':
 		err = mv.pasteValue()
-	case 'e':
-		err = mv.editWorkspace()
 	default:
 		err = mv.runMacro(ch)
 	}
@@ -1097,11 +1096,15 @@ func (mv *MainView) runMacro(ch rune) error {
 	for _, entry := range response.Entries {
 		pks = append(pks, entry[mv.Table.Primary()].Format(""))
 	}
+	row, _ := mv.TableView.PrimarySelection()
+	primarySelection := mv.response.Entries[row][mv.Table.Primary()]
+
 	input := MacroInterface{
 		Snapshot: string(snapshot.Bytes()),
 		CurrentView: MacroCurrentView{
-			Table: mv.tableName,
-			PKs:   pks,
+			Table:            mv.tableName,
+			PKs:              pks,
+			PrimarySelection: primarySelection.Format(""),
 		},
 	}
 	inputEncoded, err := json.Marshal(input)

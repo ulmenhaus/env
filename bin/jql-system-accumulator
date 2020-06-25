@@ -1,4 +1,12 @@
 #! /usr/bin/python
+"""
+For jql system explorer schema (see extract tool)
+
+This macro accumulates all references into, out from, and within a given
+component based on what is visible in the current view. These references will
+be shown as counts in the components table as well as individually as back
+references in the references and hidden references tables.
+"""
 
 import collections
 import json

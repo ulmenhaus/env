@@ -1,0 +1,60 @@
+#! /usr/bin/python
+"""
+For jql system explorer schema (see extract tool)
+
+This macro opens the selected component or reference in your editor. For
+now it is assumed that your editor is emacs running in daemon mode with the
+current tmux window name as the context and in a pane to the right of the
+current one.
+"""
+
+import json
+import os
+import os.path
+import subprocess
+import sys
+import time
+
+
+def open_with_emacs_daemon(path, pos):
+    abspath = os.path.abspath(path)
+    subprocess.Popen([
+        "emacsclient",
+        "-n",
+        "-s",
+        os.environ["TMUX_WINDOW_NAME"],
+        abspath,
+    ]).wait()
+    subprocess.Popen([
+        "tmux",
+        "send",
+        "-t",
+        "bottom",
+        "Escape",
+        "x",
+        "goto-char",
+        "ENTER",
+        pos,
+        "ENTER",
+    ]).wait()
+    subprocess.Popen([
+        "tmux",
+        "select-pane",
+        "-D",
+    ]).wait()
+
+
+def main():
+    iface = json.load(sys.stdin)
+    snapshot = json.loads(iface["snapshot"])
+    current_view = iface["current_view"]
+    current_view["table"]
+    pk = current_view["primary_selection"]
+    current_row = snapshot[current_view["table"]][pk]
+    loc = current_row.get("SrcLocation", pk)
+    path, char = loc.split("#")
+    open_with_emacs_daemon(path, char)
+
+
+if __name__ == "__main__":
+    main()
