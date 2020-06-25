@@ -28,6 +28,19 @@ type ReferenceEntry struct {
 
 func schema() map[string]interface{} {
 	return map[string]interface{}{
+		"bookmarks.Context": map[string]interface{}{
+			"type": "string",
+		},
+		"bookmarks.Description": map[string]interface{}{
+			"type": "string",
+		},
+		"bookmarks.Notes": map[string]interface{}{
+			"type": "string",
+		},
+		"bookmarks.Location": map[string]interface{}{
+			"type":    "string",
+			"primary": true,
+		},
 		"components.DisplayName": map[string]interface{}{
 			"primary": true,
 			"type":    "string",
@@ -91,7 +104,7 @@ func formatLocation(location models.EncodedLocation) string {
 	return fmt.Sprintf("%s#%d", path, location.Offset)
 }
 
-func FormatJQL(g *models.EncodedGraph, stripPrefixes []string) map[string]interface{} {
+func FormatJQL(g *models.EncodedGraph, stripPrefixes []string, projectName string) map[string]interface{} {
 	// NOTE jql model assumes subsystem relation is hierarchical
 	// so no subsystem should be contained in more than one
 	// parent system
@@ -178,5 +191,10 @@ func FormatJQL(g *models.EncodedGraph, stripPrefixes []string) map[string]interf
 			"Params":   "",
 		},
 	}
+	bookmarks, err := GetProjectBookmarks(projectName)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Got error collecting project bookmarks: %s\n", err)
+	}
+	m["bookmarks"] = bookmarks
 	return m
 }

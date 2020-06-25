@@ -3,7 +3,8 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
+	"io/ioutil"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -23,6 +24,9 @@ var rootCmd = &cobra.Command{
                   that exist within it as well as the symbolic references
                   that exist between them .`,
 	Run: func(cmd *cobra.Command, pkgs []string) {
+		if len(pkgs) == 0 {
+			pkgs = []string{"./..."}
+		}
 		buffer := bytes.NewBuffer([]byte{})
 		args := append([]string{"list"}, pkgs...)
 		lister := exec.Command("go", args...)
@@ -42,11 +46,15 @@ var rootCmd = &cobra.Command{
 		}
 		// TODO take mode and format from command-line
 		graph := c.Graph(collector.ModePkg)
-		serialized, err := json.MarshalIndent(format.FormatJQL(graph, stripPrefixes), "", "    ")
+		formatted := format.FormatJQL(graph, stripPrefixes, os.Getenv("TMUX_WINDOW_NAME"))
+		serialized, err := json.MarshalIndent(formatted, "", "    ")
 		if err != nil {
 			panic(err)
 		}
-		fmt.Printf("%s\n", string(serialized))
+		err = ioutil.WriteFile(".project.json", serialized, os.ModePerm)
+		if err != nil {
+			panic(err)
+		}
 	},
 }
 

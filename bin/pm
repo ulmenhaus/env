@@ -1,0 +1,51 @@
+#! /usr/local/bin/python3
+
+import json
+import os
+
+import click
+import tabulate
+
+
+class ProjectManager(object):
+    def __init__(self, path="~/.projects.json"):
+        self.path = os.path.expanduser(path)
+        with open(self.path) as f:
+            self._cache = json.load(f)
+
+    def list_projects(self):
+        table = [[
+            name,
+            project["workdir"],
+            "{} bookmarks".format(len(project["bookmarks"])),
+            "{} commands".format(len(project["commands"])),
+            " ".join(project["tags"]),
+        ] for name, project in self._cache["projects"].items()]
+        print(tabulate.tabulate(table))
+
+
+@click.group()
+def cli():
+    pass
+
+
+def main():
+    @cli.group(name='project')
+    def project_group():
+        pass
+
+    @cli.group(name='bookmark')
+    def bookmark_group():
+        pass
+
+    pm = ProjectManager()
+
+    def ls():
+        return pm.list_projects()
+
+    project_group.command()(ls)
+    cli(obj={})
+
+
+if __name__ == "__main__":
+    main()
