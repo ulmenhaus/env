@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io/ioutil"
+	"log"
 	"os"
 	"os/exec"
 	"strings"
@@ -26,6 +27,14 @@ var rootCmd = &cobra.Command{
                   that exist within it as well as the symbolic references
                   that exist between them .`,
 	Run: func(cmd *cobra.Command, pkgs []string) {
+		f, err := os.OpenFile(".extract-errors.log",
+			os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			log.Println(err)
+		}
+		defer f.Close()
+
+		logger := log.New(f, "prefix", log.LstdFlags)
 		if bookmarksOnly {
 			contents, err := ioutil.ReadFile(".project.json")
 			if err != nil {
@@ -64,12 +73,12 @@ var rootCmd = &cobra.Command{
 		args := append([]string{"list"}, pkgs...)
 		lister := exec.Command("go", args...)
 		lister.Stdout = buffer
-		err := lister.Run()
+		err = lister.Run()
 		if err != nil {
 			panic(err)
 		}
 		allPkgs := strings.Split(buffer.String(), "\n")
-		c, err := collector.NewCollector(allPkgs)
+		c, err := collector.NewCollector(allPkgs, logger)
 		if err != nil {
 			panic(err)
 		}

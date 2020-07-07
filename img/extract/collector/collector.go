@@ -7,6 +7,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io/ioutil"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -49,10 +50,11 @@ type Collector struct {
 	structs  map[string]bool               // tracks UIDs for structs so they can be distinguished from other typs
 	ifaces   map[string]bool               // tracks UIDs for interfaces so they can be distinguished from other typs
 	mode     string
+	logger   *log.Logger
 }
 
-func NewCollector(pkgs []string) (*Collector, error) {
-	finder, err := NewDefinitionFinder(&build.Default, pkgs)
+func NewCollector(pkgs []string, logger *log.Logger) (*Collector, error) {
+	finder, err := NewDefinitionFinder(pkgs)
 	if err != nil {
 		return nil, err
 	}
@@ -71,6 +73,7 @@ func NewCollector(pkgs []string) (*Collector, error) {
 		loc2node: map[string]models.EncodedNode{},
 		structs:  map[string]bool{},
 		ifaces:   map[string]bool{},
+		logger:   logger,
 	}, nil
 }
 
@@ -91,6 +94,15 @@ func (c *Collector) MapFiles(f func(pkg, short, path string) error) error {
 		}
 	}
 	return nil
+}
+
+func (c *Collector) CountFiles() (int, error) {
+	count := 0
+	err := c.MapFiles(func(_, _, _ string) error {
+		count += 1
+		return nil
+	})
+	return count, err
 }
 
 func (c *Collector) collectNodesInFile(pkg, short, path string) error {
@@ -147,7 +159,17 @@ func (c *Collector) CollectAll() error {
 }
 
 func (c *Collector) CollectNodes() error {
-	return c.MapFiles(c.collectNodesInFile)
+	total, err := c.CountFiles()
+	if err != nil {
+		return err
+	}
+	current := 0
+	fmt.Printf("%d files to process\n", total)
+	return c.MapFiles(func(pkg, short, path string) error {
+		fmt.Printf("Processing %d\n", current)
+		current += 1
+		return c.collectNodesInFile(pkg, short, path)
+	})
 }
 
 func (c *Collector) CollectReferences() error {
@@ -196,13 +218,13 @@ func (c *Collector) CollectReferences() error {
 			}
 			def, err := c.finder.Find(&build.Default, ref)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Got error: %s\n", err)
+				c.logger.Printf("Got error: %s\n", err)
 				return true
 			}
 
 			dest, ok := c.loc2node[def.Canonical()]
 			if !ok {
-				fmt.Fprintf(os.Stderr, "Got miss on %#v\n", n)
+				c.logger.Printf("Got miss on %#v\n", n)
 				return true
 			}
 			if dest.UID == source.UID {
@@ -212,7 +234,7 @@ func (c *Collector) CollectReferences() error {
 			edge := models.EncodedEdge{
 				SourceUID: source.UID,
 				DestUID:   dest.UID,
-				Location: ref,
+				Location:  ref,
 			}
 			c.graph.Relations[models.RelationReferences] = append(c.graph.Relations[models.RelationReferences], edge)
 			return true

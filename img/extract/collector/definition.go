@@ -4,25 +4,24 @@ import (
 	"fmt"
 	"go/ast"
 	"go/build"
-	"go/parser"
 	"go/token"
 	"go/types"
 	"os"
 	"path/filepath"
 
 	"github.com/ulmenhaus/env/img/explore/models"
-	"golang.org/x/tools/go/loader"
+	"github.com/ulmenhaus/env/img/extract/minloader"
 )
 
 // DefinitionFinder essentially reimplements the go guru definition finder but
 // with reuse of information across multiple jump checks
 type DefinitionFinder struct {
-	prog *loader.Program
+	prog *minloader.Program
 }
 
 // NewDefinitionFinder returns a DefinitionFinder with the provided packages imported
-func NewDefinitionFinder(bc *build.Context, pkgs []string) (*DefinitionFinder, error) {
-	conf := newLoaderConf(bc)
+func NewDefinitionFinder(pkgs []string) (*DefinitionFinder, error) {
+	conf := newLoaderConf()
 	for _, pkg := range pkgs {
 		// TODO need to make test import configurable
 		conf.ImportWithTests(pkg)
@@ -54,7 +53,7 @@ func (df *DefinitionFinder) Find(bc *build.Context, ref models.EncodedLocation) 
 	}, nil
 }
 
-func findReferencedObject(lprog *loader.Program, ref models.EncodedLocation) (types.Object, error) {
+func findReferencedObject(lprog *minloader.Program, ref models.EncodedLocation) (types.Object, error) {
 	// Find the named file among those in the loaded program
 	//
 	// TODO can hash these for faster lookup and get rid of sameFile
@@ -101,15 +100,8 @@ func findReferencedObject(lprog *loader.Program, ref models.EncodedLocation) (ty
 // newLoaderConf creates a loader conf with the build context and
 // errors to be silently ignored.
 // (Not suitable if SSA construction follows.)
-func newLoaderConf(bc *build.Context) *loader.Config {
-	ctxt := *bc // copy
-	ctxt.CgoEnabled = false
-	lconf := &loader.Config{Build: &ctxt}
-	lconf.Build = &ctxt
-	lconf.AllowErrors = true
-	// AllErrors makes the parser always return an AST instead of
-	// bailing out after 10 errors and returning an empty ast.File.
-	lconf.ParserMode = parser.AllErrors
+func newLoaderConf() *minloader.Config {
+	lconf := &minloader.Config{}
 	lconf.TypeChecker.Error = func(err error) {}
 	return lconf
 }
