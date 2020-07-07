@@ -1128,6 +1128,7 @@ func (mv *MainView) runMacro(ch rune) error {
 	}
 	var newDB []byte
 
+	// TODO change to three valued "Output" field: file, stdout, none
 	if isReload {
 		newDB, err = ioutil.ReadFile(mv.path)
 		if err != nil {
