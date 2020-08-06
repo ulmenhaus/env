@@ -73,6 +73,7 @@ type MainView struct {
 	Table   *types.Table
 	Params  types.QueryParams
 	columns []string
+	colix   []int
 	// TODO map[string]types.Entry and []types.Entry could both
 	// be higher-level types (e.g. VerboseRow and Row)
 	response *types.Response
@@ -164,6 +165,7 @@ func (mv *MainView) loadTable(t string) error {
 	mv.Table = table
 	mv.tableName = tName
 	columns := []string{}
+	colix := []int{}
 	widths := []int{}
 	max, err := mv.maxWidths(table)
 	if err != nil {
@@ -171,7 +173,6 @@ func (mv *MainView) loadTable(t string) error {
 	}
 	for i, column := range table.Columns {
 		if strings.HasPrefix(column, "_") {
-			// TODO note these to skip the values as well
 			continue
 		}
 		width := 40
@@ -180,6 +181,7 @@ func (mv *MainView) loadTable(t string) error {
 		}
 		widths = append(widths, width)
 		columns = append(columns, column)
+		colix = append(colix, i)
 	}
 	mv.TableView = &TableView{
 		Values: [][]string{},
@@ -190,6 +192,7 @@ func (mv *MainView) loadTable(t string) error {
 		},
 	}
 	mv.columns = columns
+	mv.colix = colix
 	// TODO would be good to preserve params per table
 	mv.Params.OrderBy = mv.columns[0]
 	mv.Params.Filters = []types.Filter{}
@@ -231,7 +234,7 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	}
-	v, err := g.SetView("table", 0, 3, maxX-2, maxY-3)
+	v, err := g.SetView("table", 0, 3, maxX-2, maxY-5)
 	if err != nil {
 		if err != gocui.ErrUnknownView {
 			return err
@@ -256,6 +259,16 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 	if switching {
 		prompt.Clear()
 	}
+	location, err := g.SetView("location", 0, maxY-5, maxX-2, maxY-3)
+	if err != nil {
+		if err != gocui.ErrUnknownView {
+			return err
+		}
+	}
+	location.Clear()
+	row, col := mv.TableView.PrimarySelection()
+	primarySelection := mv.response.Entries[row][mv.Table.Primary()]
+	location.Write([]byte(fmt.Sprintf("    L%d C%d           %s", row, col, primarySelection.Format(""))))
 	if mv.Mode == MainViewModeSelectBox {
 		selectBox, err := g.SetView("selectBox", maxX/2-30, maxY/2-10, maxX/2+30, maxY/2+10)
 		if err != nil {
@@ -660,12 +673,7 @@ func (mv *MainView) updateTableViewContents() error {
 	mv.TableView.Values = [][]string{}
 	// NOTE putting this here to support swapping columns later
 	header := []string{}
-	ignored := map[int]bool{}
-	for i, col := range mv.columns {
-		if col[0] == ' ' {
-			ignored[i] = true
-			continue
-		}
+	for _, col := range mv.columns {
 		if mv.Params.OrderBy == col {
 			if mv.Params.Dec {
 				col += " ^"
@@ -683,12 +691,9 @@ func (mv *MainView) updateTableViewContents() error {
 	}
 	mv.response = response
 	for _, row := range mv.response.Entries {
-		// TODO ignore hidden columns
 		formatted := []string{}
-		for i, entry := range row {
-			if ignored[i] {
-				continue
-			}
+		for _, i := range mv.colix {
+			entry := row[i]
 			// TODO extract actual formatting
 			formatted = append(formatted, entry.Format(""))
 		}
