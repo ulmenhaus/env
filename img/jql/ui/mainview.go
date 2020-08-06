@@ -660,7 +660,12 @@ func (mv *MainView) updateTableViewContents() error {
 	mv.TableView.Values = [][]string{}
 	// NOTE putting this here to support swapping columns later
 	header := []string{}
-	for _, col := range mv.columns {
+	ignored := map[int]bool{}
+	for i, col := range mv.columns {
+		if col[0] == ' ' {
+			ignored[i] = true
+			continue
+		}
 		if mv.Params.OrderBy == col {
 			if mv.Params.Dec {
 				col += " ^"
@@ -680,7 +685,10 @@ func (mv *MainView) updateTableViewContents() error {
 	for _, row := range mv.response.Entries {
 		// TODO ignore hidden columns
 		formatted := []string{}
-		for _, entry := range row {
+		for i, entry := range row {
+			if ignored[i] {
+				continue
+			}
 			// TODO extract actual formatting
 			formatted = append(formatted, entry.Format(""))
 		}
