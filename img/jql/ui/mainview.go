@@ -172,6 +172,7 @@ func (mv *MainView) loadTable(t string) error {
 		return err
 	}
 	for i, column := range table.Columns {
+		columns = append(columns, column)
 		if strings.HasPrefix(column, "_") {
 			continue
 		}
@@ -180,7 +181,6 @@ func (mv *MainView) loadTable(t string) error {
 			width = max[i]
 		}
 		widths = append(widths, width)
-		columns = append(columns, column)
 		colix = append(colix, i)
 	}
 	mv.TableView = &TableView{
@@ -266,8 +266,12 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 		}
 	}
 	location.Clear()
-	row, col := mv.TableView.PrimarySelection()
-	primarySelection := mv.response.Entries[row][mv.Table.Primary()]
+	row, col := mv.SelectedEntry()
+	var primarySelection types.Entry
+	primarySelection = types.String("")
+	if row < len(mv.response.Entries) {
+		primarySelection = mv.response.Entries[row][mv.Table.Primary()]
+	}
 	location.Write([]byte(fmt.Sprintf("    L%d C%d           %s", row, col, primarySelection.Format(""))))
 	if mv.Mode == MainViewModeSelectBox {
 		selectBox, err := g.SetView("selectBox", maxX/2-30, maxY/2-10, maxX/2+30, maxY/2+10)
@@ -455,7 +459,7 @@ func (mv *MainView) handleSearchInput(v *gocui.View, key gocui.Key, ch rune, mod
 }
 
 func (mv *MainView) triggerEdit() error {
-	row, col := mv.TableView.PrimarySelection()
+	row, col := mv.SelectedEntry()
 	// TODO leaky abstraction. Maybe better to support
 	// an interface method for detecting possible values
 	switch f := mv.response.Entries[row][col].(type) {
@@ -562,7 +566,7 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		}
 		err = mv.goFromSelectedValue(tables)
 	case 'f', 'F':
-		row, col := mv.TableView.PrimarySelection()
+		row, col := mv.SelectedEntry()
 		filterTarget := mv.response.Entries[row][col].Format("")
 		mv.Params.Filters = append(mv.Params.Filters, &EqualFilter{
 			Field:     mv.Table.Columns[col],
@@ -604,13 +608,21 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		})
 		mv.switchMode(MainViewModeSearch)
 	case 'o':
-		_, col := mv.TableView.PrimarySelection()
+		_, col := mv.SelectedEntry()
 		mv.Params.OrderBy = mv.columns[col]
 		mv.Params.Dec = false
 		err = mv.updateTableViewContents()
 	case 'O':
-		_, col := mv.TableView.PrimarySelection()
+		_, col := mv.SelectedEntry()
 		mv.Params.OrderBy = mv.columns[col]
+		mv.Params.Dec = true
+		err = mv.updateTableViewContents()
+	case 'p':
+		mv.Params.OrderBy = mv.columns[mv.Table.Primary()]
+		mv.Params.Dec = false
+		err = mv.updateTableViewContents()
+	case 'P':
+		mv.Params.OrderBy = mv.columns[mv.Table.Primary()]
 		mv.Params.Dec = true
 		err = mv.updateTableViewContents()
 	case 'i':
@@ -673,7 +685,8 @@ func (mv *MainView) updateTableViewContents() error {
 	mv.TableView.Values = [][]string{}
 	// NOTE putting this here to support swapping columns later
 	header := []string{}
-	for _, col := range mv.columns {
+	for _, i := range mv.colix {
+		col := mv.columns[i]
 		if mv.Params.OrderBy == col {
 			if mv.Params.Dec {
 				col += " ^"
@@ -766,7 +779,7 @@ func (mv *MainView) promptExit(contents string, finish bool, err error) {
 }
 
 func (mv *MainView) goToSelectedValue(tables map[string]*types.Table) error {
-	row, col := mv.TableView.PrimarySelection()
+	row, col := mv.SelectedEntry()
 	// TODO leaky abstraction. Maybe better to support
 	// an interface method for detecting foreigns
 	var table string
@@ -818,7 +831,7 @@ loop:
 }
 
 func (mv *MainView) goFromSelectedValue(tables map[string]*types.Table) error {
-	row, _ := mv.TableView.PrimarySelection()
+	row, _ := mv.SelectedEntry()
 	selected := mv.response.Entries[row][mv.Table.Primary()]
 	for name, table := range tables {
 		col := table.HasForeign(mv.tableName)
@@ -865,7 +878,7 @@ func (mv *MainView) goFromSelectedValue(tables map[string]*types.Table) error {
 }
 
 func (mv *MainView) incrementSelected(amt int) error {
-	row, col := mv.TableView.PrimarySelection()
+	row, col := mv.SelectedEntry()
 	entry := mv.response.Entries[row][col]
 	key := mv.response.Entries[row][mv.Table.Primary()].Format("")
 	// TODO leaky abstraction
@@ -900,14 +913,14 @@ func (mv *MainView) incrementSelected(amt int) error {
 }
 
 func (mv *MainView) openCellInWindow() error {
-	row, col := mv.TableView.PrimarySelection()
+	row, col := mv.SelectedEntry()
 	entry := mv.response.Entries[row][col]
 	cmd := exec.Command("open", entry.Format(""))
 	return cmd.Run()
 }
 
 func (mv *MainView) deleteSelectedRow() error {
-	row, _ := mv.TableView.PrimarySelection()
+	row, _ := mv.SelectedEntry()
 	key := mv.response.Entries[row][mv.Table.Primary()].Format("")
 	return mv.Table.Delete(key)
 }
@@ -943,7 +956,7 @@ func (mv *MainView) nextAvailablePrimaryFromPattern(key string) (string, error) 
 }
 
 func (mv *MainView) duplicateSelectedRow() error {
-	row, _ := mv.TableView.PrimarySelection()
+	row, _ := mv.SelectedEntry()
 	primaryIndex := mv.Table.Primary()
 	old := mv.response.Entries[row]
 	key := old[primaryIndex].Format("")
@@ -968,7 +981,7 @@ func (mv *MainView) duplicateSelectedRow() error {
 }
 
 func (mv *MainView) copyValue() error {
-	row, col := mv.TableView.PrimarySelection()
+	row, col := mv.SelectedEntry()
 	value := mv.response.Entries[row][col].Format("")
 	// TODO Linux implementation
 	cmd := exec.Command("/usr/bin/pbcopy")
@@ -992,7 +1005,7 @@ func (mv *MainView) copyValue() error {
 }
 
 func (mv *MainView) updateEntryValue(contents string) error {
-	row, column := mv.TableView.PrimarySelection()
+	row, column := mv.SelectedEntry()
 	primary := mv.Table.Primary()
 	key := mv.response.Entries[row][primary].Format("")
 	err := mv.Table.Update(key, mv.Table.Columns[column], contents)
@@ -1013,7 +1026,7 @@ func (mv *MainView) pasteValue() error {
 }
 
 func (mv *MainView) editWorkspace() error {
-	row, col := mv.TableView.PrimarySelection()
+	row, col := mv.SelectedEntry()
 	val := mv.response.Entries[row][col].Format("")
 	ws := os.Getenv("JQL_WORKSPACE")
 	dir := filepath.Join(ws, val)
@@ -1111,7 +1124,7 @@ func (mv *MainView) runMacro(ch rune) error {
 	for _, entry := range response.Entries {
 		pks = append(pks, entry[mv.Table.Primary()].Format(""))
 	}
-	row, _ := mv.TableView.PrimarySelection()
+	row, _ := mv.SelectedEntry()
 	primarySelection := mv.response.Entries[row][mv.Table.Primary()]
 
 	input := MacroInterface{
@@ -1170,4 +1183,9 @@ func (mv *MainView) runMacro(ch rune) error {
 		return fmt.Errorf("Could not update table view after macro: %s", err)
 	}
 	return fmt.Errorf("Ran macro %s", loc)
+}
+
+func (mv *MainView) SelectedEntry() (int, int) {
+	row, col := mv.TableView.PrimarySelection()
+	return row, mv.colix[col]
 }

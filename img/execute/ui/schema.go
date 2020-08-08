@@ -15,19 +15,18 @@ const (
 
 	FieldAction         string = "Action"
 	FieldBegin          string = "Begin"
-	FieldDescription    string = " Description"
+	FieldDescription    string = "_Description"
 	FieldEnd            string = "End"
 	FieldFeed           string = "Feed"
 	FieldIndirect       string = "Indirect"
 	FieldLink           string = "Link"
-	FieldLogDescription string = "A Description"
+	FieldLogDescription string = "A_Description"
 	FieldPrimaryGoal    string = "Primary Goal"
-	FieldSpan           string = "Param Span"
+	FieldSpan           string = "Param~Span"
 	FieldStatus         string = "Status"
 	FieldTask           string = "A Task"
 
 	TableLog      string = "log"
-	TableProjects string = "projects"
 	TableTasks    string = "tasks"
 
 	JQLName string = "jql"
