@@ -141,7 +141,7 @@ func (mv *MainView) tabulatedTasks() []string {
 	buffer := 10
 	maxChars := buffer
 	for _, task := range mv.tasks[mv.span] {
-		taskChars := len(task[projectField].Format("")) + buffer
+		taskChars := len(task[descriptionField].Format("")) + buffer
 		if taskChars > maxChars {
 			maxChars = taskChars
 		}
@@ -150,10 +150,13 @@ func (mv *MainView) tabulatedTasks() []string {
 	toret := []string{}
 
 	for _, task := range mv.tasks[mv.span] {
-		taskBuffer := maxChars - len(task[projectField].Format(""))
+		taskBuffer := maxChars - len(task[descriptionField].Format(""))
 		toret = append(toret,
-			fmt.Sprintf("%s%s%s", task[projectField].Format(""), strings.Repeat(" ", taskBuffer),
-				task[descriptionField].Format("")))
+			fmt.Sprintf(" %s%s%s",
+				task[descriptionField].Format(""),
+				strings.Repeat(" ", taskBuffer),
+				task[projectField].Format(""),
+			))
 	}
 	return toret
 }
