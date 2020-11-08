@@ -1,0 +1,4 @@
+#! /bin/bash
+
+# Change to the current directory inside a container
+docker run -it --rm -w $PWD -v $PWD:$PWD $@
