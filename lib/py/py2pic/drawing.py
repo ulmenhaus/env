@@ -48,7 +48,7 @@ class Term(object):
         return Term("({} + {})".format(self, other))
 
     def __sub__(self, other):
-        return Term("({} + {})".format(self, other))
+        return Term("({} - {})".format(self, other))
 
     def __mul__(self, other):
         return Term("({} * {})".format(self, other))
@@ -79,6 +79,7 @@ class ElemInstruction(object):
                 cleaned[k] = v
         self.kwargs = cleaned
         self.with_args = {}
+        self.thens = []
         self.post = ""
 
     def __repr__(self):
@@ -89,14 +90,25 @@ class ElemInstruction(object):
         if self.with_args:
             rendered += " with " + " ".join(".{} at {}".format(k, v)
                                             for k, v in self.with_args.items())
+
+        for d in self.thens:
+            rendered += " then " + " ".join("{} {}".format(k, v)
+                                            for k, v in d.items())
+
         return rendered + self.post
 
     def with_(self, **kwargs):
         self.with_args = kwargs
         return self
 
+    def then(self, **kwargs):
+        self.thens.append(kwargs)
+
     def __call__(self, s):
-        self.post += ' "{}"'.format(s)
+        if self.post:
+            self.post += ' {}'.format(s)
+        else:
+            self.post += ' "{}"'.format(s)
         return self
 
 
@@ -118,6 +130,9 @@ class Drawing(object):
         if attr in ["add", "render", "ixns"]:
             return self.__dict__[attr]
         return Term(attr, drawing=self)
+
+    def __getitem__(self, item):
+        return getattr(self, item)
 
     def __setitem__(self, k, v):
         self.ixns.append(AssignmentInstruction(k, v))
