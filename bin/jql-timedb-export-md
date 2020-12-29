@@ -137,8 +137,8 @@ def get_modified(path):
 
 
 def render_pic(project, picfile, subdir="build/", escape=False):
-    if not picfile.endswith(".pic.py"):
-        raise ValueError("Cannot render pic file. Wrong extension")
+    if not picfile.endswith(".pic.py") and not picfile.endswith(".m4"):
+        raise ValueError("Cannot render pic file. Wrong extension", picfile)
     wd = os.getcwd()
     fullpath = os.path.join("snippets", project, picfile)
     targetpath = os.path.join("build", picfile[:-3] + ".svg")
@@ -175,7 +175,7 @@ def inject_externals(default_project, markdown, subdir="build/", escape=False):
         if not line.startswith("```external"):
             new_lines.append(line)
             continue
-        if line.endswith(".pic.py"):
+        if line.endswith(".pic.py") or line.endswith(".m4"):
             ref = line.split(" ", 1)[1]
             if "/" in ref:
                 project, name = ref.split("/", 1)
@@ -241,7 +241,7 @@ def export_to_html(project, pk):
     resp = s.post(
         "http://localhost:3000/new",
         headers={"Content-type": "text/markdown"},
-        data=markdown,
+        data=markdown.encode('utf-8'),
         allow_redirects=False,
     )
     resp.raise_for_status()
