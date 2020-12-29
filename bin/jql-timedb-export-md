@@ -296,7 +296,10 @@ def _from_jql():
 def _daemon():
     with open("schema2.json") as f:
         MarkdownHandler.snapshot = json.load(f)
-    with open("fast-export-templ.html") as f:
+    # TODO move this html into a package dir when I move these
+    # lib functions into a package
+    with open(os.path.join(os.path.dirname(__file__),
+                           "fast-export-templ.html")) as f:
         MarkdownHandler.template = f.read()
     httpd = HTTPServer(('localhost', 8080), MarkdownHandler)
     httpd.serve_forever()
