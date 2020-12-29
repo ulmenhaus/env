@@ -1,0 +1,50 @@
+#! /usr/local/bin/python3
+"""
+For jql time management schema
+
+* takes the currently selected row and sets its pk
+* updates pks that reference this one
+"""
+
+import datetime
+import json
+
+
+def pk_for_task(task, parent):
+    pk = "{} {}".format(task['Action'], task['Direct'])
+    if task["Indirect"]:
+        pk += " with {}".format(task['Indirect'])
+    if task["Parameters"]:
+        marker = " at" if task['Action'] in ("Extend", "Improve",
+                                            "Sustain") else ","
+        pk += "{} {}".format(marker, task['Parameters'])
+    planned_start, planned_span = task["Param~Start"], task["Param~Span"]
+    if parent.get("Indirect") == "breakdown":
+        planned_start, planned_span = parent["Param~Start"], parent[
+            "Param~Span"]
+    distinguisher = (
+        datetime.datetime(1969, 12, 31) +
+        datetime.timedelta(days=int(planned_start))).strftime("%d %b %Y")
+    # TODO need to use parent span here but will do once we can edit the table
+    # to match
+    if task["Param~Span"] and task["Param~Span"] != "Day":
+        distinguisher = "{} of {}".format(task["Param~Span"], distinguisher)
+    pk += " ({})".format(distinguisher)
+    return pk
+
+
+def main():
+    with open("schema2.json") as f:
+        tables = json.load(f)
+    for pk, task in tables['tasks'].items():
+        parent = tables["tasks"].get(task["Primary Goal"], {})
+        if pk != pk_for_task(task, parent):
+            print("+ '{}' should be \n  '{}'".format(pk,
+                                                     pk_for_task(task,
+                                                                 parent)))
+    # TODO would be good to audit foreign key references to make sure they exist
+    # here
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,332 @@
+#! /usr/local/bin/python3
+"""
+For jql concept management schema
+
+This takes a given concept and produces a page for it
+"""
+
+import collections
+import datetime
+import glob
+import html
+import json
+import os
+import pathlib
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.parse
+
+import requests
+
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+HOST_NAME = 'localhost'
+PORT_NUMBER = 8080
+
+
+def markdown_table(rows):
+    rows.insert(1, ["-"] * len(rows[0]))
+
+    def format_cell(s):
+        if s[:2] == " *":
+            s = "•" + s[2:]
+        return s.replace("\n *", "\n•").replace("\n", "<br/>")
+
+    if not any(rows):
+        return ""
+    return "\n".join("| {} |".format(" | ".join(map(format_cell, row)))
+                     for row in rows)
+
+
+def format_child(parent_full_pk, child_full_pk):
+    """
+    Remove common prefix for easier reading
+    """
+    i = 0
+    while i < min(len(parent_full_pk), len(child_full_pk)) and \
+          parent_full_pk[i] == child_full_pk[i]:
+        i += 1
+    return child_full_pk[i:]
+
+
+def generate_markdown(snapshot, table, pk):
+    # TODO a lot of these mappings are invariant and can be cached
+    full_pk = "{} {}".format(table, pk)
+    get_candidate_parents = lambda row: set(
+        map(row.get, ["Parent", "Direct", "Indirect", "Primary Goal"]))
+    search_tables = ["nouns", "tasks"]
+    children = {
+        "{} {}".format(tab, k): v
+        for tab in search_tables
+        # TODO should check if the table matches as well
+        for k, v in snapshot[tab].items() if pk in get_candidate_parents(v)
+    }
+    assertions = snapshot["assertions"]
+    key2rel2orobs = collections.defaultdict(
+        lambda: collections.defaultdict(list))
+    for key, value in assertions.items():
+        rel_pk = value["Arg0"]
+        if not value["A Relation"].startswith("."):
+            continue
+        rel = value["A Relation"][1:]
+        key2rel2orobs[rel_pk][rel].append((value["Order"], value["Arg1"]))
+    by_relation = key2rel2orobs[full_pk]
+    description = by_relation.get("Description", [])
+    if "Description" in by_relation:
+        del by_relation["Description"]
+    singletons = {rel for rel, orobs in by_relation.items() if len(orobs) == 1}
+    multitons = {rel for rel, orobs in by_relation.items() if len(orobs) != 1}
+    title, subtitle = pk, ""
+    if title.endswith(")"):
+        # HACK assumes only one subexpression in parens
+        title = pk.split("(", 1)[0]
+        subtitle = pk.split("(", 1)[1][:-1]
+    markdown = "# {}\n**{}**\n".format(title, subtitle)
+    markdown += markdown_table(
+        [["**{}**".format(header) for header in sorted(singletons)],
+         [by_relation[header][0][1] for header in sorted(singletons)]])
+    markdown += "\n"
+    if len(description) != 1:
+        markdown += "\n".join(
+            "* {}".format(orob[1])
+            for orob in sorted(description, key=lambda orob: orob[0]))
+    else:
+        markdown += description[0][1]
+    for multiton in sorted(multitons):
+        # HACK pluralize
+        sorted_multitons = sorted(by_relation[multiton],
+                                  key=lambda orob: orob[0])
+        markdown += "\n## {}s ({})\n".format(multiton, len(sorted_multitons))
+
+        def format_orob(orob):
+            point = orob[1]
+            if not is_number_line(point):
+                point = "* {}".format(point)
+            return point
+
+        markdown += "\n".join(map(format_orob, sorted_multitons))
+    all_child_relations = sorted(
+        {rel
+         for child_pk in children for rel in key2rel2orobs[child_pk]})
+    child_table = [[""] + sorted(all_child_relations)]
+    for child_full_pk in children:
+        child_display = format_child(full_pk, child_full_pk)
+        child_row = [
+            "[{}](/{})".format(child_display,
+                               urllib.parse.quote(child_full_pk))
+        ]
+        child_table.append(child_row)
+        for rel in all_child_relations:
+            orobs = key2rel2orobs[child_full_pk][rel]
+            if len(orobs) == 0:
+                child_row.append("")
+            elif len(orobs) == 1:
+                child_row.append(orobs[0][1])
+            else:
+                child_row.append("{} items".format(len(orobs)))
+    markdown += "\n## Children ({})\n".format(len(child_table) - 1)
+    markdown += markdown_table(child_table)
+    return markdown
+
+
+def get_modified(path):
+    return datetime.datetime.fromtimestamp(pathlib.Path(path).stat().st_mtime)
+
+
+def render_pic(project, picfile, subdir="build/", escape=False):
+    if not picfile.endswith(".pic.py"):
+        raise ValueError("Cannot render pic file. Wrong extension")
+    wd = os.getcwd()
+    fullpath = os.path.join("snippets", project, picfile)
+    targetpath = os.path.join("build", picfile[:-3] + ".svg")
+    if not os.path.exists(targetpath) or (get_modified(targetpath) <
+                                          get_modified(fullpath)):
+        subprocess.check_call([
+            "docker",
+            "run",
+            "-i",
+            "--rm",
+            "--entrypoint=pp",
+            "-w",
+            wd,
+            "-v",
+            "{}:{}".format(wd, wd),
+            "ulmenhaus/env",
+            fullpath,
+        ])
+    img = '<div style="text-align:center; padding-bottom: 25px;"><img src="/{}{}.svg" /></div>'.format(
+        subdir, picfile[:-3])
+    if escape:
+        return [html.escape(img)]
+    return [img]
+
+
+def inject_externals(default_project, markdown, subdir="build/", escape=False):
+    lines = markdown.split("\n")
+    new_lines = []
+    skip = False
+    for line in lines:
+        if skip:
+            skip = False
+            continue
+        if not line.startswith("```external"):
+            new_lines.append(line)
+            continue
+        if line.endswith(".pic.py"):
+            ref = line.split(" ", 1)[1]
+            if "/" in ref:
+                project, name = ref.split("/", 1)
+            else:
+                project, name = default_project, ref
+            new_lines.extend(render_pic(project, name, subdir, escape))
+            skip = True
+    return "\n".join(new_lines)
+
+
+class MarkdownHandler(BaseHTTPRequestHandler):
+    snapshot = None
+    template = None
+
+    def do_HEAD(s):
+        s.send_response(200)
+        s.send_header("Content-type", "text/html")
+        s.end_headers()
+
+    def do_GET(s):
+        s.send_response(200)
+        full_pk = urllib.parse.unquote(s.path)[1:]
+        if full_pk.endswith("favicon.ico"):
+            return
+        if full_pk.startswith("build"):
+            if full_pk.endswith(".svg"):
+                s.send_header("Content-type", "image/svg+xml")
+            else:
+                s.send_header("Content-type", "text/html")
+            s.end_headers()
+            with open(full_pk, 'rb') as f:
+                s.wfile.write(f.read())
+                return
+        s.send_header("Content-type", "text/html")
+        s.end_headers()
+        table, pk = full_pk.split(" ", 1)
+        project = "notes"
+        if table == "writeup":
+            project = pk.split("/")[0]
+            with open(os.path.join("writeups", pk)) as f:
+                markdown = f.read()
+        else:
+            markdown = generate_markdown(MarkdownHandler.snapshot, table, pk)
+        markdown = inject_externals(project, markdown, "build/", True)
+        contents = MarkdownHandler.template.replace("{md-contents}", markdown)
+        s.wfile.write(contents.encode("utf-8"))
+
+
+def export_to_html(project, pk):
+    """
+    Use a running codimd server with auto-export to convert markdown to html
+    """
+    with open(pk) as f:
+        markdown = f.read()
+    markdown = inject_externals(project, markdown, "", False)
+    s = requests.Session()
+    # HACK hardcode local username and password
+    s.post("http://localhost:3000/login",
+           data={
+               "email": "john@smith.com",
+               "password": "asdf"
+           }).raise_for_status()
+    resp = s.post(
+        "http://localhost:3000/new",
+        headers={"Content-type": "text/markdown"},
+        data=markdown,
+        allow_redirects=False,
+    )
+    resp.raise_for_status()
+    doc_url = "http://localhost:3000" + resp.headers['Location']
+    subprocess.check_call(["open", doc_url])
+    # HACK sleep five seconds to give it time to generate
+    # and then get the latest file
+    time.sleep(8)
+    latest = max(glob.glob(os.path.expanduser("~/Downloads/*.html")),
+                 key=get_modified)
+    return latest
+
+
+# TODO consolidate with jql-edit-properties by putting in lib
+def is_number_line(line):
+    first_word = line.split(" ", 1)[0]
+    if len(first_word) < 2:
+        return False
+    if not first_word.endswith("."):
+        return False
+    for c in first_word[:-1]:
+        if c < '0' or c > '9':
+            return False
+    return True
+
+
+def _from_jql():
+    iface = json.load(sys.stdin)
+    snapshot = json.loads(iface["snapshot"])
+    current_view = iface["current_view"]
+    table = current_view["table"]
+    pk = current_view["primary_selection"]
+    project = pk.split("/")[1]
+    if table != "files" or not pk.startswith("writeups/"):
+        raise ValueError(
+            "Markdown export to HTML not supported for anything but writeup files"
+        )
+    # we could do this in process, but sending to another pane gives better debug output
+    #  name = pk.split("/")[-1].split(" ", 1)[1][:-3]
+    #  out = export_to_html(project, pk)
+    #  shutil.copyfile(out, "build/{}.html".format(name))
+    subprocess.check_output([
+        "tmux",
+        "send",
+        "-t",
+        "right",
+        "jql-timedb-export-md {} '{}'".format(project, pk),
+        "ENTER",
+    ])
+
+
+def _daemon():
+    with open("schema2.json") as f:
+        MarkdownHandler.snapshot = json.load(f)
+    with open("fast-export-templ.html") as f:
+        MarkdownHandler.template = f.read()
+    httpd = HTTPServer(('localhost', 8080), MarkdownHandler)
+    httpd.serve_forever()
+
+
+def _from_args():
+    if len(sys.argv) == 2:
+        project = "notes"
+        path = sys.argv[1]
+    elif len(sys.argv) == 3:
+        project, path = sys.argv[1:]
+    else:
+        raise ValueError("Arguments must be [project] [file] or [file]")
+    name = os.path.basename(path)
+    if name.startswith("["):
+        name = name.split("] ", 1)[1]
+    if not name.endswith(".md"):
+        raise ValueError("must export an md file", name)
+    out = export_to_html(project, path)
+    shutil.copyfile(out, "build/{}.html".format(name[:-3]))
+
+
+def main():
+    if "-d" in sys.argv:
+        _daemon()
+    elif len(sys.argv) > 1:
+        _from_args()
+    else:
+        _from_jql()
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,114 @@
+#! /usr/local/bin/python3
+"""
+For jql time management schema
+
+* takes the currently selected row and sets its pk
+* updates pks that reference this one
+"""
+
+import datetime
+import json
+import sys
+
+
+class TimeDB(object):
+    def __init__(self, db):
+        self.db = db
+
+    def update_files_pk(self, old, new):
+        files = self.db["files"]
+        f = files[old]
+        del files[old]
+        files[new] = f
+
+    def update_task_pk(self, old, new):
+        if old == new:
+            return
+        if new in self.db["tasks"]:
+            raise ValueError("key already exists")
+        task = self.db["tasks"][old]
+        del self.db["tasks"][old]
+        self.db["tasks"][new] = task
+        self.update_task_in_log(old, new)
+        self.update_arg_in_assertions("tasks", old, new)
+        for task in self.db["tasks"].values():
+            if task["Primary Goal"] == old:
+                task["Primary Goal"] = new
+
+    def update_task_in_log(self, old, new):
+        # TODO should hash this
+        for pk, log in self.db["log"].items():
+            if log["A Task"] == old:
+                log["A Task"] = new
+            # NOTE not changing PKs here as they require context on
+            # other entries and it's not really needed
+
+    def update_arg_in_assertions(self, table, old, new):
+        full_id = "tasks {}".format(old)
+        new_full_id = "tasks {}".format(new)
+        for pk, assn in self.db["assertions"].items():
+            if assn["Arg1"] == full_id:
+                assn["Arg1"] = new_full_id
+            if assn["Arg0"] == full_id:
+                assn["Arg0"] = new_full_id
+                new_pk = pk_for_assertion(assn)
+                del self.db["assertions"][pk]
+                self.db["assertions"][new_pk] = assn
+
+
+def pk_for_assertion(assn):
+    key = (assn["A Relation"], assn["Arg0"], assn["Order"])
+    return str(key)
+
+
+def pk_for_file(f):
+    if f['A Type'] == "blob":
+        return "/".join([f['A Type'] + "s", f['Xtended Name']])
+    return "/".join([f['A Type'] + "s", f['Project'], f['Xtended Name']])
+
+
+def pk_for_task(task, parent):
+    pk = "{} {}".format(task['Action'], task['Direct'])
+    if task["Indirect"]:
+        pk += " with {}".format(task['Indirect'])
+    if task["Parameters"]:
+        marker = " at" if task['Action'] in ("Extend", "Improve",
+                                             "Sustain") else ","
+        pk += "{} {}".format(marker, task['Parameters'])
+    planned_start, planned_span = task["Param~Start"], task["Param~Span"]
+    if parent.get("Indirect") == "breakdown":
+        planned_start, planned_span = parent["Param~Start"], parent[
+            "Param~Span"]
+    distinguisher = (
+        datetime.datetime(1969, 12, 31) +
+        datetime.timedelta(days=int(planned_start))).strftime("%d %b %Y")
+    # TODO need to use parent span here but will do once we can edit the table
+    # to match
+    if task["Param~Span"] and task["Param~Span"] != "Day":
+        distinguisher = "{} of {}".format(task["Param~Span"], distinguisher)
+    pk += " ({})".format(distinguisher)
+    return pk
+
+
+def main():
+    iface = json.load(sys.stdin)
+    snapshot = json.loads(iface["snapshot"])
+    current_view = iface["current_view"]
+    selected_table = current_view["table"]
+    pk = current_view["primary_selection"]
+    tdb = TimeDB(snapshot)
+    if selected_table == "tasks":
+        task = snapshot["tasks"][pk]
+        tdb.update_task_pk(
+            pk,
+            pk_for_task(task, snapshot["tasks"].get(task["Primary Goal"], {})))
+    elif selected_table == "files":
+        tdb.update_files_pk(pk, pk_for_file(snapshot['files'][pk]))
+    else:
+        raise ValueError("PK not implemented for table", selected_table)
+    iface["snapshot"] = json.dumps(snapshot)
+    json.dump(iface, sys.stdout)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,135 @@
+#! /usr/local/bin/python3
+"""
+For jql concept management schema
+
+This macro collections all the property assertions of a given concept
+(noun or task) and opens them in an editor for easy viewing and editing
+"""
+
+import collections
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import time
+
+STANDARD_PROPERTIES = ("Description", "Point")
+
+
+def convert_assertions_to_markdown(subject, assertions):
+    by_relation = collections.defaultdict(dict)
+    for pk, value in assertions.items():
+        by_relation[value["A Relation"]][pk] = value
+    if len(assertions) == 0:
+        by_relation = {
+            ".{}".format(property): {}
+            for property in STANDARD_PROPERTIES
+        }
+    md = ["# {}".format(subject)]
+    for relation in sorted(by_relation):
+        md.append("\n## {}\n".format(relation[1:]))
+        if len(by_relation[relation]) == 1:
+            md.append(list(by_relation[relation].values())[0]["Arg1"])
+        else:
+            by_order = sorted(by_relation[relation].values(),
+                              key=lambda assn: assn["Order"])
+            for assn in by_order:
+                point = assn["Arg1"]
+                # technically this doesn't allow lines like "* 1. text" but
+                # who would want these?
+                if not is_number_line(point):
+                    point = "* {}".format(point)
+                md.append(point)
+    return "\n".join(md)
+
+
+def open_with_emacs_daemon(path):
+    subprocess.Popen(["bash", "-c", "sleep 1 && tmux select-pane -R"])
+    subprocess.Popen([
+        "emacsclient",
+        "-s",
+        os.environ["TMUX_WINDOW_NAME"],
+        path,
+    ],
+                     stdout=sys.stderr).wait()
+    subprocess.Popen(["tmux", "select-pane", "-L"]).wait()
+
+
+def is_number_line(line):
+    first_word = line.split(" ", 1)[0]
+    if len(first_word) < 2:
+        return False
+    if not first_word.endswith("."):
+        return False
+    for c in first_word[:-1]:
+        if c < '0' or c > '9':
+            return False
+    return True
+
+
+def extract_assertions_from_markdown(full_id, path):
+    with open(path) as f:
+        markdown = f.read()
+    parts = markdown.split("\n## ")[1:]
+    relations = {}
+    for part in parts:
+        lines = part.strip().split("\n")
+        relation = ".{}".format(lines[0])
+        values = []
+        current = ""
+        for line in lines[1:]:
+            # demarkation point of a new value
+            if line.startswith("* "):
+                if current:
+                    values.append(current)
+                current = line[2:]
+            elif is_number_line(line):
+                if current:
+                    values.append(current)
+                current = line
+            else:
+                if current:
+                    current += "\n"
+                current += line
+        if current:
+            values.append(current)
+        for i, value in enumerate(values):
+            key = str((relation, full_id, i))
+            relations[key] = {
+                "A Relation": relation,
+                "Arg0": full_id,
+                "Arg1": value,
+                "Order": i,
+            }
+    return relations
+
+
+def main():
+    iface = json.load(sys.stdin)
+    snapshot = json.loads(iface["snapshot"])
+    current_view = iface["current_view"]
+    selected_table = current_view["table"]
+    pk = current_view["primary_selection"]
+    full_id = "{} {}".format(selected_table, pk)
+    assertions = snapshot["assertions"]
+    old_assertions = {
+        key: value
+        for key, value in assertions.items()
+        if value["A Relation"].startswith(".") and value["Arg0"] == full_id
+    }
+    markdown = convert_assertions_to_markdown(pk, old_assertions)
+    with tempfile.NamedTemporaryFile(suffix=".md", delete=False) as f:
+        f.write(markdown.encode("utf-8"))
+        fname = f.name
+    open_with_emacs_daemon(fname)
+    new_assertions = extract_assertions_from_markdown(full_id, fname)
+    for key in old_assertions:
+        del assertions[key]
+    assertions.update(new_assertions)
+    iface["snapshot"] = json.dumps(snapshot)
+    json.dump(iface, sys.stdout)
+
+
+if __name__ == "__main__":
+    main()
