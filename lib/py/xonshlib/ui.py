@@ -24,7 +24,7 @@ class Prompter(object):
                                    xonshlib.glyphs.Words.PINATA),
             dir_color="{YELLOW}",
             short_wd=self._shorten_dir(ENV['PWD']),
-            end="{NO_COLOR} {prompt_end} ", )
+            end="{RESET} {prompt_end} ", )
 
     def _shorten_dir(self, fulldir):
         prefixes = [

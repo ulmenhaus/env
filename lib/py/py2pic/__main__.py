@@ -1,4 +1,6 @@
+import glob
 import os
+import shutil
 import subprocess
 import sys
 
@@ -25,6 +27,14 @@ def main():
     with open(draw_file) as f:
         exec(f.read(), globals())
     draw(d)
+    if not os.path.exists("build"):
+        os.mkdir("build")
+        for fpath in glob.glob(os.path.join(os.path.dirname(__file__),
+                                            "*.m4")):
+            shutil.copyfile(fpath, os.path.join("build", os.path.basename(fpath)))
+
+    os.chdir("build")
+
     with open("{}.m4".format(nopy), 'w') as f:
         f.write(d.render())
     with open("{}_wrapper.tex".format(nopy), 'w') as f:
