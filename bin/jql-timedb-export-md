@@ -103,7 +103,7 @@ def generate_markdown(snapshot, table, pk):
 
         def format_orob(orob):
             point = orob[1]
-            if not is_number_line(point):
+            if not (is_number_line(point) or is_named_line(point)):
                 point = "* {}".format(point)
             return point
 
@@ -136,7 +136,7 @@ def get_modified(path):
     return datetime.datetime.fromtimestamp(pathlib.Path(path).stat().st_mtime)
 
 
-def render_pic(project, picfile, subdir="build/", escape=False):
+def render_pic(project, picfile, subdir="build/"):
     if not picfile.endswith(".pic.py") and not picfile.endswith(".m4"):
         raise ValueError("Cannot render pic file. Wrong extension", picfile)
     wd = os.getcwd()
@@ -159,12 +159,10 @@ def render_pic(project, picfile, subdir="build/", escape=False):
         ])
     img = '<div style="text-align:center; padding-bottom: 25px;"><img src="/{}{}.svg" /></div>'.format(
         subdir, picfile[:-3])
-    if escape:
-        return [html.escape(img)]
     return [img]
 
 
-def inject_externals(default_project, markdown, subdir="build/", escape=False):
+def inject_externals(default_project, markdown, subdir="build/"):
     lines = markdown.split("\n")
     new_lines = []
     skip = False
@@ -181,7 +179,7 @@ def inject_externals(default_project, markdown, subdir="build/", escape=False):
                 project, name = ref.split("/", 1)
             else:
                 project, name = default_project, ref
-            new_lines.extend(render_pic(project, name, subdir, escape))
+            new_lines.extend(render_pic(project, name, subdir))
             skip = True
     return "\n".join(new_lines)
 
@@ -219,8 +217,8 @@ class MarkdownHandler(BaseHTTPRequestHandler):
                 markdown = f.read()
         else:
             markdown = generate_markdown(MarkdownHandler.snapshot, table, pk)
-        markdown = inject_externals(project, markdown, "build/", True)
-        contents = MarkdownHandler.template.replace("{md-contents}", markdown)
+        markdown = inject_externals(project, markdown, "build/")
+        contents = MarkdownHandler.template.replace("{md-contents}", html.escape(markdown))
         s.wfile.write(contents.encode("utf-8"))
 
 
@@ -230,7 +228,7 @@ def export_to_html(project, pk):
     """
     with open(pk) as f:
         markdown = f.read()
-    markdown = inject_externals(project, markdown, "", False)
+    markdown = inject_externals(project, markdown, "")
     s = requests.Session()
     # HACK hardcode local username and password
     s.post("http://localhost:3000/login",
@@ -266,6 +264,9 @@ def is_number_line(line):
         if c < '0' or c > '9':
             return False
     return True
+
+def is_named_line(line):
+    return line.startswith("### ")
 
 
 def _from_jql():

@@ -36,9 +36,9 @@ def convert_assertions_to_markdown(subject, assertions):
                               key=lambda assn: assn["Order"])
             for assn in by_order:
                 point = assn["Arg1"]
-                # technically this doesn't allow lines like "* 1. text" but
-                # who would want these?
-                if not is_number_line(point):
+                # technically this doesn't allow lines like "* 1. text" or "### 1. text"
+                # but who would want these?
+                if not (is_number_line(point) or is_named_line(point)):
                     point = "* {}".format(point)
                 md.append(point)
     return "\n".join(md)
@@ -67,6 +67,11 @@ def is_number_line(line):
             return False
     return True
 
+def is_named_line(line):
+    # technically in markdown these take precedance over bullets
+    # and ordered list, but here we put them at the same level
+    return line.startswith("### ")
+
 
 def extract_assertions_from_markdown(full_id, path):
     with open(path) as f:
@@ -84,7 +89,7 @@ def extract_assertions_from_markdown(full_id, path):
                 if current:
                     values.append(current)
                 current = line[2:]
-            elif is_number_line(line):
+            elif is_number_line(line) or is_named_line(line):
                 if current:
                     values.append(current)
                 current = line
