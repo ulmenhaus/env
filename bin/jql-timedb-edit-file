@@ -16,9 +16,13 @@ def _from_jql_selection():
     snapshot = json.loads(iface["snapshot"])
     current_view = iface["current_view"]
     selected_table = current_view["table"]
-    if selected_table != "files":
+    if selected_table == "files":
+        pk = current_view["primary_selection"]
+    elif selected_table == "nouns":
+        pk = snapshot['nouns'][current_view["primary_selection"]]["Link"]
+    else:
         raise ValueError("Wrong table")
-    pk = current_view["primary_selection"]
+
     subprocess.run(
         ["emacsclient", "-n", "-s", os.environ["TMUX_WINDOW_NAME"], pk])
     subprocess.check_call(["tmux", "select-pane", "-R"])
@@ -41,7 +45,8 @@ def _from_args():
     if "/" not in path:
         path = "{}/{}".format(project, path)
     # HACK need an env var for this
-    path = os.path.join(os.path.expanduser("~/src/github.com/caervs/content/snippets"), path)
+    path = os.path.join(
+        os.path.expanduser("~/src/github.com/caervs/content/snippets"), path)
     print(path, end="")
 
 
