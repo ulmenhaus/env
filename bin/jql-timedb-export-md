@@ -278,11 +278,14 @@ def _from_jql():
     current_view = iface["current_view"]
     table = current_view["table"]
     pk = current_view["primary_selection"]
-    project = pk.split("/")[1]
+    if table == "nouns":
+        table = "files"
+        pk = snapshot["nouns"][pk]["Link"]
     if table != "files" or not pk.startswith("writeups/"):
         raise ValueError(
             "Markdown export to HTML not supported for anything but writeup files"
         )
+    project = pk.split("/")[1]
     # we could do this in process, but sending to another pane gives better debug output
     #  name = pk.split("/")[-1].split(" ", 1)[1][:-3]
     #  out = export_to_html(project, pk)
