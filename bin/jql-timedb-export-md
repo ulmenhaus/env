@@ -45,11 +45,12 @@ def format_child(parent_full_pk, child_full_pk):
     """
     Remove common prefix for easier reading
     """
-    i = 0
-    while i < min(len(parent_full_pk), len(child_full_pk)) and \
-          parent_full_pk[i] == child_full_pk[i]:
-        i += 1
-    return child_full_pk[i:]
+    # NOTE when we break out context codes and ordinals we should be
+    # able to just use the shortname/description
+    child_parts = child_full_pk.split(" ")
+    parent_parts = parent_full_pk.split(" ") + [""] * len(child_parts)
+    return " ".join(cp for pp, cp in zip(parent_parts, child_parts)
+                    if pp != cp)
 
 
 def generate_markdown(snapshot, table, pk):
@@ -218,7 +219,8 @@ class MarkdownHandler(BaseHTTPRequestHandler):
         else:
             markdown = generate_markdown(MarkdownHandler.snapshot, table, pk)
         markdown = inject_externals(project, markdown, "build/")
-        contents = MarkdownHandler.template.replace("{md-contents}", html.escape(markdown))
+        contents = MarkdownHandler.template.replace("{md-contents}",
+                                                    html.escape(markdown))
         s.wfile.write(contents.encode("utf-8"))
 
 
@@ -264,6 +266,7 @@ def is_number_line(line):
         if c < '0' or c > '9':
             return False
     return True
+
 
 def is_named_line(line):
     return line.startswith("### ")
