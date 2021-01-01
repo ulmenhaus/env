@@ -46,7 +46,8 @@ class TimeDB(object):
     def update_arg_in_assertions(self, table, old, new):
         full_id = "tasks {}".format(old)
         new_full_id = "tasks {}".format(new)
-        for pk, assn in self.db["assertions"].items():
+        # Take a snapshot of assertions to not modify while iterating
+        for pk, assn in list(self.db["assertions"].items()):
             if assn["Arg1"] == full_id:
                 assn["Arg1"] = new_full_id
             if assn["Arg0"] == full_id:
