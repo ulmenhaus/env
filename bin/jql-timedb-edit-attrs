@@ -67,6 +67,7 @@ def is_number_line(line):
             return False
     return True
 
+
 def is_named_line(line):
     # technically in markdown these take precedance over bullets
     # and ordered list, but here we put them at the same level
@@ -110,13 +111,8 @@ def extract_assertions_from_markdown(full_id, path):
     return relations
 
 
-def main():
-    iface = json.load(sys.stdin)
-    snapshot = json.loads(iface["snapshot"])
-    current_view = iface["current_view"]
-    selected_table = current_view["table"]
-    pk = current_view["primary_selection"]
-    full_id = "{} {}".format(selected_table, pk)
+def _edit_in_file(snapshot, table, pk):
+    full_id = "{} {}".format(table, pk)
     assertions = snapshot["assertions"]
     old_assertions = {
         key: value
@@ -132,6 +128,29 @@ def main():
     for key in old_assertions:
         del assertions[key]
     assertions.update(new_assertions)
+
+
+def _autogen(snapshot, table, pk):
+    if table != "nouns":
+        raise ValueError("Can only autogenerate attrs for nouns", table)
+    entry = snapshot[table][pk]
+    feed = entry["Feed"]
+    global set_attrs
+    with open(feed) as f:
+        exec(f.read(), globals())
+    set_attrs(entry)
+
+
+def main():
+    iface = json.load(sys.stdin)
+    snapshot = json.loads(iface["snapshot"])
+    current_view = iface["current_view"]
+    table = current_view["table"]
+    pk = current_view["primary_selection"]
+    if "--auto" in sys.argv:
+        _autogen(snapshot, table, pk)
+    else:
+        _edit_in_file(snapshot, table, pk)
     iface["snapshot"] = json.dumps(snapshot)
     json.dump(iface, sys.stdout)
 
