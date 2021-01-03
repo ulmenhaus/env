@@ -53,6 +53,13 @@ def format_child(parent_full_pk, child_full_pk):
                     if pp != cp)
 
 
+def _render_link(description, target, new_window=False):
+    if new_window:
+        return "[{}]({})".format(description, urllib.parse.quote(target))
+    return '<a href="{}">{}</a>'.format(urllib.parse.quote(target),
+                                        description)
+
+
 def generate_markdown(snapshot, table, pk):
     # TODO a lot of these mappings are invariant and can be cached
     full_pk = "{} {}".format(table, pk)
@@ -115,10 +122,7 @@ def generate_markdown(snapshot, table, pk):
     child_table = [[""] + sorted(all_child_relations)]
     for child_full_pk in children:
         child_display = format_child(full_pk, child_full_pk)
-        child_row = [
-            "[{}](/{})".format(child_display,
-                               urllib.parse.quote(child_full_pk))
-        ]
+        child_row = [_render_link(child_display, "/" + child_full_pk)]
         child_table.append(child_row)
         for rel in all_child_relations:
             orobs = key2rel2orobs[child_full_pk][rel]
@@ -163,6 +167,20 @@ def render_pic(project, picfile, subdir="build/"):
     return [img]
 
 
+def resolve_jql_links(base_markdown):
+    inputs = base_markdown.split("@timedb:")
+    parts = []
+    for i, inpt in enumerate(inputs):
+        if i == 0:
+            parts.append(inpt)
+            continue
+        # technically disallows to link with a noun that has a colon but shrug
+        ref, rest = inpt.split(":", 1)
+        parts.append(_render_link(ref, "/nouns " + ref))
+        parts.append(rest)
+    return "".join(parts)
+
+
 def inject_externals(default_project, markdown, subdir="build/"):
     lines = markdown.split("\n")
     new_lines = []
@@ -182,7 +200,7 @@ def inject_externals(default_project, markdown, subdir="build/"):
                 project, name = default_project, ref
             new_lines.extend(render_pic(project, name, subdir))
             skip = True
-    return "\n".join(new_lines)
+    return resolve_jql_links("\n".join(new_lines))
 
 
 class MarkdownHandler(BaseHTTPRequestHandler):
