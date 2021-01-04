@@ -69,11 +69,14 @@ def pk_for_file(f):
 
 
 def pk_for_task(task, parent):
-    pk = "{} {}".format(task['Action'], task['Direct'])
+    action = task['Action']
+    if task['Action'] == "Attend":
+        action = "Attend to"
+    pk = "{} {}".format(action, task['Direct'])
     if task["Indirect"]:
         pk += " with {}".format(task['Indirect'])
     if task["Parameters"]:
-        marker = " at" if task['Action'] in ("Extend", "Improve",
+        marker = " at" if action in ("Extend", "Improve",
                                              "Sustain") else ","
         pk += "{} {}".format(marker, task['Parameters'])
     planned_start, planned_span = task["Param~Start"], task["Param~Span"]

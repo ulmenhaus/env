@@ -132,7 +132,8 @@ def generate_markdown(snapshot, table, pk):
                 child_row.append(orobs[0][1])
             else:
                 child_row.append("{} items".format(len(orobs)))
-    markdown += "\n## Children ({})\n".format(len(child_table) - 1)
+    markdown += "\n## Related"
+    markdown += "\n### Children ({})\n".format(len(child_table) - 1)
     markdown += markdown_table(child_table)
     return markdown
 
