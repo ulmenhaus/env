@@ -291,6 +291,16 @@ def is_named_line(line):
     return line.startswith("### ")
 
 
+def _open_in_browser():
+    iface = json.load(sys.stdin)
+    cv = iface['current_view']
+    subprocess.check_call([
+        "open",
+        "https://{}:{}/{} {}".format(HOST_NAME, PORT_NUMBER, cv['table'],
+                                     cv['primary_selection'])
+    ])
+
+
 def _from_jql():
     iface = json.load(sys.stdin)
     snapshot = json.loads(iface["snapshot"])
@@ -351,6 +361,8 @@ def _from_args():
 def main():
     if "-d" in sys.argv:
         _daemon()
+    elif "--open" in sys.argv:
+        _open_in_browser()
     elif len(sys.argv) > 1:
         _from_args()
     else:
