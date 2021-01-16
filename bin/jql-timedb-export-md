@@ -12,6 +12,7 @@ import html
 import json
 import os
 import pathlib
+import random
 import shutil
 import subprocess
 import sys
@@ -238,9 +239,129 @@ class MarkdownHandler(BaseHTTPRequestHandler):
         else:
             markdown = generate_markdown(MarkdownHandler.snapshot, table, pk)
         markdown = inject_externals(project, markdown, "build/")
-        contents = MarkdownHandler.template.replace("{md-contents}",
-                                                    html.escape(markdown))
+        contents = MarkdownHandler.template.replace(
+            "{md-contents}",
+            html.escape(markdown)).replace("{md-postfix}", "")
         s.wfile.write(contents.encode("utf-8"))
+
+
+class MemosHandler(BaseHTTPRequestHandler):
+    memos = None
+
+    def do_HEAD(s):
+        s.send_response(200)
+        s.send_header("Content-type", "text/html")
+        s.end_headers()
+
+    def do_GET(s):
+        s.send_response(200)
+        req_url = urllib.parse.urlparse(s.path)
+        queries = urllib.parse.parse_qs(req_url.query)
+        full_pk = urllib.parse.unquote(req_url.path)[1:]
+        if full_pk.endswith("favicon.ico"):
+            return
+        selections = [
+            ["#660000", "Hardest"],
+            ["#bb0000", "Hard"],
+            ["#ff0000", "Medium"],
+            ["#006600", "Medium"],
+            ["#00bb00", "Easy"],
+            ["#00ff00", "Easiest"],
+        ]
+        sel2level = {selections[i][1]: i for i in range(len(selections))}
+        if 'sel' in queries:
+            sel = queries['sel'][0]
+            q = queries['q'][0]
+            s.memos[full_pk][q]['last_tested'] = int(time.time())
+            s.memos[full_pk][q]['history'].append(sel2level[sel])
+            MemosHandler._save()
+        s.send_header("Content-type", "text/html")
+        s.end_headers()
+        table, pk = full_pk.split(" ", 1)
+        memos = MemosHandler.get_memos(full_pk)
+        if not memos:
+            markdown = "All done for today"
+            postfix = ""
+        else:
+            q, memo = random.choice(list(memos.items()))
+            markdown = "## {}".format(q)
+            # NOTE to support hackmd renderings in answer we can use a hidden div and have
+            # the javascript unhide
+            postfix = '''<div align="center" id="answer" style="font-size: 20pt"><a href="#" onclick="document.getElementById('answer').innerHTML = '{}'">Show Answer</a></div>'''.format(
+                memo['answer'])
+            postfix += '<div align="center" style="padding-top: 20px; font-size: 20pt">'
+            for selection in selections:
+                color, choice = selection
+                postfix += '<span style="padding: 10px"><a href="?sel={sel}&q={q}" style="color: {color}">{choice}</a></span>'.format(
+                    color=color, choice=choice, sel=choice, q=q)
+            postfix += '</div>'
+        markdown = inject_externals("notes", markdown, "build/")
+        contents = MarkdownHandler.template.replace(
+            "{md-contents}", markdown).replace("{md-postfix}", postfix)
+        s.wfile.write(contents.encode("utf-8"))
+
+    def get_memos(full_pk, recursive=False):
+        if recursive:
+            raise NotImplementedError("Recursive lookups not yet implemented")
+        memos = {}
+        for q, a in MemosHandler.memos[full_pk].items():
+            if a['last_tested'] is None:
+                memos[q] = a
+            else:
+                delay = sm2(a['history'])
+                days_since = (int(time.time()) - a['last_tested']) / (24 *
+                                                                      3600)
+                days_since += 1
+                if days_since >= delay:
+                    memos[q] = a
+        return memos
+
+    def _init():
+        random.seed()
+        memos = MemosHandler.memos
+        local_memos = collections.defaultdict(dict)
+        assns = MarkdownHandler.snapshot['assertions'].values()
+        for assn in assns:
+            subj = assn["Arg0"]
+            relation = assn['A Relation']
+            if relation == ".Memo":
+                for q, a in MemosHandler.from_table(assn['Arg1']):
+                    local_memos[subj][q] = a
+        # first sync deletes
+        for full_pk, pk_memos in memos.items():
+            keys = pk_memos.keys()
+            for key in keys:
+                if key not in local_memos[full_pk]:
+                    del memos[full_pk][key]
+        for full_pk, pk_memos in local_memos.items():
+            for key, value in pk_memos.items():
+                if key not in memos[full_pk]:
+                    memos[full_pk][key] = {
+                        "history": [],
+                        "last_tested": None,
+                        "answer": value,
+                    }
+        MemosHandler._save()
+
+    def from_table(tab):
+        lines = tab.split("\n")[2:]
+        if not lines or not lines[0].startswith("|"):
+            return
+        cols = [col.strip() for col in lines[0].split("|")[1:-1]]
+        rows = [[col.strip() for col in row.split("|")[1:-1]]
+                for row in lines[2:] if row.startswith("|")]
+
+        if len(cols) > 2:
+            raise NotImplementedError("Multi-column not yet implemented")
+        fore_name, rev_name = cols
+        for row in rows:
+            fore, rev = row
+            yield "{} for {}".format(fore_name, rev), fore
+            yield "{} for {}".format(rev_name, fore), rev
+
+    def _save():
+        with open("memos.json", 'w') as f:
+            json.dump(MemosHandler.memos, f, indent=4, sort_keys=True)
 
 
 def export_to_html(project, pk):
@@ -291,13 +412,45 @@ def is_named_line(line):
     return line.startswith("### ")
 
 
+def sm2(x, a=6.0, b=-0.8, c=0.28, d=0.02, theta=0.2):
+    """
+    Returns the number of days to delay the next review of an item by, fractionally, based on the history of answers x to
+    a given question, where
+    x == 0: Incorrect, Hardest
+    x == 1: Incorrect, Hard
+    x == 2: Incorrect, Medium
+    x == 3: Correct, Medium
+    x == 4: Correct, Easy
+    x == 5: Correct, Easiest
+    @param x The history of answers in the above scoring.
+    @param theta When larger, the delays for correct answers will increase.
+    """
+    assert all(0 <= x_i <= 5 for x_i in x)
+    correct_x = [x_i >= 3 for x_i in x]
+    # If you got the last question incorrect, just return 1
+    if not correct_x[-1]:
+        return 1.0
+
+    # Calculate the latest consecutive answer streak
+    num_consecutively_correct = 0
+    for correct in reversed(correct_x):
+        if correct:
+            num_consecutively_correct += 1
+        else:
+            break
+
+    return a * (max(
+        1.3, 2.5 + sum(b + c * x_i + d * x_i * x_i
+                       for x_i in x)))**(theta * num_consecutively_correct)
+
+
 def _open_in_browser():
     iface = json.load(sys.stdin)
     cv = iface['current_view']
     subprocess.check_call([
         "open",
-        "https://{}:{}/{} {}".format(HOST_NAME, PORT_NUMBER, cv['table'],
-                                     cv['primary_selection'])
+        "http://{}:{}/{} {}".format(HOST_NAME, PORT_NUMBER, cv['table'],
+                                    cv['primary_selection'])
     ])
 
 
@@ -341,6 +494,21 @@ def _daemon():
     httpd.serve_forever()
 
 
+def _memos_daemon():
+    with open("schema2.json") as f:
+        MarkdownHandler.snapshot = json.load(f)
+    # TODO move this html into a package dir when I move these
+    # lib functions into a package
+    with open(os.path.join(os.path.dirname(__file__),
+                           "fast-export-templ.html")) as f:
+        MarkdownHandler.template = f.read()
+    with open("memos.json") as f:
+        MemosHandler.memos = collections.defaultdict(dict, json.load(f))
+    MemosHandler._init()
+    httpd = HTTPServer(('localhost', 8081), MemosHandler)
+    httpd.serve_forever()
+
+
 def _from_args():
     if len(sys.argv) == 2:
         project = "notes"
@@ -361,6 +529,8 @@ def _from_args():
 def main():
     if "-d" in sys.argv:
         _daemon()
+    elif "--memos" in sys.argv:
+        _memos_daemon()
     elif "--open" in sys.argv:
         _open_in_browser()
     elif len(sys.argv) > 1:

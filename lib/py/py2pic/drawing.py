@@ -103,6 +103,7 @@ class ElemInstruction(object):
 
     def then(self, **kwargs):
         self.thens.append(kwargs)
+        return self
 
     def __call__(self, s):
         if self.post:

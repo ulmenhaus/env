@@ -71,8 +71,10 @@ def pk_for_file(f):
 def pk_for_task(task, parent):
     action = task['Action']
     preposition = "with"
-    if action == "Attend":
+    if action in ("Attend", "Migrate"):
         preposition = "to"
+    elif action in ("Present", ):
+        preposition = "on"
     direct_clause, indirect_clause = "", ""
     if task['Direct']:
         direct_clause = " {}".format(task['Direct'])
