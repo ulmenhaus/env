@@ -8,6 +8,7 @@ This takes a given concept and produces a page for it
 import collections
 import datetime
 import glob
+import hashlib
 import html
 import json
 import os
@@ -269,31 +270,39 @@ class MemosHandler(BaseHTTPRequestHandler):
             ["#00ff00", "Easiest"],
         ]
         sel2level = {selections[i][1]: i for i in range(len(selections))}
+        show = 'show' in queries
         if 'sel' in queries:
             sel = queries['sel'][0]
-            q = queries['q'][0]
-            s.memos[full_pk][q]['last_tested'] = int(time.time())
-            s.memos[full_pk][q]['history'].append(sel2level[sel])
+            key = queries['key'][0]
+            s.memos[full_pk][key]['last_tested'] = int(time.time())
+            s.memos[full_pk][key]['history'].append(sel2level[sel])
             MemosHandler._save()
         s.send_header("Content-type", "text/html")
         s.end_headers()
         table, pk = full_pk.split(" ", 1)
         memos = MemosHandler.get_memos(full_pk)
-        if not memos:
-            markdown = "All done for today"
-            postfix = ""
-        else:
-            q, memo = random.choice(list(memos.items()))
-            markdown = "## {}".format(q)
-            # NOTE to support hackmd renderings in answer we can use a hidden div and have
-            # the javascript unhide
-            postfix = '''<div align="center" id="answer" style="font-size: 20pt"><a href="#" onclick="document.getElementById('answer').innerHTML = '{}'">Show Answer</a></div>'''.format(
-                memo['answer'])
+        markdown = "All done for today"
+        postfix = ""
+        if memos:
+            key, memo = random.choice(list(memos.items()))
+            if "\n" in memo['question']:
+                markdown = memo['question']
+            else:
+                markdown = "## {}".format(memo['question'])
+
+            if "\n" in memo['answer']:
+                if show:
+                    markdown += "\n" + memo['answer']
+                else:
+                    postfix = '<div align="center" id="answer" style="font-size: 20pt"><a href="?show=1">Show Answer</a></div>'
+            else:
+                postfix = '''<div align="center" id="answer" style="font-size: 20pt"><a href="#" onclick="document.getElementById('answer').innerHTML = '{}'">Show Answer</a></div>'''.format(
+                    memo['answer'])
             postfix += '<div align="center" style="padding-top: 20px; font-size: 20pt">'
             for selection in selections:
                 color, choice = selection
-                postfix += '<span style="padding: 10px"><a href="?sel={sel}&q={q}" style="color: {color}">{choice}</a></span>'.format(
-                    color=color, choice=choice, sel=choice, q=q)
+                postfix += '<span style="padding: 10px"><a href="?sel={sel}&key={key}" style="color: {color}">{choice}</a></span>'.format(
+                    color=color, choice=choice, sel=choice, key=key)
             postfix += '</div>'
         markdown = inject_externals("notes", markdown, "build/")
         contents = MarkdownHandler.template.replace(
@@ -304,17 +313,21 @@ class MemosHandler(BaseHTTPRequestHandler):
         if recursive:
             raise NotImplementedError("Recursive lookups not yet implemented")
         memos = {}
-        for q, a in MemosHandler.memos[full_pk].items():
-            if a['last_tested'] is None:
-                memos[q] = a
+        for key, memo in MemosHandler.memos[full_pk].items():
+            if memo['last_tested'] is None:
+                memos[key] = memo
             else:
-                delay = sm2(a['history'])
-                days_since = (int(time.time()) - a['last_tested']) / (24 *
-                                                                      3600)
-                days_since += 1
+                delay = sm2(memo['history'])
+                days_since = (int(time.time()) - memo['last_tested']) / (24 *
+                                                                         3600)
                 if days_since >= delay:
-                    memos[q] = a
+                    memos[key] = memo
         return memos
+
+    def _key_for(q):
+        key = hashlib.sha256()
+        key.update(q.encode("utf-8"))
+        return key.hexdigest()[:8]
 
     def _init():
         random.seed()
@@ -326,20 +339,23 @@ class MemosHandler(BaseHTTPRequestHandler):
             relation = assn['A Relation']
             if relation == ".Memo":
                 for q, a in MemosHandler.from_table(assn['Arg1']):
-                    local_memos[subj][q] = a
+                    key = MemosHandler._key_for(q)
+                    local_memos[subj][key] = (q, a)
         # first sync deletes
         for full_pk, pk_memos in memos.items():
-            keys = pk_memos.keys()
+            keys = list(pk_memos.keys())
             for key in keys:
                 if key not in local_memos[full_pk]:
                     del memos[full_pk][key]
         for full_pk, pk_memos in local_memos.items():
-            for key, value in pk_memos.items():
+            for key, pair in pk_memos.items():
+                q, a = pair
                 if key not in memos[full_pk]:
                     memos[full_pk][key] = {
                         "history": [],
                         "last_tested": None,
-                        "answer": value,
+                        'question': q,
+                        "answer": a,
                     }
         MemosHandler._save()
 
@@ -351,13 +367,14 @@ class MemosHandler(BaseHTTPRequestHandler):
         rows = [[col.strip() for col in row.split("|")[1:-1]]
                 for row in lines[2:] if row.startswith("|")]
 
-        if len(cols) > 2:
-            raise NotImplementedError("Multi-column not yet implemented")
-        fore_name, rev_name = cols
-        for row in rows:
-            fore, rev = row
-            yield "{} for {}".format(fore_name, rev), fore
-            yield "{} for {}".format(rev_name, fore), rev
+        fore_name = cols[0]
+        for colix in range(1, len(cols)):
+            rev_name = cols[colix]
+            for row in rows:
+                fore = row[0]
+                rev = row[colix]
+                yield "{} for {}".format(fore_name, rev), fore
+                yield "{} for {}".format(rev_name, fore), rev
 
     def _save():
         with open("memos.json", 'w') as f:
