@@ -285,6 +285,9 @@ class MemosHandler(BaseHTTPRequestHandler):
         postfix = ""
         if memos:
             key, memo = random.choice(list(memos.items()))
+            if show:
+                key = queries['key'][0]
+                memo = memos[key]
             if "\n" in memo['question']:
                 markdown = memo['question']
             else:
@@ -294,7 +297,7 @@ class MemosHandler(BaseHTTPRequestHandler):
                 if show:
                     markdown += "\n" + memo['answer']
                 else:
-                    postfix = '<div align="center" id="answer" style="font-size: 20pt"><a href="?show=1">Show Answer</a></div>'
+                    postfix = '<div align="center" id="answer" style="font-size: 20pt"><a href="?show=1&key={key}">Show Answer</a></div>'.format(key=key)
             else:
                 postfix = '''<div align="center" id="answer" style="font-size: 20pt"><a href="#" onclick="document.getElementById('answer').innerHTML = '{}'">Show Answer</a></div>'''.format(
                     memo['answer'])
@@ -341,6 +344,11 @@ class MemosHandler(BaseHTTPRequestHandler):
                 for q, a in MemosHandler.from_table(assn['Arg1']):
                     key = MemosHandler._key_for(q)
                     local_memos[subj][key] = (q, a)
+            elif relation == ".Conclusion":
+                for q, a in MemosHandler.from_conclusion(assn['Arg1']):
+                    key = MemosHandler._key_for(q)
+                    local_memos[subj][key] = (q, a)
+
         # first sync deletes
         for full_pk, pk_memos in memos.items():
             keys = list(pk_memos.keys())
@@ -358,6 +366,16 @@ class MemosHandler(BaseHTTPRequestHandler):
                         "answer": a,
                     }
         MemosHandler._save()
+
+    def from_conclusion(txt):
+        if not txt.startswith("**MEMO**"):
+            return
+        if "\n --\n" not in txt:
+            print("skipping single-line MEMO as not implemented")
+            return
+        q, a = txt[len("**MEMO** "):].split("\n --\n")
+        yield q, a
+        yield a, q
 
     def from_table(tab):
         lines = tab.split("\n")[2:]
