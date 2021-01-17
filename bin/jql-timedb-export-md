@@ -297,7 +297,8 @@ class MemosHandler(BaseHTTPRequestHandler):
                 if show:
                     markdown += "\n" + memo['answer']
                 else:
-                    postfix = '<div align="center" id="answer" style="font-size: 20pt"><a href="?show=1&key={key}">Show Answer</a></div>'.format(key=key)
+                    postfix = '<div align="center" id="answer" style="font-size: 20pt"><a href="?show=1&key={key}">Show Answer</a></div>'.format(
+                        key=key)
             else:
                 postfix = '''<div align="center" id="answer" style="font-size: 20pt"><a href="#" onclick="document.getElementById('answer').innerHTML = '{}'">Show Answer</a></div>'''.format(
                     memo['answer'])
@@ -327,9 +328,11 @@ class MemosHandler(BaseHTTPRequestHandler):
                     memos[key] = memo
         return memos
 
-    def _key_for(q):
+    def _key_for(q, a):
         key = hashlib.sha256()
         key.update(q.encode("utf-8"))
+        key.update(b"\x00")
+        key.update(a.encode("utf-8"))
         return key.hexdigest()[:8]
 
     def _init():
@@ -342,11 +345,11 @@ class MemosHandler(BaseHTTPRequestHandler):
             relation = assn['A Relation']
             if relation == ".Memo":
                 for q, a in MemosHandler.from_table(assn['Arg1']):
-                    key = MemosHandler._key_for(q)
+                    key = MemosHandler._key_for(q, a)
                     local_memos[subj][key] = (q, a)
             elif relation == ".Conclusion":
                 for q, a in MemosHandler.from_conclusion(assn['Arg1']):
-                    key = MemosHandler._key_for(q)
+                    key = MemosHandler._key_for(q, a)
                     local_memos[subj][key] = (q, a)
 
         # first sync deletes
@@ -379,8 +382,15 @@ class MemosHandler(BaseHTTPRequestHandler):
 
     def from_table(tab):
         lines = tab.split("\n")[2:]
-        if not lines or not lines[0].startswith("|"):
+        if not lines:
             return
+        elif not lines[0].startswith("|"):
+            for singleton in tab.split("\n- ")[1:]:
+                q, a = singleton.split("\n --\n")
+                yield q, a
+                yield a, q
+            return
+
         cols = [col.strip() for col in lines[0].split("|")[1:-1]]
         rows = [[col.strip() for col in row.split("|")[1:-1]]
                 for row in lines[2:] if row.startswith("|")]
