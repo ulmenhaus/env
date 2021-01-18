@@ -144,14 +144,10 @@ def get_modified(path):
     return datetime.datetime.fromtimestamp(pathlib.Path(path).stat().st_mtime)
 
 
-def render_pic(project, picfile, subdir="build/"):
-    if not picfile.endswith(".pic.py") and not picfile.endswith(".m4"):
-        raise ValueError("Cannot render pic file. Wrong extension", picfile)
+def render_pic(src):
     wd = os.getcwd()
-    fullpath = os.path.join("snippets", project, picfile)
-    targetpath = os.path.join("build", picfile[:-3] + ".svg")
-    if not os.path.exists(targetpath) or (get_modified(targetpath) <
-                                          get_modified(fullpath)):
+    target = "{}.svg".format(src[:-3])
+    if not os.path.exists(target):
         subprocess.check_call([
             "docker",
             "run",
@@ -163,11 +159,11 @@ def render_pic(project, picfile, subdir="build/"):
             "-v",
             "{}:{}".format(wd, wd),
             "ulmenhaus/env",
-            fullpath,
+            src,
         ])
-    img = '<div style="text-align:center; padding-bottom: 25px;"><img src="/{}{}.svg" /></div>\n'.format(
-        subdir, picfile[:-3])
-    return [img]
+    img = '<div style="text-align:center; padding-bottom: 25px;"><img src="/{}" /></div>\n'.format(
+        target)
+    return img
 
 
 def resolve_jql_links(base_markdown):
@@ -184,26 +180,66 @@ def resolve_jql_links(base_markdown):
     return "".join(parts)
 
 
-def inject_externals(default_project, markdown, subdir="build/"):
+def render_pics(grouped, meta):
+    for i, group in enumerate(grouped):
+        lines = group.split("\n")
+        if lines[0] not in ["```pic.py", "```m4"]:
+            yield group
+            continue
+        group_meta = meta.get(i, "").encode("utf-8")
+        suffix = lines[0][3:]
+        body = "\n".join(lines[1:-1]).encode("utf-8")
+        sha = hashlib.sha256()
+        sha.update(body)
+        sha.update(b"\x00")
+        sha.update(group_meta)
+        dgst = sha.hexdigest()[:8]
+        src = "build/{}.{}".format(dgst, suffix)
+        meta_src = src + ".meta"
+        if not os.path.exists(src):
+            with open(src, 'wb') as f:
+                f.write(body)
+            with open(meta_src, 'wb') as f:
+                f.write(group_meta)
+        yield render_pic(src)
+
+
+def inject_externals(default_project, markdown):
+    suffix_to_language = {
+        "py": "python",
+    }
     lines = markdown.split("\n")
-    new_lines = []
-    skip = False
-    for line in lines:
-        if skip:
-            skip = False
-            continue
-        if not line.startswith("```external"):
-            new_lines.append(line)
-            continue
-        if line.endswith(".pic.py") or line.endswith(".m4"):
-            ref = line.split(" ", 1)[1]
-            if "/" in ref:
-                project, name = ref.split("/", 1)
-            else:
-                project, name = default_project, ref
-            new_lines.extend(render_pic(project, name, subdir))
-            skip = True
-    return resolve_jql_links("\n".join(new_lines))
+    grouped = []
+    while lines:
+        first = lines.pop(0)
+        if first.startswith("```"):
+            while True:
+                to_add = lines.pop(0)
+                first += "\n" + to_add
+                if to_add.startswith("```"):
+                    break
+        grouped.append(first)
+
+    final = []
+    meta = {}
+    for i, group in enumerate(grouped):
+        if group.startswith("```external"):
+            lines = group.split("\n")
+            meta[i] = "\n".join(lines[1:-1])
+            filename = lines[0].split(" ", 1)[1]
+            suffix = filename.split(".", 1)[1]
+            if "/" not in filename:
+                filename = "{}/{}".format(default_project, filename)
+            filename = "snippets/{}".format(filename)
+
+            with open(filename) as f:
+                body = f.read()
+            group = "```{}\n{}\n```".format(
+                suffix_to_language.get(suffix, suffix), body)
+        final.append(group)
+
+    final = render_pics(final, meta)
+    return resolve_jql_links("\n".join(final))
 
 
 class MarkdownHandler(BaseHTTPRequestHandler):
@@ -239,7 +275,7 @@ class MarkdownHandler(BaseHTTPRequestHandler):
                 markdown = f.read()
         else:
             markdown = generate_markdown(MarkdownHandler.snapshot, table, pk)
-        markdown = inject_externals(project, markdown, "build/")
+        markdown = inject_externals(project, markdown)
         contents = MarkdownHandler.template.replace(
             "{md-contents}",
             html.escape(markdown)).replace("{md-postfix}", "")
@@ -308,7 +344,7 @@ class MemosHandler(BaseHTTPRequestHandler):
                 postfix += '<span style="padding: 10px"><a href="?sel={sel}&key={key}" style="color: {color}">{choice}</a></span>'.format(
                     color=color, choice=choice, sel=choice, key=key)
             postfix += '</div>'
-        markdown = inject_externals("notes", markdown, "build/")
+        markdown = inject_externals("notes", markdown)
         contents = MarkdownHandler.template.replace(
             "{md-contents}", markdown).replace("{md-postfix}", postfix)
         s.wfile.write(contents.encode("utf-8"))
@@ -415,7 +451,7 @@ def export_to_html(project, pk):
     """
     with open(pk) as f:
         markdown = f.read()
-    markdown = inject_externals(project, markdown, "")
+    markdown = inject_externals(project, markdown)
     s = requests.Session()
     # HACK hardcode local username and password
     s.post("http://localhost:3000/login",

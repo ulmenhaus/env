@@ -19,10 +19,10 @@ RUN apt-get update && apt-get install -y  \
 	texlive-pstricks \
 	xzdec
 
-RUN pip3 install markdown
+RUN pip3 install markdown python-chess
 
 COPY lib /ulmenhaus/env/lib
 COPY bin /ulmenhaus/env/bin
 
-ENV PYTHONPATH=/ulmenhaus/env/lib/py
+ENV PYTHONPATH=/ulmenhaus/env/lib/py:./lib/py
 ENV PATH=/ulmenhaus/env/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin

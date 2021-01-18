@@ -131,14 +131,40 @@ def _edit_in_file(snapshot, table, pk):
 
 
 def _autogen(snapshot, table, pk):
-    if table != "nouns":
+    full_pk = "{} {}".format(table, pk)
+    if table == "nouns":
+        entry = snapshot[table][pk]
+        feed = entry["Feed"]
+    elif table == "tasks":
+        entry = snapshot[table][pk]
+        feed = snapshot['nouns'][entry['Direct']]["Feed"]
+    else:
         raise ValueError("Can only autogenerate attrs for nouns", table)
-    entry = snapshot[table][pk]
-    feed = entry["Feed"]
-    global set_attrs
+    rel2ord2obj = collections.defaultdict(dict)
+    for key, assn in snapshot['assertions'].items():
+        if assn['Arg0'] == full_pk:
+            rel2ord2obj[assn['A Relation']][assn['Order']] = assn['Arg1']
+    rel2objs = {
+        rel: [ord2obj[i] for i in sorted(ord2obj.keys())]
+        for rel, ord2obj in rel2ord2obj.items()
+    }
+
+    global gen_attrs
     with open(feed) as f:
         exec(f.read(), globals())
-    set_attrs(entry)
+    attrs = gen_attrs(table, pk, entry, rel2objs, snapshot)
+
+    assns = snapshot['assertions']
+    for rel, objs in attrs.items():
+        for i in rel2ord2obj[rel]:
+            del assns[str((rel, full_pk, i))]
+        for i, obj in enumerate(objs):
+            assns[str((rel, full_pk, i))] = {
+                "A Relation": rel,
+                "Arg0": full_pk,
+                "Arg1": obj,
+                "Order": i,
+            }
 
 
 def main():

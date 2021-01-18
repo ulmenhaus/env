@@ -19,6 +19,11 @@ WRAPPER_TEMPLATE = """
 
 def _convert_to_m4(draw_file):
     global draw
+    meta_path = draw_file + ".meta"
+    if os.path.exists(meta_path):
+        with open(meta_path) as f:
+            meta = f.read()
+        os.environ["PIC_PY_META"] = meta
     with open(draw_file) as f:
         exec(f.read(), globals())
     d = Drawing()
@@ -60,10 +65,10 @@ def main():
 
     if not os.path.exists("build"):
         os.mkdir("build")
-        for fpath in glob.glob(os.path.join(os.path.dirname(__file__),
-                                            "*.m4")):
-            shutil.copyfile(fpath,
-                            os.path.join("build", os.path.basename(fpath)))
+    for fpath in glob.glob(os.path.join(os.path.dirname(__file__), "*.m4")):
+        target = os.path.join("build", os.path.basename(fpath))
+        if not os.path.exists(target):
+            shutil.copyfile(fpath, target)
 
     os.chdir("build")
 
