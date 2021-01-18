@@ -128,7 +128,7 @@ class Drawing(object):
         self.ixns.append(RawInstruction(raw_ixn))
 
     def __getattr__(self, attr):
-        if attr in ["add", "render", "ixns"]:
+        if attr in ["add", "render", "ixns", "fill", "color"]:
             return self.__dict__[attr]
         return Term(attr, drawing=self)
 
@@ -151,6 +151,20 @@ class Drawing(object):
         self.ixns.append(RawInstruction("{"))
         yield
         self.ixns.append(RawInstruction("}"))
+
+    @contextlib.contextmanager
+    def color(self, r, g, b):
+        self.ixns.append(RawInstruction("rgbdraw({}, {}, {}, ".format(r, g,
+                                                                      b)))
+        yield
+        self.ixns.append(RawInstruction(")"))
+
+    @contextlib.contextmanager
+    def fill(self, r, g, b):
+        self.ixns.append(RawInstruction("rgbfill({}, {}, {}, ".format(r, g,
+                                                                      b)))
+        yield
+        self.ixns.append(RawInstruction(")"))
 
 
 def render(obj):

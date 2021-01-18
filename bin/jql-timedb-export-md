@@ -165,7 +165,7 @@ def render_pic(project, picfile, subdir="build/"):
             "ulmenhaus/env",
             fullpath,
         ])
-    img = '<div style="text-align:center; padding-bottom: 25px;"><img src="/{}{}.svg" /></div>'.format(
+    img = '<div style="text-align:center; padding-bottom: 25px;"><img src="/{}{}.svg" /></div>\n'.format(
         subdir, picfile[:-3])
     return [img]
 

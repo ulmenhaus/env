@@ -26,6 +26,25 @@ def _convert_to_m4(draw_file):
     return d.render()
 
 
+def _fixup_tex(path):
+    with open(path) as f:
+        tex = f.read()
+    # HACK removing the first point from any beziers seems to fix an issue
+    # with filled beziers starting from the origin instead of last point
+    lines = tex.split("\n")
+    filled = False
+    for i, line in enumerate(lines[:-1]):
+        if line.startswith(r"\pscustom[fillcolor"):
+            filled = True
+        if filled and line.startswith(r"}%"):
+            filled = False
+        if filled and line.startswith(
+                r"\psbezier") and not lines[i - 1].startswith(r"\pscustom"):
+            lines[i + 1] = lines[i + 1].split(")", 1)[1]
+    with open(path, 'w') as f:
+        f.write("\n".join(lines))
+
+
 def main():
     draw_file = sys.argv[1]
     name = os.path.basename(draw_file)
@@ -68,6 +87,8 @@ def main():
     ]
     for cmd in cmds:
         subprocess.check_call(["bash", "-c", cmd.format(name=name)])
+        if cmd.startswith("dpic "):
+            _fixup_tex("{}.tex".format(name))
 
 
 if __name__ == "__main__":
