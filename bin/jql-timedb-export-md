@@ -346,7 +346,7 @@ class MemosHandler(BaseHTTPRequestHandler):
                         key=key)
             else:
                 postfix = '''<div align="center" id="answer" style="font-size: 20pt"><a href="#" onclick="document.getElementById('answer').innerHTML = '{}'">Show Answer</a></div>'''.format(
-                    memo['answer'])
+                    memo['answer'].replace("'", r"\'"))
             postfix += '<div align="center" style="padding-top: 20px; font-size: 20pt">'
             for selection in selections:
                 color, choice = selection
