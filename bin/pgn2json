@@ -1,0 +1,34 @@
+#! /usr/bin/python3
+
+import json
+import sys
+
+import chess.pgn
+
+
+def get_games(pgn):
+    while True:
+        game = chess.pgn.read_game(pgn)
+        if game is None:
+            break
+        moves = list(game.mainline_moves())
+        board = game.board()
+        short_moves = []
+        board_states = [str(board)]
+        for move in moves:
+            board.push(move)
+            short_moves.append(str(move))
+            board_states.append(str(board))
+        yield dict(headers=dict(game.headers),
+                   short_moves=short_moves,
+                   board_states=board_states)
+
+
+def main():
+    pgn_path, = sys.argv[1:]
+    with open(pgn_path) as pgn:
+        json.dump(list(get_games(pgn)), sys.stdout, indent=4)
+
+
+if __name__ == "__main__":
+    main()

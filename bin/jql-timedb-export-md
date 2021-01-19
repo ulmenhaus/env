@@ -131,7 +131,7 @@ def generate_markdown(snapshot, table, pk):
             if len(orobs) == 0:
                 child_row.append("")
             elif len(orobs) == 1:
-                child_row.append(orobs[0][1])
+                child_row.append(orobs[0][1].split("\n")[0])
             else:
                 child_row.append("{} items".format(len(orobs)))
     markdown += "\n## Related"
@@ -297,6 +297,15 @@ class MemosHandler(BaseHTTPRequestHandler):
         full_pk = urllib.parse.unquote(req_url.path)[1:]
         if full_pk.endswith("favicon.ico"):
             return
+        if full_pk.startswith("build/"):
+            if full_pk.endswith(".svg"):
+                s.send_header("Content-type", "image/svg+xml")
+            else:
+                s.send_header("Content-type", "text/html")
+            s.end_headers()
+            with open(full_pk, 'rb') as f:
+                s.wfile.write(f.read())
+                return
         selections = [
             ["#660000", "Hardest"],
             ["#bb0000", "Hard"],
@@ -346,7 +355,7 @@ class MemosHandler(BaseHTTPRequestHandler):
             postfix += '</div>'
         markdown = inject_externals("notes", markdown)
         contents = MarkdownHandler.template.replace(
-            "{md-contents}", markdown).replace("{md-postfix}", postfix)
+            "{md-contents}", html.escape(markdown)).replace("{md-postfix}", postfix)
         s.wfile.write(contents.encode("utf-8"))
 
     def get_memos(full_pk, recursive=False):
