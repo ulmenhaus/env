@@ -1,0 +1,9 @@
+#! /bin/bash
+
+# An OS agnostic way to take a URL as a CLI argument and open it in a browser
+
+if [ -f "/etc/os-release" ]; then
+    xdg-open $1
+else
+    open $1
+fi;

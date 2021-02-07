@@ -1,0 +1,9 @@
+#! /bin/bash
+
+# An OS agnostic way to interface CLI stdin/out with clipboard
+
+if [ -f "/etc/os-release" ]; then
+    xsel -i -b
+else
+    pbcopy
+fi;

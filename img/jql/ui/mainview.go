@@ -915,7 +915,7 @@ func (mv *MainView) incrementSelected(amt int) error {
 func (mv *MainView) openCellInWindow() error {
 	row, col := mv.SelectedEntry()
 	entry := mv.response.Entries[row][col]
-	cmd := exec.Command("open", entry.Format(""))
+	cmd := exec.Command("txtopen", entry.Format(""))
 	return cmd.Run()
 }
 
@@ -983,8 +983,11 @@ func (mv *MainView) duplicateSelectedRow() error {
 func (mv *MainView) copyValue() error {
 	row, col := mv.SelectedEntry()
 	value := mv.response.Entries[row][col].Format("")
-	// TODO Linux implementation
-	cmd := exec.Command("/usr/bin/pbcopy")
+	path, err := exec.LookPath("txtcopy")
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command(path)
 	pipe, err := cmd.StdinPipe()
 	if err != nil {
 		return err
@@ -1016,8 +1019,11 @@ func (mv *MainView) updateEntryValue(contents string) error {
 }
 
 func (mv *MainView) pasteValue() error {
-	// TODO Linux implementation
-	cmd := exec.Command("/usr/bin/pbpaste")
+	path, err := exec.LookPath("txtpaste")
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command(path)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return err

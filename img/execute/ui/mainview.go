@@ -86,7 +86,7 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 	counts.Clear()
 	for _, span := range Spans {
 		prefix := " "
-		if span == mv.span{
+		if span == mv.span {
 			prefix = "*"
 		}
 		suffix := fmt.Sprintf("(%d)", len(mv.tasks[span]))
@@ -219,7 +219,7 @@ func (mv *MainView) nextSpan(g *gocui.Gui, v *gocui.View) error {
 	for ix, span := range Spans {
 		ixs[span] = ix
 	}
-	mv.span = Spans[(ixs[mv.span] + 1) % len(Spans)]
+	mv.span = Spans[(ixs[mv.span]+1)%len(Spans)]
 	return nil
 }
 
@@ -274,8 +274,8 @@ func (mv *MainView) openLink(g *gocui.Gui, v *gocui.View) error {
 		_, cy = view.Cursor()
 	}
 
-	selectedTask := mv.tasks[mv.span][oy+cy]
-	cmd := exec.Command("open", selectedTask[taskTable.IndexOfField(FieldLink)].Format(""))
+	selectedItem := mv.tasks[mv.span][oy+cy]
+	cmd := exec.Command("txtopen", selectedItem[taskTable.IndexOfField(FieldLink)].Format(""))
 	return cmd.Run()
 }
 
@@ -435,7 +435,7 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 	}
 
 	mv.log = [][]types.Entry{}
-	if oy + cy >= len(mv.tasks[mv.span]) {
+	if oy+cy >= len(mv.tasks[mv.span]) {
 		return nil
 	}
 	selectedTask := mv.tasks[mv.span][oy+cy]
