@@ -23,10 +23,16 @@ import (
 // It determines which subview processes inputs.
 type MainViewMode int
 
+type MacroResponseFilter struct {
+	Field     string `json:"field"`
+	Formatted string `json:"formatted"`
+}
+
 type MacroCurrentView struct {
 	Table            string   `json:"table"`
 	PKs              []string `json:"pks"`
 	PrimarySelection string   `json:"primary_selection"`
+	Filter           MacroResponseFilter `json:"filter"`
 }
 
 type MacroInterface struct {
@@ -1159,6 +1165,7 @@ func (mv *MainView) runMacro(ch rune) error {
 		return fmt.Errorf("Could not run macro: %s -- error at /tmp/error.log", err)
 	}
 	var newDB []byte
+	var output MacroInterface
 
 	// TODO change to three valued "Output" field: file, stdout, none
 	if isReload {
@@ -1167,7 +1174,6 @@ func (mv *MainView) runMacro(ch rune) error {
 			return fmt.Errorf("Could not reload db: %s", err)
 		}
 	} else {
-		var output MacroInterface
 		err = json.Unmarshal(stdout.Bytes(), &output)
 		if err != nil {
 			return fmt.Errorf("Could not unmarshal macro output: %s", err)
@@ -1178,12 +1184,28 @@ func (mv *MainView) runMacro(ch rune) error {
 	if err != nil {
 		return fmt.Errorf("Could not load database from macro: %s", err)
 	}
+	tableSwitch := mv.tableName != output.CurrentView.Table
 	params := mv.Params
-	err = mv.loadTable(mv.tableName)
+	err = mv.loadTable(output.CurrentView.Table)
 	if err != nil {
 		return fmt.Errorf("Could not load table after macro: %s", err)
 	}
-	mv.Params = params
+	if !tableSwitch {
+		mv.Params = params
+	}
+	filterField := output.CurrentView.Filter.Field
+	if filterField != "" {
+		// The macro is updating our table query with a basic filter
+		// For now this only supports a single equal filter
+		// TODO figure out why the Query in the header doesn't update until after another button push
+		mv.Params.Filters = []types.Filter{
+			&EqualFilter{
+				Field:     filterField,
+				Col:       mv.Table.IndexOfField(filterField),
+				Formatted: output.CurrentView.Filter.Formatted,
+			},
+		}
+	}
 	err = mv.updateTableViewContents()
 	if err != nil {
 		return fmt.Errorf("Could not update table view after macro: %s", err)

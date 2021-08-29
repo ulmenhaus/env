@@ -1,0 +1,48 @@
+#! /usr/local/bin/python3
+"""
+For jql time management schema
+
+Macro will auto-jump your view to a given attention cycle
+* by default goes to the current active cycle
+* adding --pending will go to the current pending cycle
+* adding --for <noun> will go to the cycle for a given noun (not implemented)
+"""
+
+import json
+import sys
+
+
+def find_active_root_cycle(snapshot):
+    for pk, task in snapshot['tasks'].items():
+        if task['Action'] == "Accomplish" and task[
+                'Direct'] == "set goals" and task['Status'] == "Active":
+            return pk
+
+
+def find_pending_root_cycle(snapshot):
+    for pk, task in snapshot['tasks'].items():
+        if task['Action'] == "Accomplish" and task[
+                'Direct'] == "set goals" and task['Status'] == "Pending":
+            return pk
+
+
+def main():
+    iface = json.load(sys.stdin)
+    snapshot = json.loads(iface["snapshot"])
+    if "--pending" in sys.argv:
+        root_cycle = find_pending_root_cycle(snapshot)
+    elif "--for" in sys.argv:
+        raise NotImplementedError("--for flag not yet implemented")
+    else:
+        root_cycle = find_active_root_cycle(snapshot)
+    current_view = iface["current_view"]
+    current_view['table'] = "tasks"
+    current_view['filter'] = {
+        "field": "Primary Goal",
+        "formatted": root_cycle,
+    }
+    json.dump(iface, sys.stdout)
+
+
+if __name__ == "__main__":
+    main()
