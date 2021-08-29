@@ -1,4 +1,4 @@
-#! /usr/local/bin/python3
+#! /Users/rabrams/.pyenv/versions/3.7.3/bin/python3
 """
 For jql concept management schema
 
@@ -45,14 +45,19 @@ def markdown_table(rows):
 
 def format_child(parent_full_pk, child_full_pk):
     """
-    Remove common prefix for easier reading
+    Remove common prefix and suffix for easier reading
     """
     # NOTE when we break out context codes and ordinals we should be
     # able to just use the shortname/description
     child_parts = child_full_pk.split(" ")
-    parent_parts = parent_full_pk.split(" ") + [""] * len(child_parts)
-    return " ".join(cp for pp, cp in zip(parent_parts, child_parts)
-                    if pp != cp)
+    parent_parts = parent_full_pk.split(" ")
+    while child_parts and parent_parts and child_parts[0] == parent_parts[0]:
+        child_parts.pop(0)
+        parent_parts.pop(0)
+    while child_parts and parent_parts and child_parts[-1] == parent_parts[-1]:
+        child_parts.pop()
+        parent_parts.pop()
+    return " ".join(child_parts)
 
 
 def _render_link(description, target, new_window=False):
@@ -131,7 +136,7 @@ def generate_markdown(snapshot, table, pk):
             if len(orobs) == 0:
                 child_row.append("")
             elif len(orobs) == 1:
-                child_row.append(orobs[0][1].split("\n")[0])
+                child_row.append(orobs[0][1].split("\n\n")[0].rstrip())
             else:
                 child_row.append("{} items".format(len(orobs)))
     markdown += "\n## Related"
@@ -308,10 +313,10 @@ class MemosHandler(BaseHTTPRequestHandler):
                 return
         selections = [
             ["#660000", "Hardest"],
-            ["#bb0000", "Hard"],
-            ["#ff0000", "Medium"],
-            ["#006600", "Medium"],
-            ["#00bb00", "Easy"],
+            ["#bb0000", "Harder"],
+            ["#ff0000", "Hard"],
+            ["#006600", "Easy"],
+            ["#00bb00", "Easier"],
             ["#00ff00", "Easiest"],
         ]
         sel2level = {selections[i][1]: i for i in range(len(selections))}
@@ -355,7 +360,8 @@ class MemosHandler(BaseHTTPRequestHandler):
             postfix += '</div>'
         markdown = inject_externals("notes", markdown)
         contents = MarkdownHandler.template.replace(
-            "{md-contents}", html.escape(markdown)).replace("{md-postfix}", postfix)
+            "{md-contents}",
+            html.escape(markdown)).replace("{md-postfix}", postfix)
         s.wfile.write(contents.encode("utf-8"))
 
     def get_memos(full_pk, recursive=False):
@@ -537,11 +543,10 @@ def sm2(x, a=6.0, b=-0.8, c=0.28, d=0.02, theta=0.2):
 def _open_in_browser():
     iface = json.load(sys.stdin)
     cv = iface['current_view']
-    subprocess.check_call([
-        "open",
-        "http://{}:{}/{} {}".format(HOST_NAME, PORT_NUMBER, cv['table'],
-                                    cv['primary_selection'])
-    ])
+    path = urllib.parse.quote("{} {}".format(cv['table'],
+                                             cv['primary_selection']))
+    subprocess.check_call(
+        ["open", "http://{}:{}/{}".format(HOST_NAME, PORT_NUMBER, path)])
 
 
 def _from_jql():
