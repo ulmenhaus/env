@@ -311,6 +311,7 @@ class MemosHandler(BaseHTTPRequestHandler):
             with open(full_pk, 'rb') as f:
                 s.wfile.write(f.read())
                 return
+        key_to_parent_pk = {}
         selections = [
             ["#660000", "Hardest"],
             ["#bb0000", "Harder"],
@@ -321,16 +322,17 @@ class MemosHandler(BaseHTTPRequestHandler):
         ]
         sel2level = {selections[i][1]: i for i in range(len(selections))}
         show = 'show' in queries
+        table, pk = full_pk.split(" ", 1)
+        memos, memo2parent = MemosHandler.get_memos(full_pk)
         if 'sel' in queries:
             sel = queries['sel'][0]
             key = queries['key'][0]
-            s.memos[full_pk][key]['last_tested'] = int(time.time())
-            s.memos[full_pk][key]['history'].append(sel2level[sel])
+            parent_pk = "{} {}".format(table, memo2parent[key])
+            s.memos[parent_pk][key]['last_tested'] = int(time.time())
+            s.memos[parent_pk][key]['history'].append(sel2level[sel])
             MemosHandler._save()
         s.send_header("Content-type", "text/html")
         s.end_headers()
-        table, pk = full_pk.split(" ", 1)
-        memos = MemosHandler.get_memos(full_pk)
         markdown = "All done for today"
         postfix = ""
         if memos:
@@ -364,20 +366,41 @@ class MemosHandler(BaseHTTPRequestHandler):
             html.escape(markdown)).replace("{md-postfix}", postfix)
         s.wfile.write(contents.encode("utf-8"))
 
-    def get_memos(full_pk, recursive=False):
+    def get_memos(full_pk, recursive=True):
+        table, pk = full_pk.split(" ", 1)
+        pks = [pk]
         if recursive:
-            raise NotImplementedError("Recursive lookups not yet implemented")
-        memos = {}
-        for key, memo in MemosHandler.memos[full_pk].items():
-            if memo['last_tested'] is None:
-                memos[key] = memo
-            else:
-                delay = sm2(memo['history'])
-                days_since = (int(time.time()) - memo['last_tested']) / (24 *
-                                                                         3600)
-                if days_since >= delay:
+            stack = [pk]
+            pks = []
+            db = MarkdownHandler.snapshot
+            node2children = collections.defaultdict(list)
+            parent_key = 'Primary Goal' if table == 'tasks' else 'Parent'
+            for pk, item in db[table].items():
+                node2children[item[parent_key]].append(pk)
+            while stack:
+                pk = stack.pop()
+                pks.append(pk)
+                stack.extend(node2children[pk])
+
+        # If the same memo appears in two parents, one will overwrite the other. This one will get
+        # a new value in its history and will stop showing up so we no longer have an overwrite.
+        memos, memo2parent = {}, {}
+        for pk in pks:
+            full_pk = "{} {}".format(table, pk)
+            for key, memo in MemosHandler.memos[full_pk].items():
+                # only write to memo2parent if we're going to show this one, otherwise a duplicate
+                # could overwrite its parent on every trial and it would never go away
+                if memo['last_tested'] is None:
                     memos[key] = memo
-        return memos
+                    memo2parent[key] = pk
+                else:
+                    delay = sm2(memo['history'])
+                    days_since = (int(time.time()) -
+                                  memo['last_tested']) / (24 * 3600)
+                    if days_since >= delay:
+                        memos[key] = memo
+                        memo2parent[key] = pk
+        return memos, memo2parent
 
     def _key_for(q, a):
         key = hashlib.sha256()
