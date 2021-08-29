@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.parse
 
@@ -331,6 +332,8 @@ class MemosHandler(BaseHTTPRequestHandler):
             s.memos[parent_pk][key]['last_tested'] = int(time.time())
             s.memos[parent_pk][key]['history'].append(sel2level[sel])
             MemosHandler._save()
+            # reload now that we've updated this entry
+            memos, memo2parent = MemosHandler.get_memos(full_pk)
         s.send_header("Content-type", "text/html")
         s.end_headers()
         markdown = "All done for today"
@@ -409,7 +412,7 @@ class MemosHandler(BaseHTTPRequestHandler):
         key.update(a.encode("utf-8"))
         return key.hexdigest()[:8]
 
-    def _init():
+    def _sync_from_assertions():
         random.seed()
         memos = MemosHandler.memos
         local_memos = collections.defaultdict(dict)
@@ -600,6 +603,18 @@ def _from_jql():
     ])
 
 
+def _watch_for_update(filepath, poll_interval=2):
+    update_time = os.stat(filepath).st_mtime
+    while True:
+        time.sleep(poll_interval)
+        new_time = os.stat(filepath).st_mtime
+        if new_time != update_time:
+            update_time = new_time
+            # HACK jql might still be writing the file so sleep for another 100ms
+            time.sleep(.1)
+            yield
+
+
 def _daemon():
     with open("schema2.json") as f:
         MarkdownHandler.snapshot = json.load(f)
@@ -608,6 +623,15 @@ def _daemon():
     with open(os.path.join(os.path.dirname(__file__),
                            "fast-export-templ.html")) as f:
         MarkdownHandler.template = f.read()
+
+    def watch_for_updates():
+        for _ in _watch_for_update("schema2.json"):
+            print("Time DB updated -- reloading")
+            with open("schema2.json") as f:
+                MarkdownHandler.snapshot = json.load(f)
+
+    thread = threading.Thread(target=watch_for_updates, daemon=True)
+    thread.start()
     httpd = HTTPServer(('localhost', 8080), MarkdownHandler)
     httpd.serve_forever()
 
@@ -622,7 +646,17 @@ def _memos_daemon():
         MarkdownHandler.template = f.read()
     with open("memos.json") as f:
         MemosHandler.memos = collections.defaultdict(dict, json.load(f))
-    MemosHandler._init()
+    MemosHandler._sync_from_assertions()
+
+    def watch_for_updates():
+        for _ in _watch_for_update("schema2.json"):
+            print("Time DB updated -- reloading")
+            with open("schema2.json") as f:
+                MarkdownHandler.snapshot = json.load(f)
+            MemosHandler._sync_from_assertions()
+
+    thread = threading.Thread(target=watch_for_updates, daemon=True)
+    thread.start()
     httpd = HTTPServer(('localhost', 8081), MemosHandler)
     httpd.serve_forever()
 
