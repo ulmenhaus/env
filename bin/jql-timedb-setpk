@@ -9,7 +9,7 @@ For jql time management schema
 import json
 import sys
 
-from jql import pks
+from timedb import pks
 
 
 class TimeDB(object):
