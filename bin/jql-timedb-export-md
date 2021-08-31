@@ -28,6 +28,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 HOST_NAME = 'localhost'
 PORT_NUMBER = 8080
+MEMOS_PORT_NUMBER = 8081
 
 
 def markdown_table(rows):
@@ -566,13 +567,14 @@ def sm2(x, a=6.0, b=-0.8, c=0.28, d=0.02, theta=0.2):
                        for x_i in x)))**(theta * num_consecutively_correct)
 
 
-def _open_in_browser():
+def _open_in_browser(memos=False):
     iface = json.load(sys.stdin)
     cv = iface['current_view']
     path = urllib.parse.quote("{} {}".format(cv['table'],
                                              cv['primary_selection']))
+    port = MEMOS_PORT_NUMBER if memos else PORT_NUMBER
     subprocess.check_call(
-        ["open", "http://{}:{}/{}".format(HOST_NAME, PORT_NUMBER, path)])
+        ["open", "http://{}:{}/{}".format(HOST_NAME, port, path)])
 
 
 def _from_jql():
@@ -632,7 +634,7 @@ def _daemon():
 
     thread = threading.Thread(target=watch_for_updates, daemon=True)
     thread.start()
-    httpd = HTTPServer(('localhost', 8080), MarkdownHandler)
+    httpd = HTTPServer(('localhost', PORT_NUMBER), MarkdownHandler)
     httpd.serve_forever()
 
 
@@ -657,7 +659,7 @@ def _memos_daemon():
 
     thread = threading.Thread(target=watch_for_updates, daemon=True)
     thread.start()
-    httpd = HTTPServer(('localhost', 8081), MemosHandler)
+    httpd = HTTPServer(('localhost', MEMOS_PORT_NUMBER), MemosHandler)
     httpd.serve_forever()
 
 
@@ -681,10 +683,10 @@ def _from_args():
 def main():
     if "-d" in sys.argv:
         _daemon()
+    elif "--open" in sys.argv:
+        _open_in_browser("--memos" in sys.argv)
     elif "--memos" in sys.argv:
         _memos_daemon()
-    elif "--open" in sys.argv:
-        _open_in_browser()
     elif len(sys.argv) > 1:
         _from_args()
     else:
