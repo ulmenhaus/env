@@ -88,18 +88,27 @@ func slice2map(slice []string) map[string]bool {
 // is a case insensitive superstring of the provided formatted query
 type ContainsFilter struct {
 	Field     string
-	Col       int
+	Col       int // if set to a negative value will match any field
 	Formatted string
 	Exact     bool // exact requires a case sensitive match and will use table formatting to support list entries
 }
 
 func (cf *ContainsFilter) Applies(e []types.Entry) bool {
+	// NOTE exact match + col < 0 not implemented and will cause a panic
 	if cf.Exact {
 		// HACK to make a ContainsFilter work for ForeignLists format to the full list.
 		// NOTE this behavior is only partially correct as it  relies
 		// on keys not having newlines
 		return strings.Contains(e[cf.Col].Format(types.ListFormat), "\n"+cf.Formatted+"\n")
 
+	}
+	if cf.Col < 0 {
+		for i := 0; i < len(e); i ++ {
+			if strings.Contains(strings.ToLower(e[i].Format("")), strings.ToLower(cf.Formatted)) {
+				return true
+			}
+		}
+		return false
 	}
 	return strings.Contains(strings.ToLower(e[cf.Col].Format("")), strings.ToLower(cf.Formatted))
 }

@@ -92,6 +92,7 @@ type MainView struct {
 	promptText    string
 	tableName     string
 	searchText    string
+	searchAll     bool // indicates if we search all fields or just this one
 	selectOptions []string
 }
 
@@ -367,7 +368,11 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 		mv.promptText = ""
 	case MainViewModeSearch:
 		prompt.Clear()
-		prompt.Write([]byte{'/'})
+		if mv.searchAll {
+			prompt.Write([]byte{'?'})
+		} else {
+			prompt.Write([]byte{'/'})
+		}
 		prompt.Write([]byte(mv.searchText))
 	}
 	return nil
@@ -455,12 +460,18 @@ func (mv *MainView) handleSearchInput(v *gocui.View, key gocui.Key, ch rune, mod
 	}
 	// when we start search pagination should be reset
 	mv.Params.Offset = uint(0)
-	// TODO implement major search mode (over all columns)
 	// When switching into search mode, the last filter added is the working
 	// search filter
+
+	col := mv.TableView.Selections.Primary.Column
+	field := mv.Table.Columns[mv.TableView.Selections.Primary.Column]
+	if mv.searchAll {
+		col = -1
+		field = "Any field"
+	}
 	mv.Params.Filters[len(mv.Params.Filters)-1] = &ContainsFilter{
-		Field:     mv.Table.Columns[mv.TableView.Selections.Primary.Column],
-		Col:       mv.TableView.Selections.Primary.Column,
+		Field:     field,
+		Col:       col,
 		Formatted: mv.searchText,
 	}
 	return mv.updateTableViewContents()
@@ -608,7 +619,16 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		mv.promptText = "switch-table "
 	case ':':
 		mv.switchMode(MainViewModePrompt)
+	case '?':
+		mv.searchAll = true
+		mv.Params.Filters = append(mv.Params.Filters, &ContainsFilter{
+			Field:     "Any field",
+			Col:       -1,
+			Formatted: "",
+		})
+		mv.switchMode(MainViewModeSearch)
 	case '/':
+		mv.searchAll = false
 		mv.Params.Filters = append(mv.Params.Filters, &ContainsFilter{
 			Field:     mv.Table.Columns[mv.TableView.Selections.Primary.Column],
 			Col:       mv.TableView.Selections.Primary.Column,
