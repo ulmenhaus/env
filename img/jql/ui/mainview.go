@@ -29,9 +29,9 @@ type MacroResponseFilter struct {
 }
 
 type MacroCurrentView struct {
-	Table            string   `json:"table"`
-	PKs              []string `json:"pks"`
-	PrimarySelection string   `json:"primary_selection"`
+	Table            string              `json:"table"`
+	PKs              []string            `json:"pks"`
+	PrimarySelection string              `json:"primary_selection"`
 	Filter           MacroResponseFilter `json:"filter"`
 }
 
@@ -448,11 +448,13 @@ func (mv *MainView) handleSearchInput(v *gocui.View, key gocui.Key, ch rune, mod
 		if len(mv.searchText) != 0 {
 			mv.searchText = mv.searchText[:len(mv.searchText)-1]
 		}
+	} else if key == gocui.KeySpace {
+		mv.searchText += " "
 	} else {
 		mv.searchText += string(ch)
-		// when we start search pagination should be reset
-		mv.Params.Offset = uint(0)
 	}
+	// when we start search pagination should be reset
+	mv.Params.Offset = uint(0)
 	// TODO implement major search mode (over all columns)
 	// When switching into search mode, the last filter added is the working
 	// search filter
