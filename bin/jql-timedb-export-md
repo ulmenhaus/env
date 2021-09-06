@@ -89,7 +89,12 @@ def generate_markdown(snapshot, table, pk):
         if not value["A Relation"].startswith("."):
             continue
         rel = value["A Relation"][1:]
-        key2rel2orobs[rel_pk][rel].append((value["Order"], value["Arg1"]))
+        meta_rels = ["Conclusion", "Point", "Thought"]
+        if rel in meta_rels:
+            l = len(key2rel2orobs[rel_pk]["Meta"])
+            key2rel2orobs[rel_pk]["Meta"].append((rel, value["Arg1"]))
+        else:
+            key2rel2orobs[rel_pk][rel].append((value["Order"], value["Arg1"]))
     by_relation = key2rel2orobs[full_pk]
     description = by_relation.get("Description", [])
     if "Description" in by_relation:
@@ -135,6 +140,9 @@ def generate_markdown(snapshot, table, pk):
         child_table.append(child_row)
         for rel in all_child_relations:
             orobs = key2rel2orobs[child_full_pk][rel]
+            if rel == "Meta":
+                counts = collections.Counter([orig_rel for orig_rel, _ in orobs])
+                child_row.append("\n".join("{} {}s".format(v, k) for k, v in counts.items()))
             if len(orobs) == 0:
                 child_row.append("")
             elif len(orobs) == 1:
