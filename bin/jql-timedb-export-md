@@ -89,7 +89,7 @@ def generate_markdown(snapshot, table, pk):
         if not value["A Relation"].startswith("."):
             continue
         rel = value["A Relation"][1:]
-        meta_rels = ["Conclusion", "Point", "Thought"]
+        meta_rels = ["Conclusion", "Point", "Thought", "Resource", "Quote"]
         if rel in meta_rels and rel_pk != full_pk:
             l = len(key2rel2orobs[rel_pk]["Meta"])
             key2rel2orobs[rel_pk]["Meta"].append((rel, value["Arg1"]))
@@ -133,6 +133,9 @@ def generate_markdown(snapshot, table, pk):
     all_child_relations = sorted(
         {rel
          for child_pk in children for rel in key2rel2orobs[child_pk]})
+    # HACK descriptions end up taking too much space in large tables
+    if len(all_child_relations) >= 5 and "Description" in all_child_relations:
+        all_child_relations.remove("Description")
     child_table = [[""] + sorted(all_child_relations)]
     for child_full_pk in children:
         child_display = format_child(full_pk, child_full_pk)
@@ -143,7 +146,7 @@ def generate_markdown(snapshot, table, pk):
             if rel == "Meta":
                 counts = collections.Counter([orig_rel for orig_rel, _ in orobs])
                 child_row.append("\n".join("{} {}s".format(v, k) for k, v in counts.items()))
-            if len(orobs) == 0:
+            elif len(orobs) == 0:
                 child_row.append("")
             elif len(orobs) == 1:
                 child_row.append(orobs[0][1].split("\n\n")[0].rstrip())
@@ -228,7 +231,7 @@ def inject_externals(default_project, markdown):
     while lines:
         first = lines.pop(0)
         if first.startswith("```"):
-            while True:
+            while lines:
                 to_add = lines.pop(0)
                 first += "\n" + to_add
                 if to_add.startswith("```"):

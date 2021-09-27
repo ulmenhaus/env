@@ -18,7 +18,7 @@ def pk_for_task(task, parent):
         preposition = "on"
     elif action in ("Vacation", ):
         prepreposition = "in"
-    elif action in ("Lunch", "Dine", "Shop"):
+    elif action in ("Lunch", "Dine", "Shop", "Tennis"):
         prepreposition = "at"
     direct_clause, indirect_clause = "", ""
     if task['Direct']:
