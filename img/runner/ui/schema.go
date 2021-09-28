@@ -40,10 +40,13 @@ const (
 
 	JQLName string = "jql"
 
-	TopicView    string = "topic"
-	TypeView     string = "types"
-	ResourceView string = "resources"
-	MetaView     string = "meta"
+	TopicView       string = "topic"
+	TopicsView      string = "topics"
+	TopicsQueryView string = "topicsQ"
+	TypeView        string = "types"
+	ResourceView    string = "resources"
+	MetaView        string = "meta"
+	RootTopic       string = "root"
 
 	SpanDay   string = "Day"
 	SpanWeek  string = "Week"

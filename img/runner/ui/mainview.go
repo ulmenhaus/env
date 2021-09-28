@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 
 	"github.com/jroimartin/gocui"
@@ -25,6 +26,7 @@ type Resource struct {
 
 const (
 	MainViewModeListResources MainViewMode = iota
+	MainViewModeSearchTopics
 
 	ResourceTypeCommands    ResourceType = "commands"
 	ResourceTypeFrequent    ResourceType = "frequent"
@@ -52,7 +54,9 @@ type MainView struct {
 
 	resources []Resource
 	topic     string
+	topics    []string
 	recursive bool
+	topicQ    string
 }
 
 // NewMainView returns a MainView initialized with a given Table
@@ -79,18 +83,86 @@ func NewMainView(path string, g *gocui.Gui) (*MainView, error) {
 	mv := &MainView{
 		OSM:       mapper,
 		DB:        db,
-		topic:     "root",
+		topic:     RootTopic,
 		recursive: true,
 	}
 	return mv, mv.refreshResources()
 }
 
-// Edit handles keyboard inputs while in table mode
+// Edit handles keyboard inputs while searching
 func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifier) {
-	return
+	if mv.Mode == MainViewModeSearchTopics {
+		mv.editSearch(v, key, ch, mod)
+		return
+	}
+}
+
+func (mv *MainView) editSearch(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifier) {
+	if key == gocui.KeyBackspace || key == gocui.KeyBackspace2 {
+		if len(mv.topicQ) != 0 {
+			mv.topicQ = mv.topicQ[:len(mv.topicQ)-1]
+		}
+	} else if key == gocui.KeySpace {
+		mv.topicQ += " "
+	} else {
+		mv.topicQ += string(ch)
+	}
+	mv.setTopics()
 }
 
 func (mv *MainView) Layout(g *gocui.Gui) error {
+	if mv.Mode == MainViewModeListResources {
+		return mv.listResourcesLayout(g)
+	} else if mv.Mode == MainViewModeSearchTopics {
+		return mv.searchTopicsLayout(g)
+	}
+	return nil
+}
+
+func (mv *MainView) setTopics() error {
+	nouns, err := mv.gatherFilteredNouns(true)
+	if err != nil {
+		return err
+	}
+	slice := []string{}
+	for noun := range nouns {
+		if strings.Contains(strings.ToLower(noun), strings.ToLower(mv.topicQ)) {
+			slice = append(slice, noun)
+		}
+	}
+	sorted := sort.StringSlice(slice)
+	sorted.Sort()
+	mv.topics = []string(sorted)
+	return nil
+}
+
+func (mv *MainView) searchTopicsLayout(g *gocui.Gui) error {
+	maxX, maxY := g.Size()
+	topics, err := g.SetView(TopicsView, 4, 5, maxX-4, maxY-7)
+	if err != nil && err != gocui.ErrUnknownView {
+		return err
+	}
+	topics.Highlight = true
+	topics.SelBgColor = gocui.ColorWhite
+	topics.SelFgColor = gocui.ColorBlack
+	topics.Editable = true
+	topics.Editor = mv
+	topics.Clear()
+	g.SetCurrentView(TopicsView)
+	for _, topic := range mv.topics {
+		spaces := maxX - len(topic)
+		topics.Write([]byte(topic + strings.Repeat(" ", spaces) + "\n"))
+	}
+	query, err := g.SetView(TopicsQueryView, 4, maxY-7, maxX-4, maxY-5)
+	if err != nil && err != gocui.ErrUnknownView {
+		return err
+	}
+	query.Clear()
+	query.Write([]byte(mv.topicQ))
+	return nil
+}
+
+func (mv *MainView) listResourcesLayout(g *gocui.Gui) error {
 	maxX, maxY := g.Size()
 	types := ListResourcesTypes
 	for i, t := range types {
@@ -113,16 +185,16 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 		view.Write([]byte(strings.Repeat(" ", spaces) + string(t)))
 	}
 
-	topics, err := g.SetView(TopicView, 0, 0, maxX-1, 2)
+	topic, err := g.SetView(TopicView, 0, 0, maxX-1, 2)
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	}
-	topics.Clear()
-	topics.Write([]byte("Topic: " + mv.topic))
+	topic.Clear()
+	topic.Write([]byte("Topic: " + mv.topic))
 	if mv.recursive {
-		topics.Write([]byte(" + descendants"))
+		topic.Write([]byte(" + descendants"))
 	}
-	topics.Write([]byte(fmt.Sprintf(" (%d items)", len(mv.resources))))
+	topic.Write([]byte(fmt.Sprintf(" (%d items)", len(mv.resources))))
 
 	resources, err := g.SetView(ResourceView, 0, 4, maxX-1, maxY-4)
 	if err != nil && err != gocui.ErrUnknownView {
@@ -165,15 +237,38 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(ResourceView, 'j', gocui.ModNone, mv.incrementRec)
+	err = g.SetKeybinding(ResourceView, 'j', gocui.ModNone, mv.incrementCursor)
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(ResourceView, 'k', gocui.ModNone, mv.decrementRec)
+	err = g.SetKeybinding(ResourceView, 'k', gocui.ModNone, mv.decrementCursor)
 	if err != nil {
 		return err
 	}
-	if err := g.SetKeybinding(ResourceView, gocui.KeyEnter, gocui.ModNone, mv.selectResource); err != nil {
+	err = g.SetKeybinding(ResourceView, 'f', gocui.ModNone, mv.enterSearchMode)
+	if err != nil {
+		return err
+	}
+	err = g.SetKeybinding(ResourceView, 'q', gocui.ModNone, mv.restoreDefault)
+	if err != nil {
+		return err
+	}
+	err = g.SetKeybinding(ResourceView, 'r', gocui.ModNone, mv.toggleRecursive)
+	if err != nil {
+		return err
+	}
+	err = g.SetKeybinding(TopicsView, gocui.KeyArrowDown, gocui.ModNone, mv.incrementCursor)
+	if err != nil {
+		return err
+	}
+	err = g.SetKeybinding(TopicsView, gocui.KeyArrowUp, gocui.ModNone, mv.decrementCursor)
+	if err != nil {
+		return err
+	}
+	if err := g.SetKeybinding(ResourceView, gocui.KeyEnter, gocui.ModNone, mv.selectItem); err != nil {
+		return err
+	}
+	if err := g.SetKeybinding(TopicsView, gocui.KeyEnter, gocui.ModNone, mv.selectItem); err != nil {
 		return err
 	}
 	return nil
@@ -192,7 +287,7 @@ func (mv *MainView) decrementType(g *gocui.Gui, v *gocui.View) error {
 	return mv.refreshResources()
 }
 
-func (mv *MainView) incrementRec(g *gocui.Gui, v *gocui.View) error {
+func (mv *MainView) incrementCursor(g *gocui.Gui, v *gocui.View) error {
 	cx, cy := v.Cursor()
 	ox, oy := v.Origin()
 	if cy+oy == len(mv.resources)-1 {
@@ -206,7 +301,7 @@ func (mv *MainView) incrementRec(g *gocui.Gui, v *gocui.View) error {
 	return nil
 }
 
-func (mv *MainView) decrementRec(g *gocui.Gui, v *gocui.View) error {
+func (mv *MainView) decrementCursor(g *gocui.Gui, v *gocui.View) error {
 	ox, oy := v.Origin()
 	cx, cy := v.Cursor()
 	if cy+oy == 0 {
@@ -234,7 +329,7 @@ func (mv *MainView) refreshResources() error {
 func (mv *MainView) gatherResources() error {
 	// TODO support timedb entries
 	assertions := mv.DB.Tables[TableAssertions]
-	nouns, err := mv.gatherFilteredNouns()
+	nouns, err := mv.gatherFilteredNouns(mv.recursive)
 	if err != nil {
 		return err
 	}
@@ -265,11 +360,11 @@ func (mv *MainView) gatherResources() error {
 	return nil
 }
 
-func (mv *MainView) gatherFilteredNouns() (map[string]bool, error) {
+func (mv *MainView) gatherFilteredNouns(recursive bool) (map[string]bool, error) {
 	filtered := map[string]bool{
 		mv.topic: true,
 	}
-	if !mv.recursive {
+	if !recursive {
 		return filtered, nil
 	}
 	node2children := map[string]([]string){}
@@ -301,18 +396,69 @@ func (mv *MainView) gatherFilteredNouns() (map[string]bool, error) {
 	return filtered, nil
 }
 
+func (mv *MainView) selectItem(g *gocui.Gui, v *gocui.View) error {
+	if mv.Mode == MainViewModeListResources {
+		return mv.selectResource(g, v)
+	} else if mv.Mode == MainViewModeSearchTopics {
+		return mv.selectTopic(g)
+	}
+	return nil
+}
+
+func (mv *MainView) selectTopic(g *gocui.Gui) error {
+	v, err := g.View(TopicsView)
+	if err != nil {
+		return err
+	}
+	_, oy := v.Origin()
+	_, cy := v.Cursor()
+	ix := oy + cy
+	topic := mv.topics[ix]
+	mv.topic = topic
+	err = g.DeleteView(TopicsView)
+	if err != nil {
+		return err
+	}
+	err = g.DeleteView(TopicsQueryView)
+	if err != nil {
+		return err
+	}
+	main, err := g.View(ResourceView)
+	if err != nil {
+		return err
+	}
+	main.Editable = false
+	// NOTE should store previous value in case view is secondary view (when implemented)
+	mv.Mode = MainViewModeListResources
+	mv.topicQ = ""
+	return mv.refreshResources()
+}
+
 func (mv *MainView) selectResource(g *gocui.Gui, v *gocui.View) error {
 	_, oy := v.Origin()
 	_, cy := v.Cursor()
 	ix := oy + cy
 	resource := mv.resources[ix]
-	if mv.Mode == MainViewModeListResources {
-		recType := ListResourcesTypes[mv.TypeIX]
-		if recType == ResourceTypeResources {
-			link := resource.Meta
-			cmd := exec.Command("txtopen", link)
-			return cmd.Run()
-		}
+	recType := ListResourcesTypes[mv.TypeIX]
+	if recType == ResourceTypeResources {
+		link := resource.Meta
+		cmd := exec.Command("txtopen", link)
+		return cmd.Run()
 	}
 	return nil
+}
+
+func (mv *MainView) enterSearchMode(g *gocui.Gui, v *gocui.View) error {
+	mv.Mode = MainViewModeSearchTopics
+	return mv.setTopics()
+}
+
+func (mv *MainView) restoreDefault(g *gocui.Gui, v *gocui.View) error {
+	mv.topic = RootTopic
+	return mv.refreshResources()
+}
+
+func (mv *MainView) toggleRecursive(g *gocui.Gui, v *gocui.View) error {
+	mv.recursive = !mv.recursive
+	return mv.refreshResources()
 }
