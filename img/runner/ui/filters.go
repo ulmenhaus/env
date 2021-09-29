@@ -31,3 +31,26 @@ func (nf *nounFilter) Example() (int, string) {
 func (nf *nounFilter) PrimarySuggestion() (string, bool) {
 	return "", false
 }
+
+type eqFilter struct {
+	col int
+	val string
+}
+
+func (ef *eqFilter) Applies(entries []types.Entry) bool {
+	entry := entries[ef.col].Format("")
+	return entry == ef.val
+}
+
+func (ef *eqFilter) Description() string {
+	return ""
+}
+
+func (ef *eqFilter) Example() (int, string) {
+	return -1, ""
+}
+
+func (ef *eqFilter) PrimarySuggestion() (string, bool) {
+	return "", false
+}
+

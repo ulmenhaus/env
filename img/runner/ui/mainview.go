@@ -46,8 +46,9 @@ var (
 
 // A MainView is the overall view including a list of resources
 type MainView struct {
-	OSM *osm.ObjectStoreMapper
-	DB  *types.Database
+	OSM         *osm.ObjectStoreMapper
+	DB          *types.Database
+	openExePath string
 
 	Mode   MainViewMode
 	TypeIX int
@@ -60,7 +61,7 @@ type MainView struct {
 }
 
 // NewMainView returns a MainView initialized with a given Table
-func NewMainView(path string, g *gocui.Gui) (*MainView, error) {
+func NewMainView(path string, g *gocui.Gui, openExePath string) (*MainView, error) {
 	var store storage.Store
 	if strings.HasSuffix(path, ".json") {
 		store = &storage.JSONStore{}
@@ -81,10 +82,12 @@ func NewMainView(path string, g *gocui.Gui) (*MainView, error) {
 		return nil, err
 	}
 	mv := &MainView{
-		OSM:       mapper,
-		DB:        db,
-		topic:     RootTopic,
-		recursive: true,
+		OSM:         mapper,
+		DB:          db,
+		topic:       RootTopic,
+		TypeIX:      1,
+		recursive:   true,
+		openExePath: openExePath,
 	}
 	return mv, mv.refreshResources()
 }
@@ -318,10 +321,7 @@ func (mv *MainView) decrementCursor(g *gocui.Gui, v *gocui.View) error {
 func (mv *MainView) refreshResources() error {
 	mv.resources = []Resource{}
 	if mv.Mode == MainViewModeListResources {
-		recType := ListResourcesTypes[mv.TypeIX]
-		if recType == ResourceTypeResources {
-			return mv.gatherResources()
-		}
+		return mv.gatherResources()
 	}
 	return nil
 }
@@ -333,30 +333,81 @@ func (mv *MainView) gatherResources() error {
 	if err != nil {
 		return err
 	}
+	rel := assertions.IndexOfField(FieldRelation)
+	arg0 := assertions.IndexOfField(FieldArg0)
+	arg1 := assertions.IndexOfField(FieldArg1)
+	recType := ListResourcesTypes[mv.TypeIX]
+	var filter types.Filter
+	if recType == ResourceTypeResources {
+		filter = &eqFilter{
+			col: rel,
+			val: ".Resource",
+		}
+	} else if recType == ResourceTypeCommands {
+		filter = &eqFilter{
+			col: rel,
+			val: ".Command",
+		}
+	}
 	resp, err := assertions.Query(types.QueryParams{
 		OrderBy: FieldArg1,
 		Filters: []types.Filter{
 			&nounFilter{
-				col:   assertions.IndexOfField(FieldArg0),
+				col:   arg0,
 				nouns: nouns,
 			},
+			filter,
 		},
 	})
 	if err != nil {
 		return err
 	}
-	col := assertions.IndexOfField(FieldArg1)
 	for _, row := range resp.Entries {
-		entry := row[col].Format("")
-		if !(strings.HasPrefix(entry, "[") && strings.Contains(entry, "](") && strings.HasSuffix(entry, ")")) {
-			continue
+		entry := row[arg1].Format("")
+		if recType == ResourceTypeResources {
+			if !(strings.HasPrefix(entry, "[") && strings.Contains(entry, "](") && strings.HasSuffix(entry, ")")) {
+				continue
+			}
+			parts := strings.SplitN(entry[1:len(entry)-1], "](", 2)
+			mv.resources = append(mv.resources, Resource{
+				Description: parts[0],
+				Meta:        parts[1],
+			})
+		} else if recType == ResourceTypeCommands {
+			lines := strings.Split(entry, "\n")
+			if !(len(lines) > 2 && strings.HasPrefix(lines[0], "###")) {
+				continue
+			}
+			if strings.HasPrefix(lines[1], "```") {
+				// Singleton command
+				mv.resources = append(mv.resources, Resource{
+					Description: lines[0][len("### "):],
+					Meta:        strings.Replace(lines[2], "\\|", "|", -1),
+				})
+			} else {
+				// Look for table entries
+				count := 0
+				for _, line := range lines {
+					if !strings.HasPrefix(line, "| ") {
+						continue
+					}
+					count += 1
+					if count < 2 {
+						continue
+					}
+					command := strings.Replace(strings.Split(line, "`")[1], "\\|", "|", -1)
+					description := strings.Split(line, "|") [1][1:]
+					mv.resources = append(mv.resources, Resource{
+						Description: description,
+						Meta:        command,
+					})
+				}
+			}
 		}
-		parts := strings.SplitN(entry[1:len(entry)-1], "](", 2)
-		mv.resources = append(mv.resources, Resource{
-			Description: parts[0],
-			Meta:        parts[1],
-		})
 	}
+	sort.Slice(mv.resources, func(i, j int) bool {
+		return mv.resources[i].Description < mv.resources[j].Description
+	})
 	return nil
 }
 
@@ -442,8 +493,24 @@ func (mv *MainView) selectResource(g *gocui.Gui, v *gocui.View) error {
 	recType := ListResourcesTypes[mv.TypeIX]
 	if recType == ResourceTypeResources {
 		link := resource.Meta
-		cmd := exec.Command("txtopen", link)
-		return cmd.Run()
+		cmd := exec.Command(mv.openExePath, link)
+		err := cmd.Run()
+		if err != nil {
+			return err
+		}
+		os.Exit(0)
+		return nil
+	}
+	if recType == ResourceTypeCommands {
+		command := resource.Meta
+		// XXX hard-coding the tmux path is not portable
+		cmd := exec.Command("/usr/local/bin/tmux", "send", "--", command)
+		err := cmd.Run()
+		if err != nil {
+			return err
+		}
+		os.Exit(0)
+		return nil
 	}
 	return nil
 }

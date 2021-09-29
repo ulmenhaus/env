@@ -33,6 +33,7 @@ const (
 	TableAssertions string = "assertions"
 	FieldArg1       string = "Arg1"
 	FieldArg0       string = "Arg0"
+	FieldRelation   string = "A Relation"
 
 	TableLog   string = "log"
 	TableTasks string = "tasks"
