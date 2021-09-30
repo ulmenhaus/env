@@ -54,3 +54,24 @@ func (ef *eqFilter) PrimarySuggestion() (string, bool) {
 	return "", false
 }
 
+type inFilter struct {
+	col int
+	val string
+}
+
+func (inf *inFilter) Applies(entries []types.Entry) bool {
+	entry := entries[inf.col].Format("")
+	return strings.Contains(strings.ToLower(entry), strings.ToLower(inf.val))
+}
+
+func (inf *inFilter) Description() string {
+	return ""
+}
+
+func (inf *inFilter) Example() (int, string) {
+	return -1, ""
+}
+
+func (inf *inFilter) PrimarySuggestion() (string, bool) {
+	return "", false
+}

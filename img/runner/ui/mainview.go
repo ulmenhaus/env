@@ -26,6 +26,7 @@ type Resource struct {
 
 const (
 	MainViewModeListResources MainViewMode = iota
+	MainViewModeQueryResources
 	MainViewModeSearchTopics
 
 	ResourceTypeCommands    ResourceType = "commands"
@@ -54,6 +55,7 @@ type MainView struct {
 	TypeIX int
 
 	resources []Resource
+	resourceQ string
 	topic     string
 	topics    []string
 	recursive bool
@@ -97,6 +99,9 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 	if mv.Mode == MainViewModeSearchTopics {
 		mv.editSearch(v, key, ch, mod)
 		return
+	} else if mv.Mode == MainViewModeQueryResources {
+		mv.editQuery(v, key, ch, mod)
+		return
 	}
 }
 
@@ -113,8 +118,23 @@ func (mv *MainView) editSearch(v *gocui.View, key gocui.Key, ch rune, mod gocui.
 	mv.setTopics()
 }
 
+func (mv *MainView) editQuery(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifier) {
+	if key == gocui.KeyBackspace || key == gocui.KeyBackspace2 {
+		if len(mv.resourceQ) != 0 {
+			mv.resourceQ = mv.resourceQ[:len(mv.resourceQ)-1]
+		}
+	} else if key == gocui.KeySpace {
+		mv.resourceQ += " "
+	} else if key == gocui.KeyEnter {
+		mv.Mode = MainViewModeListResources
+	} else {
+		mv.resourceQ += string(ch)
+	}
+	mv.refreshResources()
+}
+
 func (mv *MainView) Layout(g *gocui.Gui) error {
-	if mv.Mode == MainViewModeListResources {
+	if mv.Mode == MainViewModeListResources || mv.Mode == MainViewModeQueryResources {
 		return mv.listResourcesLayout(g)
 	} else if mv.Mode == MainViewModeSearchTopics {
 		return mv.searchTopicsLayout(g)
@@ -224,9 +244,20 @@ func (mv *MainView) listResourcesLayout(g *gocui.Gui) error {
 	_, cy := resources.Cursor()
 	_, oy := resources.Origin()
 	ix := cy + oy
-	if ix < len(mv.resources) {
-		selected := mv.resources[ix]
-		meta.Write([]byte(selected.Meta))
+	if mv.Mode == MainViewModeListResources {
+		if ix < len(mv.resources) {
+			selected := mv.resources[ix]
+			meta.Write([]byte(selected.Meta))
+		}
+		meta.Editable = false
+		if mv.resourceQ != "" {
+			topic.Write([]byte("    Query: " + mv.resourceQ))
+		}
+	} else if mv.Mode == MainViewModeQueryResources {
+		meta.Write([]byte(mv.resourceQ))
+		meta.Editable = true
+		meta.Editor = mv
+		g.SetCurrentView(MetaView)
 	}
 	return nil
 }
@@ -257,6 +288,10 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 		return err
 	}
 	err = g.SetKeybinding(ResourceView, 'r', gocui.ModNone, mv.toggleRecursive)
+	if err != nil {
+		return err
+	}
+	err = g.SetKeybinding(ResourceView, '/', gocui.ModNone, mv.toggleSearch)
 	if err != nil {
 		return err
 	}
@@ -320,7 +355,7 @@ func (mv *MainView) decrementCursor(g *gocui.Gui, v *gocui.View) error {
 
 func (mv *MainView) refreshResources() error {
 	mv.resources = []Resource{}
-	if mv.Mode == MainViewModeListResources {
+	if mv.Mode == MainViewModeListResources || mv.Mode == MainViewModeQueryResources {
 		return mv.gatherResources()
 	}
 	return nil
@@ -355,6 +390,10 @@ func (mv *MainView) gatherResources() error {
 			&nounFilter{
 				col:   arg0,
 				nouns: nouns,
+			},
+			&inFilter{
+				col: arg1,
+				val: mv.resourceQ,
 			},
 			filter,
 		},
@@ -396,7 +435,7 @@ func (mv *MainView) gatherResources() error {
 						continue
 					}
 					command := strings.Replace(strings.Split(line, "`")[1], "\\|", "|", -1)
-					description := strings.Split(line, "|") [1][1:]
+					description := strings.Split(line, "|")[1][1:]
 					mv.resources = append(mv.resources, Resource{
 						Description: description,
 						Meta:        command,
@@ -522,10 +561,16 @@ func (mv *MainView) enterSearchMode(g *gocui.Gui, v *gocui.View) error {
 
 func (mv *MainView) restoreDefault(g *gocui.Gui, v *gocui.View) error {
 	mv.topic = RootTopic
+	mv.resourceQ = ""
 	return mv.refreshResources()
 }
 
 func (mv *MainView) toggleRecursive(g *gocui.Gui, v *gocui.View) error {
 	mv.recursive = !mv.recursive
 	return mv.refreshResources()
+}
+
+func (mv *MainView) toggleSearch(g *gocui.Gui, v *gocui.View) error {
+	mv.Mode = MainViewModeQueryResources
+	return nil
 }
