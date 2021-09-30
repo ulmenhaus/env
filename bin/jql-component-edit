@@ -26,20 +26,18 @@ def open_with_emacs_daemon(path, pos):
     ]).wait()
     subprocess.Popen([
         "tmux",
+        "select-pane",
+        "-D",
+    ]).wait()
+    subprocess.Popen([
+        "tmux",
         "send",
-        "-t",
-        "bottom",
         "Escape",
         "x",
         "goto-char",
         "ENTER",
         pos,
         "ENTER",
-    ]).wait()
-    subprocess.Popen([
-        "tmux",
-        "select-pane",
-        "-D",
     ]).wait()
 
 
