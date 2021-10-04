@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"io"
+	"strings"
 )
 
 // A Direction denotes which way to move a cursor when navigating
@@ -106,6 +107,7 @@ func (tv *TableView) WriteContents(v io.Writer) error {
 	for i, row := range tv.Values {
 		for j, val := range row {
 			width := tv.Widths[j]
+			val = strings.Split(val, "\n")[0]
 			if len(val) >= width {
 				val = val[:width]
 			} else {
