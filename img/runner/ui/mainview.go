@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"sort"
 	"strings"
 
@@ -22,11 +23,13 @@ type ResourceType string
 type Resource struct {
 	Description string
 	Meta        string
+	Params      map[string]string
 }
 
 const (
 	MainViewModeListResources MainViewMode = iota
 	MainViewModeQueryResources
+	MainViewModeFilterResources
 	MainViewModeSearchTopics
 
 	ResourceTypeCommands    ResourceType = "commands"
@@ -34,22 +37,22 @@ const (
 	ResourceTypeRecent      ResourceType = "recent"
 	ResourceTypeRecommended ResourceType = "recommended"
 	ResourceTypeResources   ResourceType = "resources"
-	ResourceTypeRunbooks    ResourceType = "runbooks"
+	ResourceTypeProcedures  ResourceType = "procedures"
 )
 
 var (
 	ListResourcesTypes = []ResourceType{
 		ResourceTypeCommands,
 		ResourceTypeResources,
-		ResourceTypeRunbooks,
+		ResourceTypeProcedures,
 	}
 )
 
 // A MainView is the overall view including a list of resources
 type MainView struct {
-	OSM         *osm.ObjectStoreMapper
-	DB          *types.Database
-	openExePath string
+	OSM       *osm.ObjectStoreMapper
+	DB        *types.Database
+	jqlBinDir string
 
 	Mode   MainViewMode
 	TypeIX int
@@ -60,10 +63,12 @@ type MainView struct {
 	topics    []string
 	recursive bool
 	topicQ    string
+	selected  map[string](map[string]bool) // maps key to the possible values it can take
+	filters   [][]string
 }
 
 // NewMainView returns a MainView initialized with a given Table
-func NewMainView(path string, g *gocui.Gui, openExePath string) (*MainView, error) {
+func NewMainView(path string, g *gocui.Gui, jqlBinDir string) (*MainView, error) {
 	var store storage.Store
 	if strings.HasSuffix(path, ".json") {
 		store = &storage.JSONStore{}
@@ -84,12 +89,12 @@ func NewMainView(path string, g *gocui.Gui, openExePath string) (*MainView, erro
 		return nil, err
 	}
 	mv := &MainView{
-		OSM:         mapper,
-		DB:          db,
-		topic:       RootTopic,
-		TypeIX:      1,
-		recursive:   true,
-		openExePath: openExePath,
+		OSM:       mapper,
+		DB:        db,
+		topic:     RootTopic,
+		TypeIX:    1,
+		recursive: true,
+		jqlBinDir: jqlBinDir,
 	}
 	return mv, mv.refreshResources()
 }
@@ -138,6 +143,8 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 		return mv.listResourcesLayout(g)
 	} else if mv.Mode == MainViewModeSearchTopics {
 		return mv.searchTopicsLayout(g)
+	} else if mv.Mode == MainViewModeFilterResources {
+		return mv.filterResourcesLayout(g)
 	}
 	return nil
 }
@@ -182,6 +189,36 @@ func (mv *MainView) searchTopicsLayout(g *gocui.Gui) error {
 	}
 	query.Clear()
 	query.Write([]byte(mv.topicQ))
+	return nil
+}
+
+func (mv *MainView) filterResourcesLayout(g *gocui.Gui) error {
+	maxX, maxY := g.Size()
+	filters, err := g.SetView(FilterView, 4, 5, maxX-4, maxY-7)
+	if err != nil && err != gocui.ErrUnknownView {
+		return err
+	}
+	filters.Highlight = true
+	filters.SelBgColor = gocui.ColorWhite
+	filters.SelFgColor = gocui.ColorBlack
+	filters.Editable = true
+	filters.Editor = mv
+	filters.Clear()
+	g.SetCurrentView(FilterView)
+	for _, filter := range mv.filters {
+		if len(filter) == 1 {
+			key := filter[0]
+			filters.Write([]byte(fmt.Sprintf("%s\n", key)))
+		} else if len(filter) == 2 {
+			key, val := filter[0], filter[1]
+			selected := mv.selected[key][val]
+			box := "[ ]"
+			if selected {
+				box = "[x]"
+			}
+			filters.Write([]byte(fmt.Sprintf("  %s %s\n", box, val)))
+		}
+	}
 	return nil
 }
 
@@ -283,6 +320,10 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 	if err != nil {
 		return err
 	}
+	err = g.SetKeybinding(ResourceView, 'd', gocui.ModNone, mv.enterFilterMode)
+	if err != nil {
+		return err
+	}
 	err = g.SetKeybinding(ResourceView, 'q', gocui.ModNone, mv.restoreDefault)
 	if err != nil {
 		return err
@@ -309,6 +350,25 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 	if err := g.SetKeybinding(TopicsView, gocui.KeyEnter, gocui.ModNone, mv.selectItem); err != nil {
 		return err
 	}
+	err = g.SetKeybinding(FilterView, 'j', gocui.ModNone, mv.incrementCursor)
+	if err != nil {
+		return err
+	}
+	err = g.SetKeybinding(FilterView, 'k', gocui.ModNone, mv.decrementCursor)
+	if err != nil {
+		return err
+	}
+	err = g.SetKeybinding(FilterView, 'q', gocui.ModNone, mv.quitFilterView)
+	if err != nil {
+		return err
+	}
+	err = g.SetKeybinding(ResourceView, 'C', gocui.ModNone, mv.copyAllProcedures)
+	if err != nil {
+		return err
+	}
+	if err := g.SetKeybinding(FilterView, gocui.KeyEnter, gocui.ModNone, mv.selectFilter); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -328,7 +388,14 @@ func (mv *MainView) decrementType(g *gocui.Gui, v *gocui.View) error {
 func (mv *MainView) incrementCursor(g *gocui.Gui, v *gocui.View) error {
 	cx, cy := v.Cursor()
 	ox, oy := v.Origin()
-	if cy+oy == len(mv.resources)-1 {
+	cap := len(mv.resources)
+	view := v.Name()
+	if view == TopicView {
+		cap = len(mv.topics)
+	} else if view == FilterView {
+		cap = len(mv.filters)
+	}
+	if cy+oy == cap-1 {
 		return nil
 	}
 	if err := v.SetCursor(cx, cy+1); err != nil {
@@ -354,14 +421,50 @@ func (mv *MainView) decrementCursor(g *gocui.Gui, v *gocui.View) error {
 }
 
 func (mv *MainView) refreshResources() error {
-	mv.resources = []Resource{}
 	if mv.Mode == MainViewModeListResources || mv.Mode == MainViewModeQueryResources {
-		return mv.gatherResources()
+		err := mv.gatherResources()
+		if err != nil {
+			return err
+		}
+		mv.resetFilters()
+		return nil
 	}
 	return nil
 }
 
+func (mv *MainView) resetFilters() {
+	mv.selected = map[string](map[string]bool){}
+	for _, resource := range mv.resources {
+		for key, val := range resource.Params {
+			if _, ok := mv.selected[key]; !ok {
+				mv.selected[key] = map[string]bool{
+					"-none set": true,
+				}
+			}
+			mv.selected[key][val] = true
+		}
+	}
+	mv.filters = [][]string{}
+	keys := make([]string, 0, len(mv.selected))
+	for key := range mv.selected {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		mv.filters = append(mv.filters, []string{key})
+		vals := make([]string, 0, len(mv.selected[key]))
+		for val := range mv.selected[key] {
+			vals = append(vals, val)
+		}
+		sort.Strings(vals)
+		for _, val := range vals {
+			mv.filters = append(mv.filters, []string{key, val})
+		}
+	}
+}
+
 func (mv *MainView) gatherResources() error {
+	mv.resources = []Resource{}
 	// TODO support timedb entries
 	assertions := mv.DB.Tables[TableAssertions]
 	nouns, err := mv.gatherFilteredNouns(mv.recursive)
@@ -383,6 +486,11 @@ func (mv *MainView) gatherResources() error {
 			col: rel,
 			val: ".Command",
 		}
+	} else if recType == ResourceTypeProcedures {
+		filter = &eqFilter{
+			col: rel,
+			val: ".Procedure",
+		}
 	}
 	resp, err := assertions.Query(types.QueryParams{
 		OrderBy: FieldArg1,
@@ -391,6 +499,7 @@ func (mv *MainView) gatherResources() error {
 				col:   arg0,
 				nouns: nouns,
 			},
+			// TODO since we include arg0 in procedures this search can give false negatives
 			&inFilter{
 				col: arg1,
 				val: mv.resourceQ,
@@ -414,7 +523,7 @@ func (mv *MainView) gatherResources() error {
 			})
 		} else if recType == ResourceTypeCommands {
 			lines := strings.Split(entry, "\n")
-			if !(len(lines) > 2 && strings.HasPrefix(lines[0], "###")) {
+			if !(len(lines) > 2 && strings.HasPrefix(lines[0], "### ")) {
 				continue
 			}
 			if strings.HasPrefix(lines[1], "```") {
@@ -426,6 +535,7 @@ func (mv *MainView) gatherResources() error {
 			} else {
 				// Look for table entries
 				count := 0
+				topic := lines[0][len("### "):]
 				for _, line := range lines {
 					if !strings.HasPrefix(line, "| ") {
 						continue
@@ -439,9 +549,40 @@ func (mv *MainView) gatherResources() error {
 					mv.resources = append(mv.resources, Resource{
 						Description: description,
 						Meta:        command,
+						Params:      map[string]string{"topic": topic},
 					})
 				}
 			}
+		} else if recType == ResourceTypeProcedures {
+			if !strings.HasPrefix(entry, "### ") {
+				continue
+			}
+			lines := strings.Split(entry, "\n")
+			content := ""
+			if len(lines) > 1 {
+				content = strings.Join(lines[1:], "\n")
+			}
+			parts := strings.Split(lines[0], " ")
+			verb := parts[1]
+			paramsS := ""
+			params := map[string]string{}
+			if len(parts) > 2 {
+				paramsS = fmt.Sprintf(" (%s)", strings.Join(parts[2:], " "))
+				for _, param := range parts[2:] {
+					if !strings.Contains(param, "=") {
+						continue
+					}
+					paramParts := strings.SplitN(param, "=", 2)
+					key, val := paramParts[0], paramParts[1]
+					params[key] = val
+				}
+			}
+			object := strings.SplitN(row[arg0].Format(""), " ", 2)[1]
+			mv.resources = append(mv.resources, Resource{
+				Description: fmt.Sprintf("%s %s%s", verb, object, paramsS),
+				Meta:        content,
+				Params:      params,
+			})
 		}
 	}
 	sort.Slice(mv.resources, func(i, j int) bool {
@@ -532,7 +673,7 @@ func (mv *MainView) selectResource(g *gocui.Gui, v *gocui.View) error {
 	recType := ListResourcesTypes[mv.TypeIX]
 	if recType == ResourceTypeResources {
 		link := resource.Meta
-		cmd := exec.Command(mv.openExePath, link)
+		cmd := exec.Command(path.Join(mv.jqlBinDir, "txtopen"), link)
 		err := cmd.Run()
 		if err != nil {
 			return err
@@ -554,9 +695,41 @@ func (mv *MainView) selectResource(g *gocui.Gui, v *gocui.View) error {
 	return nil
 }
 
+func (mv *MainView) selectFilter(g *gocui.Gui, v *gocui.View) error {
+	_, oy := v.Origin()
+	_, cy := v.Cursor()
+	ix := oy + cy
+	filter := mv.filters[ix]
+	if len(filter) == 1 {
+		key := filter[0]
+		allSelected := true
+		for _, selected := range mv.selected[key] {
+			if !selected {
+				allSelected = false
+			}
+		}
+		shouldSelect := !allSelected
+		for val := range mv.selected[key] {
+			mv.selected[key][val] = shouldSelect
+		}
+	} else if len(filter) == 2 {
+		key, val := filter[0], filter[1]
+		mv.selected[key][val] = !mv.selected[key][val]
+	}
+	return nil
+}
+
 func (mv *MainView) enterSearchMode(g *gocui.Gui, v *gocui.View) error {
 	mv.Mode = MainViewModeSearchTopics
 	return mv.setTopics()
+}
+
+func (mv *MainView) enterFilterMode(g *gocui.Gui, v *gocui.View) error {
+	if ListResourcesTypes[mv.TypeIX] != ResourceTypeProcedures && ListResourcesTypes[mv.TypeIX] != ResourceTypeCommands {
+		return nil
+	}
+	mv.Mode = MainViewModeFilterResources
+	return nil
 }
 
 func (mv *MainView) restoreDefault(g *gocui.Gui, v *gocui.View) error {
@@ -572,5 +745,64 @@ func (mv *MainView) toggleRecursive(g *gocui.Gui, v *gocui.View) error {
 
 func (mv *MainView) toggleSearch(g *gocui.Gui, v *gocui.View) error {
 	mv.Mode = MainViewModeQueryResources
+	return nil
+}
+
+func (mv *MainView) quitFilterView(g *gocui.Gui, v *gocui.View) error {
+	err := g.DeleteView(FilterView)
+	if err != nil {
+		return err
+	}
+	mv.Mode = MainViewModeListResources
+	return mv.filterResources()
+}
+
+func (mv *MainView) filterResources() error {
+	err := mv.gatherResources()
+	if err != nil {
+		return nil
+	}
+	resources := mv.resources
+	mv.resources = []Resource{}
+	for _, resource := range resources {
+		visible := true
+		for key := range mv.selected {
+			val := "-none set"
+			if actualVal, ok := resource.Params[key]; ok {
+				val = actualVal
+			}
+			if !mv.selected[key][val] {
+				visible = false
+			}
+		}
+		if visible {
+			mv.resources = append(mv.resources, resource)
+		}
+	}
+	return nil
+}
+
+func (mv *MainView) copyAllProcedures(g *gocui.Gui, v *gocui.View) error {
+	if ListResourcesTypes[mv.TypeIX] != ResourceTypeProcedures {
+		return nil
+	}
+	content := ""
+	for _, resource := range mv.resources {
+		content += "### " + resource.Description + "\n\n"
+		steps := strings.Split(resource.Meta, "\n- ")
+		for _, step := range steps {
+			if step == "" {
+				continue
+			}
+			content += "- [ ] " + step + "\n"
+		}
+	}
+	cmd := exec.Command(path.Join(mv.jqlBinDir, "txtcopy"))
+	cmd.Stdin = strings.NewReader(content)
+	err := cmd.Run()
+	if err != nil {
+		return err
+	}
+	os.Exit(0)
 	return nil
 }

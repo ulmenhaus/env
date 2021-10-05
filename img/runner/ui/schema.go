@@ -43,6 +43,7 @@ const (
 
 	TopicView       string = "topic"
 	TopicsView      string = "topics"
+	FilterView      string = "filters"
 	TopicsQueryView string = "topicsQ"
 	TypeView        string = "types"
 	ResourceView    string = "resources"

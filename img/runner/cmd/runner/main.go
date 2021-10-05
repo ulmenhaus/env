@@ -10,7 +10,7 @@ import (
 func main() {
 	// TODO use a cli library
 	dbPath := os.Args[1]
-	openExePath := os.Args[2]
+	jqlBinDir := os.Args[2]
 	g, err := gocui.NewGui(gocui.OutputNormal)
 	if err != nil {
 		panic(err)
@@ -18,7 +18,7 @@ func main() {
 
 	// TODO decent amount of common set-up logic here to maybe break into a common subroutine
 	defer g.Close()
-	mv, err := ui.NewMainView(dbPath, g, openExePath)
+	mv, err := ui.NewMainView(dbPath, g, jqlBinDir)
 	if err != nil {
 		panic(err)
 	}
