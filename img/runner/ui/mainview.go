@@ -24,6 +24,7 @@ type Resource struct {
 	Description string
 	Meta        string
 	Params      map[string]string
+	ShortDesc   string
 }
 
 const (
@@ -564,10 +565,11 @@ func (mv *MainView) gatherResources() error {
 			}
 			parts := strings.Split(lines[0], " ")
 			verb := parts[1]
-			paramsS := ""
+			indirect := ""
+			indirectExp := ""
+			inparens := []string{}
 			params := map[string]string{}
 			if len(parts) > 2 {
-				paramsS = fmt.Sprintf(" (%s)", strings.Join(parts[2:], " "))
 				for _, param := range parts[2:] {
 					if !strings.Contains(param, "=") {
 						continue
@@ -575,13 +577,28 @@ func (mv *MainView) gatherResources() error {
 					paramParts := strings.SplitN(param, "=", 2)
 					key, val := paramParts[0], paramParts[1]
 					params[key] = val
+					if key == "subset" {
+						indirect = val
+						indirectExp = " with " + val
+					} else {
+						inparens = append(inparens, param)
+					}
 				}
+			}
+			paramsS := ""
+			if len(inparens) > 0 {
+				paramsS = fmt.Sprintf(" (%s)", strings.Join(inparens, " "))
+			}
+			shortDescComponents := inparens
+			if indirect != "" {
+				shortDescComponents = append([]string{strings.Title(indirect)}, shortDescComponents...)
 			}
 			object := strings.SplitN(row[arg0].Format(""), " ", 2)[1]
 			mv.resources = append(mv.resources, Resource{
-				Description: fmt.Sprintf("%s %s%s", verb, object, paramsS),
+				Description: fmt.Sprintf("%s %s%s%s", verb, object, indirectExp, paramsS),
 				Meta:        content,
 				Params:      params,
+				ShortDesc:   strings.Join(shortDescComponents, " "),
 			})
 		}
 	}
@@ -798,7 +815,7 @@ func (mv *MainView) copyAllProcedures(g *gocui.Gui, v *gocui.View) error {
 	}
 	content := ""
 	for _, resource := range mv.resources {
-		content += "### " + resource.Description + "\n\n"
+		content += "### " + resource.ShortDesc + "\n\n"
 		steps := strings.Split(resource.Meta, "\n- ")
 		for _, step := range steps {
 			if step == "" {
