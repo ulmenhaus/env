@@ -16,6 +16,8 @@ def pk_for_task(task, parent):
             "Deliberate",
     ):
         preposition = "on"
+    elif action in ("Upload", ):
+        preposition = "from"
     elif action in ("Vacation", ):
         prepreposition = "in"
     elif action in ("Lunch", "Dine", "Shop", "Tennis"):
