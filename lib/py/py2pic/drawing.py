@@ -39,6 +39,14 @@ class NameInstruction(Instruction):
         return "{}: {}".format(self.var, self.val)
 
 
+class MultiInstruction(Instruction):
+    def __init__(self, ixns):
+        self.ixns = ixns
+
+    def __repr__(self):
+        return "; ".join(repr(ixn) for ixn in self.ixns)
+
+
 class Term(object):
     def __init__(self, s, drawing=None):
         self._s = s
@@ -139,7 +147,7 @@ class Drawing(object):
         self.ixns.append(AssignmentInstruction(k, v))
 
     def __setattr__(self, attr, v):
-        if attr in ["add", "render", "ixns"]:
+        if attr in ["add", "render", "ixns", "orig_ixns"]:
             self.__dict__[attr] = v
             return
         if v is not self.ixns[-1]:
@@ -165,6 +173,20 @@ class Drawing(object):
                                                                       b)))
         yield
         self.ixns.append(RawInstruction(")"))
+
+    @contextlib.contextmanager
+    def multi(self):
+        self.orig_ixns = self.ixns
+        self.ixns = []
+        multi = MultiInstruction(self.ixns)
+        yield
+        self.orig_ixns.append(multi)
+        self.ixns = self.orig_ixns
+
+    def macro(self, name, *args, **kwargs):
+        elem = ElemInstruction("{}({})".format(name, ", ".join(args)), **kwargs)
+        self.add(elem)
+        return elem
 
 
 def render(obj):
