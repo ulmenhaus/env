@@ -122,7 +122,7 @@ def _edit_in_file(snapshot, table, pk):
     markdown = convert_assertions_to_markdown(pk, old_assertions)
     # TODO would be good to store these in a .tmp directory in the project
     # root to allow for easy rediscovery and wd changes
-    with tempfile.NamedTemporaryFile(suffix=".md", delete=False) as f:
+    with tempfile.NamedTemporaryFile(suffix=".tdb", delete=False) as f:
         f.write(markdown.encode("utf-8"))
         fname = f.name
     open_with_emacs_daemon(fname)

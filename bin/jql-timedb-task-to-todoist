@@ -1,0 +1,24 @@
+#! /usr/local/bin/python3
+"""
+Not a macro but a quick and dirty script for converting
+sub-tasks into a CSV that todoist can consume for on-the-go
+task execution
+"""
+import os
+import sys
+
+
+def main():
+    with open(os.path.expanduser("~/Downloads/todo.csv"), 'w') as f:
+        f.write("TYPE,CONTENT,PRIORITY,INDENT,AUTHOR,RESPONSIBLE,DATE,DATE_LANG,TIMEZONE\n")
+        for line in sys.stdin:
+            if line.startswith("### "):
+                subtitle = line.strip()[len("### "):]
+                f.write("task,**{}**:,4,1,,,,,\n".format(subtitle))
+            elif line.startswith("- [ ] "):
+                task = line.strip()[len("- [ ] "):]
+                f.write("task,{},4,2,,,,,\n".format(task))
+
+
+if __name__ == "__main__":
+    main()

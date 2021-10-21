@@ -89,7 +89,7 @@ def generate_markdown(snapshot, table, pk):
         if not value["A Relation"].startswith("."):
             continue
         rel = value["A Relation"][1:]
-        meta_rels = ["Conclusion", "Point", "Thought", "Resource", "Quote"]
+        meta_rels = ["Conclusion", "Point", "Thought", "Resource", "Quote", "Procedure"]
         if rel in meta_rels and rel_pk != full_pk:
             l = len(key2rel2orobs[rel_pk]["Meta"])
             key2rel2orobs[rel_pk]["Meta"].append((rel, value["Arg1"]))
