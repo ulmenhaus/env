@@ -1,0 +1,20 @@
+#! /usr/local/bin/python3
+"""
+For jql concept management schema
+
+List all nouns, one per line, in a jql timedb -- useful for tab completion
+"""
+
+import json
+import sys
+
+
+def main():
+    with open(sys.argv[1]) as f:
+        db = json.load(f)
+    for noun in sorted(db['nouns']):
+        print(noun)
+
+
+if __name__ == "__main__":
+    main()
