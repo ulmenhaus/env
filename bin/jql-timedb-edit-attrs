@@ -15,6 +15,7 @@ import tempfile
 import time
 
 STANDARD_PROPERTIES = ("Description", "Point")
+TERMINAL_STATUSES = ("Satisfied", "Revisit", "Failed")
 
 
 def convert_assertions_to_markdown(subject, assertions):
@@ -42,6 +43,10 @@ def convert_assertions_to_markdown(subject, assertions):
                     point = "* {}".format(point)
                 md.append(point)
     return "\n".join(md)
+
+
+def blanks_for_keys(keys):
+    return "".join("\n## {}\n".format(key) for key in keys)
 
 
 def open_with_emacs_daemon(path):
@@ -76,7 +81,8 @@ def is_named_line(line):
 
 def extract_assertions_from_markdown(full_id, path):
     with open(path) as f:
-        markdown = f.read()
+        # if the user left behind the previous entry's attrs ignore them
+        markdown = f.read().split("\n# ")[0]
     parts = markdown.split("\n## ")[1:]
     relations = {}
     for part in parts:
@@ -120,6 +126,34 @@ def _edit_in_file(snapshot, table, pk):
         if value["A Relation"].startswith(".") and value["Arg0"] == full_id
     }
     markdown = convert_assertions_to_markdown(pk, old_assertions)
+    if table == "tasks" and len(old_assertions) == 0:
+        # provide the assertions of the previous execution of this task as a guide
+        # as well as blank values for previously used attrs
+        current = snapshot[table][pk]
+        previous_executions = {
+            key: task
+            for key, task in snapshot[table].items()
+            if task['Action'] == current['Action'] and task['Direct'] ==
+            current['Direct'] and task['Indirect'] == current['Indirect']
+            and task['Status'] in TERMINAL_STATUSES
+        }
+        if len(previous_executions) > 0:
+            youngest_pk = sorted(
+                previous_executions.items(),
+                key=lambda pair: pair[1]['Param~Start'])[-1][0]
+            previous_assertions = {
+                key: value
+                for key, value in assertions.items()
+                if value["A Relation"].startswith(".")
+                and value["Arg0"] == "{} {}".format(table, youngest_pk)
+            }
+            new_markdown = convert_assertions_to_markdown(
+                "{} (previous execution)".format(youngest_pk),
+                previous_assertions,
+            )
+            prev_keys = set(prev['A Relation'][1:] for prev in previous_assertions.values())
+            markdown += blanks_for_keys(sorted(prev_keys))
+            markdown += "\n{}".format(new_markdown)
     # TODO would be good to store these in a .tmp directory in the project
     # root to allow for easy rediscovery and wd changes
     with tempfile.NamedTemporaryFile(suffix=".tdb", delete=False) as f:
