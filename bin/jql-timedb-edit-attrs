@@ -117,7 +117,7 @@ def extract_assertions_from_markdown(full_id, path):
     return relations
 
 
-def _edit_in_file(snapshot, table, pk):
+def _edit_in_file(snapshot, table, pk, tmpdir):
     full_id = "{} {}".format(table, pk)
     assertions = snapshot["assertions"]
     old_assertions = {
@@ -156,7 +156,7 @@ def _edit_in_file(snapshot, table, pk):
             markdown += "\n{}".format(new_markdown)
     # TODO would be good to store these in a .tmp directory in the project
     # root to allow for easy rediscovery and wd changes
-    with tempfile.NamedTemporaryFile(suffix=".tdb", delete=False) as f:
+    with tempfile.NamedTemporaryFile(suffix=".tdb", delete=False, dir=tmpdir) as f:
         f.write(markdown.encode("utf-8"))
         fname = f.name
     open_with_emacs_daemon(fname)
@@ -164,6 +164,10 @@ def _edit_in_file(snapshot, table, pk):
     for key in old_assertions:
         del assertions[key]
     assertions.update(new_assertions)
+    # enable this line if tmpfiles get to be a huge space sink, but for now it's
+    # probably worth keeping them to reduce risk of data loss before saving and
+    # cleaning with `git clean`
+    # os.remove(fname)
 
 
 def _autogen(snapshot, table, pk):
@@ -212,7 +216,9 @@ def main():
     if "--auto" in sys.argv:
         _autogen(snapshot, table, pk)
     else:
-        _edit_in_file(snapshot, table, pk)
+        tmpdir = os.path.join(os.getcwd(), "tmp")
+        os.makedirs(tmpdir, exist_ok=True)
+        _edit_in_file(snapshot, table, pk, tmpdir)
     iface["snapshot"] = json.dumps(snapshot)
     json.dump(iface, sys.stdout)
 
