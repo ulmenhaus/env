@@ -202,6 +202,10 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 	if err != nil {
 		return err
 	}
+	err = g.SetKeybinding(TasksView, 'g', gocui.ModNone, mv.goToJQLEntry)
+	if err != nil {
+		return err
+	}
 	err = g.SetKeybinding(TasksView, 'l', gocui.ModNone, mv.nextSpan)
 	if err != nil {
 		return err
@@ -379,6 +383,30 @@ func (mv *MainView) switchToJQL(g *gocui.Gui, v *gocui.View) error {
 	}
 
 	args := []string{JQLName, mv.path, TableTasks}
+
+	env := os.Environ()
+
+	err = syscall.Exec(binary, args, env)
+	return err
+}
+
+func (mv *MainView) goToJQLEntry(g *gocui.Gui, v *gocui.View) error {
+	taskTable := mv.DB.Tables[TableTasks]
+	_, oy := v.Origin()
+	_, cy := v.Cursor()
+	selectedTask := mv.tasks[mv.span][oy+cy]
+	pk := selectedTask[taskTable.IndexOfField(FieldDescription)].Format("")
+
+	err := mv.saveContents(g, v)
+	if err != nil {
+		return err
+	}
+	binary, err := exec.LookPath(JQLName)
+	if err != nil {
+		return err
+	}
+
+	args := []string{JQLName, mv.path, TableTasks, pk}
 
 	env := os.Environ()
 

@@ -1239,3 +1239,16 @@ func (mv *MainView) SelectedEntry() (int, int) {
 	row, col := mv.TableView.PrimarySelection()
 	return row, mv.colix[col]
 }
+
+func (mv *MainView) GoToPrimaryKey(pk string) error {
+	primary := mv.Table.Primary()
+	field := mv.Table.Columns[primary]
+	mv.Params.Filters = []types.Filter{
+		&EqualFilter{
+			Field:     field,
+			Col:       primary,
+			Formatted: pk,
+		},
+	}
+	return mv.updateTableViewContents()
+}

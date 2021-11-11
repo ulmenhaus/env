@@ -15,6 +15,13 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	if len(os.Args) > 3 {
+		pk := os.Args[3]
+		err = mv.GoToPrimaryKey(pk)
+		if err != nil {
+			panic(err)
+		}
+	}
 	g, err := gocui.NewGui(gocui.OutputNormal)
 	if err != nil {
 		panic(err)
