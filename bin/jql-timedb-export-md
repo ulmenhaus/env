@@ -137,7 +137,10 @@ def generate_markdown(snapshot, table, pk):
     if len(all_child_relations) >= 5 and "Description" in all_child_relations:
         all_child_relations.remove("Description")
     child_table = [[""] + sorted(all_child_relations)]
-    for child_full_pk in children:
+    # Sort in descending order of start date -- children that don't have (e.g. nouns)
+    # take priority
+    sorted_child_pks = sorted(children, key=lambda full_pk: -children[full_pk].get("Param~Start", sys.maxsize))
+    for child_full_pk in sorted_child_pks:
         child_display = format_child(full_pk, child_full_pk)
         child_row = [_render_link(child_display, "/" + child_full_pk)]
         child_table.append(child_row)
