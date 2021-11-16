@@ -33,12 +33,15 @@ def _from_args():
     with open(fpath) as f:
         contents = f.read()
     start = int(fseek) - 1
-    while contents[start] != " ":
+    while contents[start] != "\n":
         start -= 1
-    end = int(fseek) - 1
-    while contents[end] != "\n":
+    while contents[start] != " ":
+        start += 1
+    start += 1
+    end = start
+    while contents[end] not in ("\n", " ", ":"):
         end += 1
-    path = contents[start + 1:end]
+    path = contents[start:end]
     project = fpath.split("/")[-2]
     if fpath.startswith("/var/"):
         project = "notes"

@@ -1,4 +1,4 @@
-#! /Users/rabrams/.pyenv/versions/3.7.3/bin/python3
+#! /Users/rabrams/.pyenv/shims/python
 """
 For jql concept management schema
 
@@ -14,6 +14,7 @@ import json
 import os
 import pathlib
 import random
+import re
 import shutil
 import subprocess
 import sys
@@ -89,7 +90,9 @@ def generate_markdown(snapshot, table, pk):
         if not value["A Relation"].startswith("."):
             continue
         rel = value["A Relation"][1:]
-        meta_rels = ["Conclusion", "Point", "Thought", "Resource", "Quote", "Procedure"]
+        meta_rels = [
+            "Conclusion", "Point", "Thought", "Resource", "Quote", "Procedure"
+        ]
         if rel in meta_rels and rel_pk != full_pk:
             l = len(key2rel2orobs[rel_pk]["Meta"])
             key2rel2orobs[rel_pk]["Meta"].append((rel, value["Arg1"]))
@@ -141,7 +144,8 @@ def generate_markdown(snapshot, table, pk):
     # take priority -- further sort in reverse lexicographic order from there
     sorted_child_pks = sorted(
         children,
-        key=lambda full_pk: (children[full_pk].get("Param~Start", sys.maxsize), full_pk),
+        key=lambda full_pk:
+        (children[full_pk].get("Param~Start", sys.maxsize), full_pk),
         reverse=True,
     )
     for child_full_pk in sorted_child_pks:
@@ -151,8 +155,10 @@ def generate_markdown(snapshot, table, pk):
         for rel in all_child_relations:
             orobs = key2rel2orobs[child_full_pk][rel]
             if rel == "Meta":
-                counts = collections.Counter([orig_rel for orig_rel, _ in orobs])
-                child_row.append("\n".join("{} {}s".format(v, k) for k, v in counts.items()))
+                counts = collections.Counter(
+                    [orig_rel for orig_rel, _ in orobs])
+                child_row.append("\n".join("{} {}s".format(v, k)
+                                           for k, v in counts.items()))
             elif len(orobs) == 0:
                 child_row.append("")
             elif len(orobs) == 1:
@@ -251,14 +257,30 @@ def inject_externals(default_project, markdown):
         if group.startswith("```external"):
             lines = group.split("\n")
             meta[i] = "\n".join(lines[1:-1])
-            filename = lines[0].split(" ", 1)[1]
+            args = lines[0].split(" ")[1:]
+            filename = args[0]
+            until = None
+            after = None
+            if ":" in filename:
+                filename, section = filename.split(":")
+                after = f"## start_section: {section}"
+                until = f"## end_section: {section}"
             suffix = filename.split(".", 1)[1]
             if "/" not in filename:
                 filename = "{}/{}".format(default_project, filename)
             filename = "snippets/{}".format(filename)
 
+            for arg in args[1:]:
+                if match := re.match('until="(?P<until>.*)"\Z', arg):
+                    until = match.group("until")
+                elif match := re.match('after="(?P<after>.*)"\Z', arg):
+                    after = match.group("after")
             with open(filename) as f:
                 body = f.read()
+                if after:
+                    body = body.split(after, 1)[1]
+                if until:
+                    body = body.split(until, 1)[0]
             group = "```{}\n{}\n```".format(
                 suffix_to_language.get(suffix, suffix), body)
         final.append(group)
