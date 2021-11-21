@@ -1,4 +1,4 @@
-#! /Users/rabrams/.pyenv/shims/python
+#! /usr/local/opt/python@3.9/bin/python3
 """
 For jql concept management schema
 
