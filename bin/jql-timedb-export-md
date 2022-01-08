@@ -85,14 +85,14 @@ def generate_markdown(snapshot, table, pk):
     assertions = snapshot["assertions"]
     key2rel2orobs = collections.defaultdict(
         lambda: collections.defaultdict(list))
+    meta_rels = [
+        "Conclusion", "Point", "Thought", "Resource", "Quote", "Procedure", "Memo"
+    ]
     for key, value in assertions.items():
         rel_pk = value["Arg0"]
         if not value["A Relation"].startswith("."):
             continue
         rel = value["A Relation"][1:]
-        meta_rels = [
-            "Conclusion", "Point", "Thought", "Resource", "Quote", "Procedure"
-        ]
         if rel in meta_rels and rel_pk != full_pk:
             l = len(key2rel2orobs[rel_pk]["Meta"])
             key2rel2orobs[rel_pk]["Meta"].append((rel, value["Arg1"]))
@@ -102,8 +102,16 @@ def generate_markdown(snapshot, table, pk):
     description = by_relation.get("Description", [])
     if "Description" in by_relation:
         del by_relation["Description"]
-    singletons = {rel for rel, orobs in by_relation.items() if len(orobs) == 1}
-    multitons = {rel for rel, orobs in by_relation.items() if len(orobs) != 1}
+    singletons = {
+        rel
+        for rel, orobs in by_relation.items()
+        if len(orobs) == 1 and rel not in meta_rels
+    }
+    multitons = {
+        rel
+        for rel, orobs in by_relation.items()
+        if len(orobs) != 1 or rel in meta_rels
+    }
     title, subtitle = pk, ""
     if title.endswith(")"):
         # HACK assumes only one subexpression in parens
