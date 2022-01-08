@@ -46,7 +46,7 @@ def markdown_table(rows):
                      for row in rows)
 
 
-def format_child(parent_full_pk, child_full_pk):
+def format_related(parent_full_pk, child_full_pk):
     """
     Remove common prefix and suffix for easier reading
     """
@@ -70,6 +70,43 @@ def _render_link(description, target, new_window=False):
                                         description)
 
 
+def pluralize(word):
+    # HACK a few rules for pluralization
+    if word.endswith("y") and len(word) > 2 and word[-2] not in "aeou":
+        return word[:-1] + "ies"
+    return f"{word}s" if not word.endswith("s") else f"{word}es"
+
+
+def tabulate_entries(page_pk, full_pks, key2rel2orobs):
+    all_relations = sorted(
+        {rel
+         for pk in full_pks for rel in key2rel2orobs[pk]})
+    # HACK descriptions end up taking too much space in large tables
+    if len(all_relations) >= 5 and "Description" in all_relations:
+        all_relations.remove("Description")
+    table = [[""] + sorted(all_relations)]
+    for full_pk in full_pks:
+        display_name = format_related(page_pk, full_pk)
+        row = [_render_link(display_name, "/" + full_pk)]
+        table.append(row)
+        for rel in all_relations:
+            orobs = key2rel2orobs[full_pk][rel]
+            # NOTE tight coupling with parent procedure here that constructs
+            # pseudo "Meta" relations for Points, Thoughts, &c
+            if rel == "Meta":
+                counts = collections.Counter(
+                    [orig_rel for orig_rel, _ in orobs])
+                row.append("\n".join(f"{v} {pluralize(k)}"
+                                     for k, v in counts.items()))
+            elif len(orobs) == 0:
+                row.append("")
+            elif len(orobs) == 1:
+                row.append(orobs[0][1].split("\n\n")[0].rstrip())
+            else:
+                row.append(f"{len(orobs)} items")
+    return table
+
+
 def generate_markdown(snapshot, table, pk):
     # TODO a lot of these mappings are invariant and can be cached
     full_pk = "{} {}".format(table, pk)
@@ -82,11 +119,23 @@ def generate_markdown(snapshot, table, pk):
         # TODO should check if the table matches as well
         for k, v in snapshot[tab].items() if pk in get_candidate_parents(v)
     }
+    # NOTE full_pk_2_sort_key and key2rel2orobs are both general purpose mappings
+    # that we can generate and cache every time we reload the table
+
+    # When tabulating entries, sort in descending order of start date -- children that
+    # don't have (e.g. nouns) take priority -- further sort in reverse lexicographic order from there
+    full_pk_2_sort_key = {
+        f"{tab} {pk}": (entry.get("Param~Start", sys.maxsize), pk)
+        for tab in search_tables for pk, entry in snapshot[tab].items()
+    }
+    sort_related = lambda pks: sorted(pks, key=full_pk_2_sort_key.get)
+
     assertions = snapshot["assertions"]
     key2rel2orobs = collections.defaultdict(
         lambda: collections.defaultdict(list))
     meta_rels = [
-        "Conclusion", "Point", "Thought", "Resource", "Quote", "Procedure", "Memo"
+        "Conclusion", "Point", "Thought", "Resource", "Quote", "Procedure",
+        "Memo"
     ]
     for key, value in assertions.items():
         rel_pk = value["Arg0"]
@@ -129,10 +178,9 @@ def generate_markdown(snapshot, table, pk):
     else:
         markdown += description[0][1]
     for multiton in sorted(multitons):
-        # HACK pluralize
         sorted_multitons = sorted(by_relation[multiton],
                                   key=lambda orob: orob[0])
-        markdown += "\n## {}s ({})\n".format(multiton, len(sorted_multitons))
+        markdown += f"\n## {pluralize(multiton)} ({len(sorted_multitons)})\n"
 
         def format_orob(orob):
             point = orob[1]
@@ -141,41 +189,48 @@ def generate_markdown(snapshot, table, pk):
             return point
 
         markdown += "\n".join(map(format_orob, sorted_multitons))
-    all_child_relations = sorted(
-        {rel
-         for child_pk in children for rel in key2rel2orobs[child_pk]})
-    # HACK descriptions end up taking too much space in large tables
-    if len(all_child_relations) >= 5 and "Description" in all_child_relations:
-        all_child_relations.remove("Description")
-    child_table = [[""] + sorted(all_child_relations)]
-    # Sort in descending order of start date -- children that don't have (e.g. nouns)
-    # take priority -- further sort in reverse lexicographic order from there
-    sorted_child_pks = sorted(
-        children,
-        key=lambda full_pk:
-        (children[full_pk].get("Param~Start", sys.maxsize), full_pk),
-        reverse=True,
-    )
-    for child_full_pk in sorted_child_pks:
-        child_display = format_child(full_pk, child_full_pk)
-        child_row = [_render_link(child_display, "/" + child_full_pk)]
-        child_table.append(child_row)
-        for rel in all_child_relations:
-            orobs = key2rel2orobs[child_full_pk][rel]
-            if rel == "Meta":
-                counts = collections.Counter(
-                    [orig_rel for orig_rel, _ in orobs])
-                child_row.append("\n".join("{} {}s".format(v, k)
-                                           for k, v in counts.items()))
-            elif len(orobs) == 0:
-                child_row.append("")
-            elif len(orobs) == 1:
-                child_row.append(orobs[0][1].split("\n\n")[0].rstrip())
-            else:
-                child_row.append("{} items".format(len(orobs)))
     markdown += "\n## Related"
-    markdown += "\n### Children ({})\n".format(len(child_table) - 1)
-    markdown += markdown_table(child_table)
+    markdown += f"\n### Children ({len(children)})\n"
+    markdown += markdown_table(
+        tabulate_entries(full_pk, sort_related(children), key2rel2orobs))
+
+    cls2rel2subj = collections.defaultdict(
+        lambda: collections.defaultdict(list))
+
+    src2cls = {}
+    for key, value in assertions.items():
+        src, rel, tgt = map(value.get, ["Arg0", "A Relation", "Arg1"])
+        if rel != ".Class" or not tgt.startswith(
+                "@timedb:") or not tgt.endswith(":"):
+            continue
+        tgt_pk = tgt[len("@timedb:"):-1]
+        if ":" in tgt_pk:
+            continue
+        src2cls[src] = tgt_pk
+    # TODO would be good to cache a bidrectional map of assertions and to
+    # refactor this method in general
+    for key, value in assertions.items():
+        src, rel, tgt = map(value.get, ["Arg0", "A Relation", "Arg1"])
+        if not rel.startswith(".") or not tgt.startswith(
+                "@timedb:") or not tgt.endswith(":"):
+            continue
+        tgt_pk = tgt[len("@timedb:"):-1]
+        if ":" in tgt_pk:
+            continue
+        # NOTE for now timedb refs only support nouns as I haven't needed links to tasks
+        # but this is one place where we would need to support them
+        full_tgt_pk = f"nouns {tgt_pk}"
+        if full_tgt_pk != full_pk:
+            continue
+        cls = src2cls.get(src, "Noun")
+        cls2rel2subj[cls][rel[1:]].append(src)
+
+    for cls, rel2subj in cls2rel2subj.items():
+        for rel, subjects in rel2subj.items():
+            markdown += f"\n### {pluralize(cls)} with this {rel} ({len(subjects)})\n"
+            table = tabulate_entries(full_pk, sort_related(subjects),
+                                     key2rel2orobs)
+            markdown += markdown_table(table)
     return markdown
 
 
