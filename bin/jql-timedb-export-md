@@ -128,7 +128,8 @@ def generate_markdown(snapshot, table, pk):
         f"{tab} {pk}": (entry.get("Param~Start", sys.maxsize), pk)
         for tab in search_tables for pk, entry in snapshot[tab].items()
     }
-    sort_related = lambda pks: sorted(pks, key=full_pk_2_sort_key.get)
+    sort_related = lambda pks: sorted(
+        pks, key=full_pk_2_sort_key.get, reverse=True)
 
     assertions = snapshot["assertions"]
     key2rel2orobs = collections.defaultdict(

@@ -93,7 +93,7 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 		if len(mv.tasks[span]) == 0 {
 			suffix = ""
 		}
-		fmt.Fprintf(counts, "%s%s %s    ", prefix, span, suffix)
+		fmt.Fprintf(counts, "%s%s %s    ", prefix, Span2Title[span], suffix)
 	}
 	tasks, err := g.SetView(TasksView, 0, 3, (maxX*3)/4, maxY-1)
 	if err != nil && err != gocui.ErrUnknownView {
@@ -194,7 +194,11 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(TasksView, 'i', gocui.ModNone, mv.markSatisfied)
+	err = g.SetKeybinding(TasksView, 'i', gocui.ModNone, mv.bumpStatus)
+	if err != nil {
+		return err
+	}
+	err = g.SetKeybinding(TasksView, 'I', gocui.ModNone, mv.degradeStatus)
 	if err != nil {
 		return err
 	}
@@ -214,6 +218,10 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 	if err != nil {
 		return err
 	}
+	err = g.SetKeybinding(TasksView, gocui.KeySpace, gocui.ModNone, mv.markToday)
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -224,7 +232,7 @@ func (mv *MainView) nextSpan(g *gocui.Gui, v *gocui.View) error {
 		ixs[span] = ix
 	}
 	mv.span = Spans[(ixs[mv.span]+1)%len(Spans)]
-	return nil
+	return mv.refreshView(g)
 }
 
 func (mv *MainView) prevSpan(g *gocui.Gui, v *gocui.View) error {
@@ -237,10 +245,18 @@ func (mv *MainView) prevSpan(g *gocui.Gui, v *gocui.View) error {
 		prevIx = len(Spans) - 1
 	}
 	mv.span = Spans[prevIx]
-	return nil
+	return mv.refreshView(g)
 }
 
-func (mv *MainView) markSatisfied(g *gocui.Gui, v *gocui.View) error {
+func (mv *MainView) bumpStatus(g *gocui.Gui, v *gocui.View) error {
+	return mv.addToStatus(g, v, 1)
+}
+
+func (mv *MainView) degradeStatus(g *gocui.Gui, v *gocui.View) error {
+	return mv.addToStatus(g, v, -1)
+}
+
+func (mv *MainView) addToStatus(g *gocui.Gui, v *gocui.View, delta int) error {
 	// TODO getting selected task is very common. Should factor out.
 	taskTable := mv.DB.Tables[TableTasks]
 	var cy, oy int
@@ -255,7 +271,7 @@ func (mv *MainView) markSatisfied(g *gocui.Gui, v *gocui.View) error {
 	selectedTask := mv.tasks[mv.span][oy+cy]
 	pk := selectedTask[taskTable.IndexOfField(FieldDescription)].Format("")
 
-	new, err := selectedTask[taskTable.IndexOfField(FieldStatus)].Add(1)
+	new, err := selectedTask[taskTable.IndexOfField(FieldStatus)].Add(delta)
 	if err != nil {
 		return err
 	}
@@ -300,7 +316,7 @@ func (mv *MainView) logTime(g *gocui.Gui, v *gocui.View) error {
 	// XXX this is a really janky way to check the value of the time entry
 	// and create the next valid entry
 	if len(mv.log) == 0 {
-		err = mv.newTime(g, fmt.Sprintf("%s (0001)", selectedTask[taskTable.IndexOfField(FieldDescription)].Format("")), selectedTask)
+		err = mv.newTime(g, fmt.Sprintf("%s (0001)", selectedTask[taskTable.IndexOfField(FieldDescription)].Format("")), selectedTask, false)
 		if err != nil {
 			return err
 		}
@@ -318,7 +334,7 @@ func (mv *MainView) logTime(g *gocui.Gui, v *gocui.View) error {
 			return err
 		}
 		newPK := fmt.Sprintf("%s%04d)", pk[:len(pk)-5], ordinalI+1)
-		err = mv.newTime(g, newPK, selectedTask)
+		err = mv.newTime(g, newPK, selectedTask, false)
 		if err != nil {
 			return err
 		}
@@ -330,7 +346,7 @@ func (mv *MainView) logTime(g *gocui.Gui, v *gocui.View) error {
 	return mv.refreshView(g)
 }
 
-func (mv *MainView) newTime(g *gocui.Gui, pk string, selectedTask []types.Entry) error {
+func (mv *MainView) newTime(g *gocui.Gui, pk string, selectedTask []types.Entry, andFinish bool) error {
 	taskTable := mv.DB.Tables[TableTasks]
 	logTable := mv.DB.Tables[TableLog]
 	err := logTable.Insert(pk)
@@ -340,6 +356,12 @@ func (mv *MainView) newTime(g *gocui.Gui, pk string, selectedTask []types.Entry)
 	err = logTable.Update(pk, FieldBegin, "")
 	if err != nil {
 		return err
+	}
+	if andFinish {
+		err = logTable.Update(pk, FieldEnd, "")
+		if err != nil {
+			return err
+		}
 	}
 	return logTable.Update(pk, FieldTask, selectedTask[taskTable.IndexOfField(FieldDescription)].Format(""))
 }
@@ -415,32 +437,36 @@ func (mv *MainView) goToJQLEntry(g *gocui.Gui, v *gocui.View) error {
 }
 
 func (mv *MainView) refreshView(g *gocui.Gui) error {
-	taskTable, ok := mv.DB.Tables[TableTasks]
-	if !ok {
-		return fmt.Errorf("expected projects table to exist")
-	}
-	resp, err := taskTable.Query(types.QueryParams{
-		Filters: []types.Filter{
-			&ui.EqualFilter{
-				Field:     FieldStatus,
-				Col:       taskTable.IndexOfField(FieldStatus),
-				Formatted: StatusActive,
-			},
-		},
-		OrderBy: FieldDescription,
-	})
+	taskTable := mv.DB.Tables[TableTasks]
+	descriptionField := taskTable.IndexOfField(FieldDescription)
+	projectField := taskTable.IndexOfField(FieldPrimaryGoal)
+	spanField := taskTable.IndexOfField(FieldSpan)
+
+	active, err := mv.queryAllTasks(StatusActive)
 	if err != nil {
 		return err
 	}
 	mv.tasks = map[string]([][]types.Entry){}
-	descriptionField := taskTable.IndexOfField(FieldDescription)
-	projectField := taskTable.IndexOfField(FieldPrimaryGoal)
-	spanField := taskTable.IndexOfField(FieldSpan)
-	for _, task := range resp.Entries {
+	for _, task := range active.Entries {
+		logs, err := mv.queryLogs(task)
+		if err != nil {
+			return err
+		}
 		span := task[spanField].Format("")
+		// If the task has already been started then mark it as active for today
+		if len(logs.Entries) != 0 {
+			span = SpanDay
+		}
 		mv.tasks[span] = append(mv.tasks[span], task)
 	}
 
+	pending, err := mv.queryAllTasks(StatusPending)
+	if err != nil {
+		return err
+	}
+	for _, task := range pending.Entries {
+		mv.tasks[SpanPending] = append(mv.tasks[SpanPending], task)
+	}
 	for span := range mv.tasks {
 		sort.Slice(mv.tasks[span], func(i, j int) bool {
 			iRes := mv.tasks[span][i][projectField].Format("")
@@ -467,24 +493,78 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 		return nil
 	}
 	selectedTask := mv.tasks[mv.span][oy+cy]
-	logTable, ok := mv.DB.Tables[TableLog]
-	if !ok {
-		return fmt.Errorf("Expected log table to exist")
-	}
-	resp, err = logTable.Query(types.QueryParams{
-		Filters: []types.Filter{
-			&ui.EqualFilter{
-				Field:     FieldTask,
-				Col:       logTable.IndexOfField(FieldTask),
-				Formatted: selectedTask[taskTable.IndexOfField(FieldDescription)].Format(""),
-			},
-		},
-		OrderBy: FieldBegin,
-		Dec:     true,
-	})
+	resp, err := mv.queryLogs(selectedTask)
 	if err != nil {
 		return err
 	}
 	mv.log = resp.Entries
 	return nil
+}
+
+func (mv *MainView) queryAllTasks(status string) (*types.Response, error) {
+	taskTable := mv.DB.Tables[TableTasks]
+	return taskTable.Query(types.QueryParams{
+		Filters: []types.Filter{
+			&ui.EqualFilter{
+				Field:     FieldStatus,
+				Col:       taskTable.IndexOfField(FieldStatus),
+				Formatted: status,
+			},
+		},
+		OrderBy: FieldDescription,
+	})
+}
+
+func (mv *MainView) queryLogs(task []types.Entry) (*types.Response, error) {
+	taskTable := mv.DB.Tables[TableTasks]
+	logTable := mv.DB.Tables[TableLog]
+	return logTable.Query(types.QueryParams{
+		Filters: []types.Filter{
+			&ui.EqualFilter{
+				Field:     FieldTask,
+				Col:       logTable.IndexOfField(FieldTask),
+				Formatted: task[taskTable.IndexOfField(FieldDescription)].Format(""),
+			},
+		},
+		OrderBy: FieldBegin,
+		Dec:     true,
+	})
+}
+
+func (mv *MainView) markToday(g *gocui.Gui, v *gocui.View) error {
+	taskTable := mv.DB.Tables[TableTasks]
+	logTable := mv.DB.Tables[TableLog]
+	var cy, oy int
+	view, err := g.View(TasksView)
+	if err != nil && err != gocui.ErrUnknownView {
+		return err
+	} else if err == nil {
+		_, oy = view.Origin()
+		_, cy = view.Cursor()
+	}
+
+	selectedTask := mv.tasks[mv.span][oy+cy]
+
+	if len(mv.log) == 0 {
+		err = mv.newTime(g, fmt.Sprintf("%s (0001)", selectedTask[taskTable.IndexOfField(FieldDescription)].Format("")), selectedTask, true)
+		if err != nil {
+			return err
+		}
+	} else {
+		log0 := mv.log[0]
+		begin := log0[logTable.IndexOfField(FieldBegin)].Format("")
+		end := log0[logTable.IndexOfField(FieldEnd)].Format("")
+		if begin != end || len(mv.log) > 1 {
+			return nil
+		}
+		err = logTable.Delete(log0[logTable.Primary()].Format(""))
+		if err != nil {
+			return err
+		}
+	}
+	err = mv.saveContents(g, v)
+	if err != nil {
+		return err
+	}
+	return mv.refreshView(g)
 }

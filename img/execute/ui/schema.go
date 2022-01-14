@@ -7,6 +7,7 @@ Defines the constants of the time tracking schema for jql
 const (
 	// The status views share the names with the statuses themselves
 	StateUnprocessed string = "Unprocessed"
+	StatusPending    string = "Pending"
 	StatusActive     string = "Active"
 	StatusSatisfied  string = "Satisfied"
 	StatusSomeday    string = "Someday"
@@ -26,18 +27,26 @@ const (
 	FieldStatus         string = "Status"
 	FieldTask           string = "A Task"
 
-	TableLog      string = "log"
-	TableTasks    string = "tasks"
+	TableLog   string = "log"
+	TableTasks string = "tasks"
 
 	JQLName string = "jql"
 
 	CountsView string = "counts"
-	TasksView string = "tasks"
-	LogView   string = "log"
+	TasksView  string = "tasks"
+	LogView    string = "log"
 
-	SpanDay   string = "Day"
-	SpanWeek  string = "Week"
-	SpanMonth string = "Month"
+	SpanDay     string = "Day"
+	SpanWeek    string = "Week"
+	SpanMonth   string = "Month"
+	SpanPending string = "Pending"
 )
 
-var Spans []string = []string{SpanDay, SpanWeek, SpanMonth}
+var Spans []string = []string{SpanDay, SpanWeek, SpanMonth, SpanPending}
+
+var Span2Title map[string]string = map[string]string{
+	SpanDay:     "Today",
+	SpanWeek:    "This Week",
+	SpanMonth:   "This Month",
+	SpanPending: "Pending",
+}
