@@ -22,6 +22,7 @@ type MainViewMode int
 
 const (
 	MainViewModeListBar MainViewMode = iota
+	MainViewModeListCycles
 )
 
 // A MainView is the overall view including a project list
@@ -64,6 +65,7 @@ func NewMainView(path string, g *gocui.Gui) (*MainView, error) {
 		OSM: mapper,
 		DB:  db,
 
+		Mode: MainViewModeListBar,
 		path: path,
 
 		tasks: map[string]([][]types.Entry){},
@@ -215,6 +217,10 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 		return err
 	}
 	err = g.SetKeybinding(TasksView, 'h', gocui.ModNone, mv.prevSpan)
+	if err != nil {
+		return err
+	}
+	err = g.SetKeybinding(TasksView, 'a', gocui.ModNone, mv.switchModes)
 	if err != nil {
 		return err
 	}
@@ -462,6 +468,12 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 		if len(logs.Entries) != 0 {
 			span = SpanDay
 		}
+		if mv.Mode == MainViewModeListCycles {
+			task, err = mv.retrieveAttentionCycle(taskTable, task)
+			if err != nil {
+				return err
+			}
+		}
 		mv.tasks[span] = append(mv.tasks[span], task)
 	}
 
@@ -470,6 +482,12 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 		return err
 	}
 	for _, task := range pending {
+		if mv.Mode == MainViewModeListCycles {
+			task, err = mv.retrieveAttentionCycle(taskTable, task)
+			if err != nil {
+				return err
+			}
+		}
 		mv.tasks[SpanPending] = append(mv.tasks[SpanPending], task)
 	}
 	for span := range mv.tasks {
@@ -582,6 +600,49 @@ func (mv *MainView) markToday(g *gocui.Gui, v *gocui.View) error {
 	err = mv.saveContents(g, v)
 	if err != nil {
 		return err
+	}
+	return mv.refreshView(g)
+}
+
+func (mv *MainView) retrieveAttentionCycle(table *types.Table, task []types.Entry) ([]types.Entry, error) {
+	orig := task
+	seen := map[string]bool{}
+	for {
+		pk := task[table.Primary()].Format("")
+		if seen[pk] {
+			// hit a cycle
+			return orig, nil
+		}
+		if IsAttentionCycle(table, task) {
+			return task, nil
+		}
+		seen[pk] = true
+		parent := task[table.IndexOfField(FieldPrimaryGoal)].Format("")
+		resp, err := table.Query(types.QueryParams{
+			Filters: []types.Filter{
+				&ui.EqualFilter{
+					Field:     FieldDescription,
+					Col:       table.IndexOfField(FieldDescription),
+					Formatted: parent,
+				},
+			},
+		})
+		if err != nil {
+			return nil, err
+		}
+		if len(resp.Entries) < 1 {
+			return orig, nil
+		}
+		task = resp.Entries[0]
+	}
+}
+
+func (mv *MainView) switchModes(g *gocui.Gui, v *gocui.View) error {
+	switch mv.Mode {
+	case MainViewModeListBar:
+		mv.Mode = MainViewModeListCycles
+	case MainViewModeListCycles:
+		mv.Mode = MainViewModeListBar
 	}
 	return mv.refreshView(g)
 }
