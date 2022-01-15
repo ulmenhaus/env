@@ -1,5 +1,7 @@
 package ui
 
+import "github.com/ulmenhaus/env/img/jql/types"
+
 /*
 Defines the constants of the time tracking schema for jql
 */
@@ -19,6 +21,7 @@ const (
 	FieldDescription    string = "_Description"
 	FieldEnd            string = "End"
 	FieldFeed           string = "Feed"
+	FieldDirect         string = "Direct"
 	FieldIndirect       string = "Indirect"
 	FieldLink           string = "Link"
 	FieldLogDescription string = "A_Description"
@@ -39,6 +42,7 @@ const (
 	SpanDay     string = "Day"
 	SpanWeek    string = "Week"
 	SpanMonth   string = "Month"
+	SpanQuarter string = "Quarter"
 	SpanPending string = "Pending"
 )
 
@@ -49,4 +53,22 @@ var Span2Title map[string]string = map[string]string{
 	SpanWeek:    "This Week",
 	SpanMonth:   "This Month",
 	SpanPending: "Pending",
+}
+
+func IsAttentionCycle(table *types.Table, elem []types.Entry) bool {
+	return elem[table.IndexOfField(FieldAction)].Format("") == "Attend" && elem[table.IndexOfField(FieldDirect)].Format("") == ""
+}
+
+func IsGoalCycle(table *types.Table, elem []types.Entry) bool {
+	return elem[table.IndexOfField(FieldAction)].Format("") == "Accomplish" && elem[table.IndexOfField(FieldDirect)].Format("") == "set goals"
+}
+
+func IsHabitualTask(table *types.Table, elem []types.Entry) bool {
+	habitualIndirects := map[string]bool{
+		"breakdown":      true,
+		"habituality":    true,
+		"incrementality": true,
+		"regularity":     true,
+	}
+	return habitualIndirects[elem[table.IndexOfField(FieldIndirect)].Format("")]
 }

@@ -447,12 +447,17 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 		return err
 	}
 	mv.tasks = map[string]([][]types.Entry){}
-	for _, task := range active.Entries {
+	for _, task := range active {
 		logs, err := mv.queryLogs(task)
 		if err != nil {
 			return err
 		}
 		span := task[spanField].Format("")
+		// qurater scope tasks are good to keep an eye on, but to keep the
+		// UX simple let's lump then in with the tasks for "this month"
+		if span == SpanQuarter {
+			span = SpanMonth
+		}
 		// If the task has already been started then mark it as active for today
 		if len(logs.Entries) != 0 {
 			span = SpanDay
@@ -464,7 +469,7 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 	if err != nil {
 		return err
 	}
-	for _, task := range pending.Entries {
+	for _, task := range pending {
 		mv.tasks[SpanPending] = append(mv.tasks[SpanPending], task)
 	}
 	for span := range mv.tasks {
@@ -501,9 +506,9 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 	return nil
 }
 
-func (mv *MainView) queryAllTasks(status string) (*types.Response, error) {
+func (mv *MainView) queryAllTasks(status string) ([][]types.Entry, error) {
 	taskTable := mv.DB.Tables[TableTasks]
-	return taskTable.Query(types.QueryParams{
+	resp, err := taskTable.Query(types.QueryParams{
 		Filters: []types.Filter{
 			&ui.EqualFilter{
 				Field:     FieldStatus,
@@ -513,6 +518,18 @@ func (mv *MainView) queryAllTasks(status string) (*types.Response, error) {
 		},
 		OrderBy: FieldDescription,
 	})
+
+	if err != nil {
+		return nil, err
+	}
+	entries := [][]types.Entry{}
+	for _, entry := range resp.Entries {
+		if IsAttentionCycle(taskTable, entry) || IsGoalCycle(taskTable, entry) || IsHabitualTask(taskTable, entry) {
+			continue
+		}
+		entries = append(entries, entry)
+	}
+	return entries, nil
 }
 
 func (mv *MainView) queryLogs(task []types.Entry) (*types.Response, error) {
