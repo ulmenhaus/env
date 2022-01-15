@@ -63,12 +63,12 @@ func IsGoalCycle(table *types.Table, elem []types.Entry) bool {
 	return elem[table.IndexOfField(FieldAction)].Format("") == "Accomplish" && elem[table.IndexOfField(FieldDirect)].Format("") == "set goals"
 }
 
-func IsHabitualTask(table *types.Table, elem []types.Entry) bool {
-	habitualIndirects := map[string]bool{
+func IsCompositeTask(table *types.Table, elem []types.Entry) bool {
+	compositeIndirects := map[string]bool{
 		"breakdown":      true,
 		"habituality":    true,
 		"incrementality": true,
 		"regularity":     true,
 	}
-	return habitualIndirects[elem[table.IndexOfField(FieldIndirect)].Format("")]
+	return compositeIndirects[elem[table.IndexOfField(FieldIndirect)].Format("")]
 }

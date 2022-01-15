@@ -53,6 +53,7 @@ class TimeDB(object):
         new_task['Action'] = "Attend"
         new_task['Direct'] = ""
         new_task['Indirect'] = pk
+        new_task['Status'] = 'Habitual'
         new_task['Primary Goal'] = parent_task_pk
         new_task_pk = pks.pk_for_task(new_task, tasks[parent_task_pk])
         tasks[new_task_pk] = new_task

@@ -524,7 +524,7 @@ func (mv *MainView) queryAllTasks(status string) ([][]types.Entry, error) {
 	}
 	entries := [][]types.Entry{}
 	for _, entry := range resp.Entries {
-		if IsAttentionCycle(taskTable, entry) || IsGoalCycle(taskTable, entry) || IsHabitualTask(taskTable, entry) {
+		if IsGoalCycle(taskTable, entry) || IsCompositeTask(taskTable, entry) {
 			continue
 		}
 		entries = append(entries, entry)
