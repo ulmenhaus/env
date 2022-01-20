@@ -269,7 +269,10 @@ def resolve_jql_links(base_markdown):
             parts.append(inpt)
             continue
         # technically disallows to link with a noun that has a colon but shrug
-        ref, rest = inpt.split(":", 1)
+        try:
+            ref, rest = inpt.split(":", 1)
+        except:
+            raise Exception("Exception breaking line", inpt)
         parts.append(_render_link(ref, "/nouns " + ref))
         parts.append(rest)
     return "".join(parts)

@@ -1,0 +1,97 @@
+#! /usr/local/bin/python3
+"""
+For jql time management schema
+
+* takes the currently selected row from _nouns_ table
+* parses out a table of active habits from that entries properties
+  in the _assertions_ table
+* for each one create a periodic task in the currently active
+  goal cycle under the corresponding parent attention cycle
+* if the attention cycle does not exist it will be created
+"""
+
+import json
+import sys
+
+from timedb.cycles import CycleManager
+from timedb.pks import pk_for_task
+
+
+def _parse_table(raw):
+    # TODO parsing tables out is potentially a common function that can be made into
+    # a general purpose procedure
+    sanitized_lines = [line.strip() for line in raw.split("\n")]
+    all_lines = [
+        line for line in sanitized_lines
+        if line.startswith("|") and line.endswith("|") and len(line) > 1
+    ]
+    if len(all_lines) == 0:
+        raise ValueError("table not found in entry")
+    header_raw, body_raw = all_lines[0], all_lines[1:]
+    header = [col.strip() for col in header_raw[1:-1].split("|")]
+    rows = [[col.strip() for col in row_raw[1:-1].split("|")]
+            for row_raw in body_raw[1:]]
+    return header, rows
+
+
+def _parse_habits_table(snapshot, full_pk):
+    assertions = snapshot['assertions']
+    relevant = [
+        assn for pk, assn in assertions.items()
+        if assn['A Relation'] == '.Habit' and assn['Arg0'] == full_pk
+    ]
+    if len(relevant) == 0:
+        raise ValueError("No habits found within this entry")
+    if len(relevant) > 1:
+        raise ValueError(
+            "More than one candidate habit table -- this is not supported")
+    assn, = relevant
+    raw = assn['Arg1']
+    header, rows = _parse_table(raw)
+    if header != ['Action', 'Direct', 'Parameters', 'Parent']:
+        raise ValueError(
+            "Incorrectly formatted habit table - column names don't match")
+    return rows
+
+
+def _parse_possible_timedb_ref(val):
+    return val.split(":")[1] if val.startswith("@timedb:") else val
+
+
+def _add_habit(snapshot, habit, cm):
+    action, direct, parameters, parent = map(_parse_possible_timedb_ref, habit)
+    parent_pk = cm.add_cycle_for(parent)
+    parent = snapshot['tasks'][parent_pk]
+    new_task = {
+        "Action": action,
+        "Direct": direct,
+        "Indirect": "regularity",
+        "Parameters": parameters,
+        "Param~Span": parent['Param~Span'],
+        "Param~Start": parent['Param~Start'],
+        "Primary Goal": parent_pk,
+        "Status": "Active",
+    }
+    pk = pk_for_task(new_task, parent)
+    snapshot['tasks'][pk] = new_task
+
+
+def main():
+    iface = json.load(sys.stdin)
+    snapshot = json.loads(iface["snapshot"])
+    current_view = iface["current_view"]
+    selected_table = current_view["table"]
+    pk = current_view["primary_selection"]
+    cm = CycleManager(snapshot)
+    if selected_table != "nouns":
+        raise ValueError("must select noun to add an attention cycle")
+    full_pk = f"nouns {pk}"
+    habits = _parse_habits_table(snapshot, full_pk)
+    for habit in habits:
+        _add_habit(snapshot, habit, cm)
+    iface["snapshot"] = json.dumps(snapshot)
+    json.dump(iface, sys.stdout)
+
+
+if __name__ == "__main__":
+    main()

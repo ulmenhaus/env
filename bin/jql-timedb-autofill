@@ -50,7 +50,7 @@ class HabitModes(object):
                 primary_goal=self.task_pk,
             )
 
-    def regularity(self, freq=1, span='Day', sched=None):
+    def regularity(self, freq=1, span='Day', sched=None, indirect=''):
         today = datetime.date.today()
         if sched is not None and span == 'Day' and today.strftime(
                 "%a") not in sched:
@@ -85,6 +85,7 @@ class HabitModes(object):
             self.data["tasks"][pk] = self._new_task(
                 action=action,
                 direct=direct,
+                indirect=indirect,
                 param_date=(datep - datetime.date(1969, 12, 31)).days,
                 param_time=span,
                 params=params,

@@ -34,6 +34,9 @@ def pk_for_task(task, parent):
         marker = " at" if action in ("Extend", "Improve", "Sustain") else ","
         mandate += "{} {}".format(marker, task['Parameters'])
     planned_start, planned_span = task["Param~Start"], task["Param~Span"]
+    # TODO can probably get rid of the dependency on parent now that breakdown
+    # tasks are simpler (just use the same span and start as their parent and
+    # then rely on log entries to track when they were started and done)
     if parent.get("Indirect") == "breakdown":
         planned_start, planned_span = parent["Param~Start"], parent[
             "Param~Span"]
