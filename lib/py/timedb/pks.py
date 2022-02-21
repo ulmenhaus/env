@@ -5,7 +5,9 @@ def pk_for_task(task, parent):
     action = task['Action']
     preposition = "with"
     prepreposition = ""
-    if action in ("Attend", "Migrate", "Transfer", "Travel"):
+    if action == "Attend" and not task['Direct']:
+        preposition = "to"
+    if action in ("Migrate", "Transfer", "Travel"):
         preposition = "to"
     elif action in ("Present", ):
         preposition = "on"

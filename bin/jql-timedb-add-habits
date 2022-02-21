@@ -39,6 +39,7 @@ def _parse_habits_table(snapshot, full_pk):
     relevant = [
         assn for pk, assn in assertions.items()
         if assn['A Relation'] == '.Habit' and assn['Arg0'] == full_pk
+        and assn['Arg1'].startswith("### Active")
     ]
     if len(relevant) == 0:
         raise ValueError("No habits found within this entry")

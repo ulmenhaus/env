@@ -135,8 +135,14 @@ def generate_markdown(snapshot, table, pk):
     key2rel2orobs = collections.defaultdict(
         lambda: collections.defaultdict(list))
     meta_rels = [
-        "Conclusion", "Point", "Thought", "Resource", "Quote", "Procedure",
-        "Memo"
+        "Conclusion",
+        "Point",
+        "Thought",
+        "Resource",
+        "Quote",
+        "Procedure",
+        "Memo",
+        "Habit",
     ]
     for key, value in assertions.items():
         rel_pk = value["Arg0"]
@@ -737,7 +743,10 @@ def _daemon():
         for _ in _watch_for_update("schema2.json"):
             print("Time DB updated -- reloading")
             with open("schema2.json") as f:
-                MarkdownHandler.snapshot = json.load(f)
+                try:
+                    MarkdownHandler.snapshot = json.load(f)
+                except:
+                    print("exception while realoding. continuing.")
 
     thread = threading.Thread(target=watch_for_updates, daemon=True)
     thread.start()
