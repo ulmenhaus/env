@@ -33,7 +33,7 @@ const (
 )
 
 var (
-		BuildContext = &build.Default
+	BuildContext = &build.Default
 )
 
 type Config struct {
@@ -456,6 +456,11 @@ func (imp *importer) startLoad(bp *build.Package) *importInfo {
 	return ii
 }
 
+type CacheEntry struct {
+	// Info  *PackageInfo
+	Files []*ast.File
+}
+
 func (imp *importer) load(bp *build.Package) *PackageInfo {
 	fmt.Printf("Loading: %s/%s\n", bp.Dir, bp.Name)
 	info := imp.newPackageInfo(bp.ImportPath, bp.Dir)
@@ -464,6 +469,28 @@ func (imp *importer) load(bp *build.Package) *PackageInfo {
 	for _, err := range errs {
 		info.appendError(err)
 	}
+	/*
+
+		// Try encoding the parsed files
+		ce := &CacheEntry{
+			// Info:  info,
+			Files: files,
+		}
+
+		var encoded bytes.Buffer
+		enc := gob.NewEncoder(&encoded)
+		err := enc.Encode(ce)
+		if err != nil {
+			panic(err)
+		}
+		dec := gob.NewDecoder(&encoded)
+		decoded := &CacheEntry{}
+		err = dec.Decode(decoded)
+		if err != nil {
+			panic(err)
+		}
+	*/
+	// and then using the decoded version
 	imp.addFiles(info, files, true)
 	imp.progMu.Lock()
 	imp.prog.importMap[bp.ImportPath] = info.Pkg

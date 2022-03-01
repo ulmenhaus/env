@@ -16,7 +16,12 @@ type EncodedLocation struct {
 	Lines  uint   `json:"lines"`  // the total number of lines for the identified object
 }
 
-func (l EncodedLocation) Canonical() string {
+func (l EncodedLocation) FullStart() string {
+	// NOTE assumes the Paqth is canonical (e.g. is an absolute path)
+	return fmt.Sprintf("%s#%d", l.Path, l.Start)
+}
+
+func (l EncodedLocation) FullOffset() string {
 	// NOTE assumes the Paqth is canonical (e.g. is an absolute path)
 	return fmt.Sprintf("%s#%d", l.Path, l.Offset)
 }

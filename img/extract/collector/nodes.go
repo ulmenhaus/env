@@ -6,19 +6,23 @@ import (
 	"go/token"
 
 	"github.com/ulmenhaus/env/img/explore/models"
+	"golang.org/x/tools/go/packages"
 )
 
-func pos2loc(path string, pos token.Pos, node ast.Node, lines uint) models.EncodedLocation {
+func pos2loc(path string, pos token.Pos, base uint, node ast.Node, lines uint) models.EncodedLocation {
+	// one-index characters because that's how editors will reference them
 	return models.EncodedLocation{
 		Path:   path,
-		Offset: uint(pos) - 1, // HACK these positions seem to be one-indexed?
-		Start:  uint(node.Pos()) - 1,
-		End:    uint(node.End()) - 1,
+		Offset: uint(pos) + 1,
+		Start:  (uint(node.Pos()) - base) + 1,
+		End:    (uint(node.End()) - base) + 1,
 		Lines:  lines,
 	}
 }
 
-func NodeFromFunc(pkg, short, path string, f *ast.FuncDecl) models.EncodedNode {
+func NodeFromFunc(pkg *packages.Package, af *ast.File, f *ast.FuncDecl) models.EncodedNode {
+	pf := pkg.Fset.File(af.Pos())
+
 	doc := ""
 	if f.Doc != nil {
 		doc = f.Doc.Text()
@@ -51,19 +55,21 @@ func NodeFromFunc(pkg, short, path string, f *ast.FuncDecl) models.EncodedNode {
 
 	return models.EncodedNode{
 		Component: models.Component{
-			UID:         fmt.Sprintf("%s.%s", pkg, name),
-			DisplayName: fmt.Sprintf("%s.%s", short, name),
+			UID:         fmt.Sprintf("%s.%s", pkg.PkgPath, name),
+			DisplayName: fmt.Sprintf("%s.%s", pkg.Name, name),
 			Description: doc,
 			Kind:        kind,
-			Location:    pos2loc(path, f.Name.NamePos, f, lines),
+			Location:    pos2loc(pf.Name(), f.Name.NamePos - token.Pos(pf.Base()), uint(pf.Base()), f, lines),
 		},
 		Public: public,
 	}
 }
 
-func NodesFromGlobal(pkg, short, path string, global *ast.GenDecl) []models.EncodedNode {
+func NodesFromGlobal(pkg *packages.Package, f *ast.File, global *ast.GenDecl) []models.EncodedNode {
 	var kind string
 
+	pf := pkg.Fset.File(f.Pos())
+	
 	if global.Tok == token.CONST {
 		kind = KindConst
 	} else {
@@ -89,15 +95,15 @@ func NodesFromGlobal(pkg, short, path string, global *ast.GenDecl) []models.Enco
 
 			nodes = append(nodes, models.EncodedNode{
 				Component: models.Component{
-					UID:         fmt.Sprintf("%s.%s", pkg, name),
-					DisplayName: fmt.Sprintf("%s.%s", short, name),
+					UID:         fmt.Sprintf("%s.%s", pkg.PkgPath, name),
+					DisplayName: fmt.Sprintf("%s.%s", pkg.Name, name),
 					Description: doc,
 					Kind:        kind,
 					// Using spec here instead of id in case the global references another
 					// global. This can get ambiguous with multiple ids in the same spec.
 					//
 					// Globals can span multiple lines but we treat them as one statement so one line
-					Location: pos2loc(path, id.NamePos, spec, 1),
+					Location: pos2loc(pf.Name(), id.NamePos - token.Pos(pf.Base()), uint(pf.Base()), spec, 1),
 				},
 				Public: public,
 			})
@@ -109,7 +115,9 @@ func NodesFromGlobal(pkg, short, path string, global *ast.GenDecl) []models.Enco
 
 // NodesFromTypedef returns the nodes that belong to a GenDecl, a slice of UIDs for the
 // structs in the decl, and a slice of UIDs for the interfaces in the decl
-func NodesFromTypedef(pkg, short, path string, typed *ast.GenDecl) ([]models.EncodedNode, []string, []string) {
+func NodesFromTypedef(pkg *packages.Package, f *ast.File, typed *ast.GenDecl) ([]models.EncodedNode, []string, []string) {
+	pf := pkg.Fset.File(f.Pos())
+
 	kind := KindTypename
 	nodes := []models.EncodedNode{}
 	structs := []string{}
@@ -130,15 +138,15 @@ func NodesFromTypedef(pkg, short, path string, typed *ast.GenDecl) ([]models.Enc
 			public = false
 		}
 
-		uid := fmt.Sprintf("%s.%s", pkg, name)
+		uid := fmt.Sprintf("%s.%s", pkg.PkgPath, name)
 		nodes = append(nodes, models.EncodedNode{
 			Component: models.Component{
 				UID:         uid,
-				DisplayName: fmt.Sprintf("%s.%s", short, name),
+				DisplayName: fmt.Sprintf("%s.%s", pkg.Name, name),
 				Description: doc,
 				Kind:        kind,
 				// HACK one line for definition and one for closing curly brace
-				Location: pos2loc(path, tspec.Name.NamePos, spec, uint(2)),
+				Location: pos2loc(pf.Name(), tspec.Name.NamePos - token.Pos(pf.Base()), uint(pf.Base()), spec, uint(2)),
 			},
 			Public: public,
 		})
@@ -153,12 +161,12 @@ func NodesFromTypedef(pkg, short, path string, typed *ast.GenDecl) ([]models.Enc
 				for _, fieldName := range field.Names {
 					nodes = append(nodes, models.EncodedNode{
 						Component: models.Component{
-							UID:         fmt.Sprintf("%s.%s.%s", pkg, name, fieldName.Name),
-							DisplayName: fmt.Sprintf("%s.%s.%s", short, name, fieldName.Name),
+							UID:         fmt.Sprintf("%s.%s.%s", pkg.PkgPath, name, fieldName.Name),
+							DisplayName: fmt.Sprintf("%s.%s.%s", pkg.Name, name, fieldName.Name),
 							Description: fieldDoc,
 							Kind:        KindField,
 							// NOTE for multiple fields on the same line this is ambiguous
-							Location: pos2loc(path, fieldName.NamePos, field, 1),
+							Location: pos2loc(pf.Name(), fieldName.NamePos - token.Pos(pf.Base()), uint(pf.Base()), field, 1),
 						},
 						Public: public,
 					})
@@ -174,11 +182,11 @@ func NodesFromTypedef(pkg, short, path string, typed *ast.GenDecl) ([]models.Enc
 				for _, methodName := range method.Names {
 					nodes = append(nodes, models.EncodedNode{
 						Component: models.Component{
-							UID:         fmt.Sprintf("%s.%s.%s", pkg, name, methodName.Name),
-							DisplayName: fmt.Sprintf("%s.%s.%s", short, name, methodName.Name),
+							UID:         fmt.Sprintf("%s.%s.%s", pkg.PkgPath, name, methodName.Name),
+							DisplayName: fmt.Sprintf("%s.%s.%s", pkg.Name, name, methodName.Name),
 							Description: methodDoc,
 							Kind:        KindMethod,
-							Location:    pos2loc(path, methodName.NamePos, method, 1),
+							Location:    pos2loc(pf.Name(), methodName.NamePos - token.Pos(pf.Base()), uint(pf.Base()), method, 1),
 						},
 						Public: public,
 					})

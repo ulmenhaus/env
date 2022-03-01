@@ -3,7 +3,6 @@ package collector
 import (
 	"fmt"
 	"go/ast"
-	"go/build"
 	"go/token"
 	"go/types"
 	"os"
@@ -36,7 +35,7 @@ func NewDefinitionFinder(pkgs []string) (*DefinitionFinder, error) {
 }
 
 // Find returns the location of the definition of the referenced identifier
-func (df *DefinitionFinder) Find(bc *build.Context, ref models.EncodedLocation) (models.EncodedLocation, error) {
+func (df *DefinitionFinder) Find(ref models.EncodedLocation) (models.EncodedLocation, error) {
 	obj, err := findReferencedObject(df.prog, ref)
 	if err != nil {
 		return models.EncodedLocation{}, err
