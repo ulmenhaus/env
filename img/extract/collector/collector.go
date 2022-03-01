@@ -3,10 +3,7 @@ package collector
 import (
 	"fmt"
 	"go/ast"
-	"go/build"
-	"go/parser"
 	"go/token"
-	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
@@ -14,6 +11,8 @@ import (
 	"strings"
 
 	"github.com/ulmenhaus/env/img/explore/models"
+	"golang.org/x/tools/go/ast/astutil"
+	"golang.org/x/tools/go/packages"
 )
 
 const (
@@ -42,27 +41,32 @@ var (
 )
 
 type Collector struct {
-	pkgs []string
+	nmes []string
+	pkgs []*packages.Package
 
-	finder   *DefinitionFinder
-	graph    *models.EncodedGraph
-	loc2node map[string]models.EncodedNode // maps node canonical location to copy of corresponding node
-	structs  map[string]bool               // tracks UIDs for structs so they can be distinguished from other typs
-	ifaces   map[string]bool               // tracks UIDs for interfaces so they can be distinguished from other typs
-	mode     string
-	logger   *log.Logger
+	graph       *models.EncodedGraph
+	start2node  map[string]models.EncodedNode // maps node start location to copy of corresponding node
+	offset2node map[string]models.EncodedNode // maps node offset to copy of corresponding node
+	structs     map[string]bool               // tracks UIDs for structs so they can be distinguished from other typs
+	ifaces      map[string]bool               // tracks UIDs for interfaces so they can be distinguished from other typs
+	mode        string
+	logger      *log.Logger
 }
 
-func NewCollector(pkgs []string, logger *log.Logger) (*Collector, error) {
-	finder, err := NewDefinitionFinder(pkgs)
+func NewCollector(names []string, logger *log.Logger, tests bool) (*Collector, error) {
+	cfg := &packages.Config{
+		// TODO(rabrams) Only a subset of these might be needed
+		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles | packages.NeedImports | packages.NeedDeps | packages.NeedExportsFile | packages.NeedTypes | packages.NeedSyntax | packages.NeedTypesInfo | packages.NeedTypesSizes,
+		// TODO(rabrams) Make this configurable since there is a noticeable perf cost
+		Tests: tests,
+	}
+	pkgs, err := packages.Load(cfg, names...)
 	if err != nil {
 		return nil, err
 	}
-
 	return &Collector{
 		pkgs: pkgs,
 
-		finder: finder,
 		graph: &models.EncodedGraph{
 			Nodes: []models.EncodedNode{},
 			Relations: map[string]([]models.EncodedEdge){
@@ -70,177 +74,147 @@ func NewCollector(pkgs []string, logger *log.Logger) (*Collector, error) {
 			},
 			Subsystems: []models.EncodedSubsystem{},
 		},
-		loc2node: map[string]models.EncodedNode{},
-		structs:  map[string]bool{},
-		ifaces:   map[string]bool{},
-		logger:   logger,
+		start2node:  map[string]models.EncodedNode{},
+		offset2node: map[string]models.EncodedNode{},
+		structs:     map[string]bool{},
+		ifaces:      map[string]bool{},
+		logger:      logger,
 	}, nil
 }
 
-func (c *Collector) MapFiles(f func(pkg, short, path string) error) error {
-	for _, pkg := range c.pkgs {
-		glob := filepath.Join(GoPath, "src", pkg, "*.go")
-		// TODO would be good to be able to filter out test files
-		paths, err := filepath.Glob(glob)
-		if err != nil {
-			return err
-		}
-		short := filepath.Base(pkg)
-		for _, path := range paths {
-			err = f(pkg, short, path)
-			if err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-func (c *Collector) CountFiles() (int, error) {
-	count := 0
-	err := c.MapFiles(func(_, _, _ string) error {
-		count += 1
-		return nil
-	})
-	return count, err
-}
-
-func (c *Collector) collectNodesInFile(pkg, short, path string) error {
-	fset := token.NewFileSet()
-	contents, err := ioutil.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	f, err := parser.ParseFile(fset, "", string(contents), parser.ParseComments)
-	if err != nil {
-		return err
-	}
-	for _, decl := range f.Decls {
-		switch typed := decl.(type) {
-		case *ast.FuncDecl:
-			c.graph.Nodes = append(c.graph.Nodes, NodeFromFunc(pkg, short, path, typed))
-		case *ast.GenDecl:
-			switch typed.Tok {
-			case token.CONST, token.VAR:
-				c.graph.Nodes = append(c.graph.Nodes, NodesFromGlobal(pkg, short, path, typed)...)
-			case token.TYPE:
-				nodes, structs, ifaces := NodesFromTypedef(pkg, short, path, typed)
-				c.graph.Nodes = append(c.graph.Nodes, nodes...)
-				for _, uid := range structs {
-					c.structs[uid] = true
-				}
-				for _, uid := range ifaces {
-					c.ifaces[uid] = true
-				}
-			default:
-				continue
-			}
-		default:
-			continue
-		}
-	}
-	return nil
-}
-
 func (c *Collector) CollectAll() error {
-	err := c.CollectNodes()
-	if err != nil {
-		return err
-	}
+	c.CollectNodes()
 	for _, node := range c.graph.Nodes {
-		c.loc2node[node.Location.Canonical()] = node
+		c.start2node[node.Location.FullStart()] = node
+		c.offset2node[node.Location.FullOffset()] = node
 	}
-	err = c.CollectReferences()
-	if err != nil {
-		return err
-	}
+	c.CollectReferences()
 	c.BuildSubsystems()
 	return nil
 }
 
-func (c *Collector) CollectNodes() error {
-	total, err := c.CountFiles()
-	if err != nil {
-		return err
+func (c *Collector) CollectNodes() {
+	for _, pkg := range c.pkgs {
+		for _, f := range pkg.Syntax {
+			for _, decl := range f.Decls {
+				switch typed := decl.(type) {
+				case *ast.FuncDecl:
+					c.graph.Nodes = append(c.graph.Nodes, NodeFromFunc(pkg, f, typed))
+				case *ast.GenDecl:
+					switch typed.Tok {
+					case token.CONST, token.VAR:
+						c.graph.Nodes = append(c.graph.Nodes, NodesFromGlobal(pkg, f, typed)...)
+					case token.TYPE:
+						nodes, structs, ifaces := NodesFromTypedef(pkg, f, typed)
+						c.graph.Nodes = append(c.graph.Nodes, nodes...)
+						for _, uid := range structs {
+							c.structs[uid] = true
+						}
+						for _, uid := range ifaces {
+							c.ifaces[uid] = true
+						}
+					default:
+						continue
+					}
+				default:
+					continue
+				}
+			}
+		}
 	}
-	current := 0
-	fmt.Printf("%d files to process\n", total)
-	return c.MapFiles(func(pkg, short, path string) error {
-		fmt.Printf("Processing %d\n", current)
-		current += 1
-		return c.collectNodesInFile(pkg, short, path)
-	})
 }
 
-func (c *Collector) CollectReferences() error {
-	return c.MapFiles(func(pkg, short, path string) error {
-		fset := token.NewFileSet()
+func (c *Collector) CollectReferences() {
+	path2pkg := map[string]*packages.Package{}
+	for _, pkg := range c.pkgs {
+		path2pkg[pkg.PkgPath] = pkg
+	}
+	for _, pkg := range c.pkgs {
+		for _, f := range pkg.Syntax {
+			pf := pkg.Fset.File(f.Pos())
+			ast.Inspect(f, func(n ast.Node) bool {
+				var source *models.EncodedNode
+				if _, ok := n.(*ast.Ident); !ok {
+					return true
+				}
+				path, _ := astutil.PathEnclosingInterval(f, n.Pos(), n.Pos())
+				if path == nil {
+					return true
+				}
+				// the source will be the last decl (e.g. ast.FuncDecl) just before the root ast.File
+				if len(path) < 2 {
+					return true
+				}
+				sourceToken := path[len(path)-2]
 
-		contents, err := ioutil.ReadFile(path)
-		if err != nil {
-			return err
+				// One-index as that's how an editor will reference it
+				offset := (uint(n.Pos()) - uint(pf.Base())) + 1
+				sourceOffset := (uint(sourceToken.Pos()) - uint(pf.Base())) + 1
+
+				sourceLoc := models.EncodedLocation{
+					Path:  pf.Name(),
+					Start: sourceOffset,
+				}
+				loc := models.EncodedLocation{
+					Path:  pf.Name(),
+					Offset: offset,
+				}
+				candidate, ok := c.start2node[sourceLoc.FullStart()]
+				if ok {
+					source = &candidate
+				}
+				// if we've reached this point and still don't have a source then we are not yet
+				// in a node so subsequent operations are meaningless
+				if source == nil {
+					return true
+				}
+				// double check that the current node is in the decl to rule out false positives
+				// e.g. from types of decls that aren't accounted for
+				if offset < source.Location.Start || offset > source.Location.End {
+					return true
+				}
+				id, _ := path[0].(*ast.Ident)
+				obj := pkg.TypesInfo.Uses[id]
+				if obj == nil {
+					obj = pkg.TypesInfo.Defs[id]
+					if obj == nil {
+						// Happens for y in "switch y := x.(type)",
+						// and the package declaration,
+						return true
+					}
+				}
+				if obj.Pkg() != nil {
+					tgtpkg := path2pkg[obj.Pkg().Path()]
+					if tgtpkg != nil {
+						tgtfile := tgtpkg.Fset.File(obj.Pos())
+						tgtloc := models.EncodedLocation{
+							Path: tgtfile.Name(),
+							// One-index as that's how an editor will reference it
+							// TODO this is a common calculation so factor it out
+							Offset: (uint(obj.Pos()) - uint(tgtfile.Base())) + 1,
+						}
+						tgt, ok := c.offset2node[tgtloc.FullOffset()]
+						if !ok {
+							return true
+						}
+						if tgt.UID == source.UID {
+							// every component will have a trival reference to itself which we ignore
+							return true
+						}
+						edge := models.EncodedEdge{
+							SourceUID: source.UID,
+							DestUID:   tgt.UID,
+							Location:  loc,
+						}
+						c.graph.Relations[models.RelationReferences] = append(c.graph.Relations[models.RelationReferences], edge)
+						return true
+					}
+				}
+				return true
+			})
 		}
-		f, err := parser.ParseFile(fset, "", string(contents), 0)
-		if err != nil {
-			return err
-		}
+	}
 
-		var source *models.EncodedNode
-
-		ast.Inspect(f, func(n ast.Node) bool {
-			id, ok := n.(*ast.Ident)
-			if !ok {
-				return true
-			}
-			loc := models.EncodedLocation{
-				Path:   path,
-				Offset: uint(n.Pos()) - 1, // HACK these appear to be one-indexed?
-			}
-			candidate, ok := c.loc2node[loc.Canonical()]
-			if ok {
-				source = &candidate
-			}
-
-			// if we've reached this point and still don't have a source then we are not yet
-			// in a node so subsequent operations are meaningless
-			if source == nil {
-				return true
-			}
-
-			// double check that the current node is in the decl to rule out false positives
-			// e.g. from types of decls that aren't accounted for
-			if uint(id.Pos()-1) < source.Location.Start || uint(id.End()-1) > source.Location.End { // HACK these are one-indexed
-				return true
-			}
-			ref := models.EncodedLocation{
-				Path:   path,
-				Offset: uint(id.NamePos),
-			}
-			def, err := c.finder.Find(&build.Default, ref)
-			if err != nil {
-				c.logger.Printf("Got error: %s\n", err)
-				return true
-			}
-
-			dest, ok := c.loc2node[def.Canonical()]
-			if !ok {
-				c.logger.Printf("Got miss on %#v\n", n)
-				return true
-			}
-			if dest.UID == source.UID {
-				// every component will have a trival reference to itself which we ignore
-				return true
-			}
-			edge := models.EncodedEdge{
-				SourceUID: source.UID,
-				DestUID:   dest.UID,
-				Location:  ref,
-			}
-			c.graph.Relations[models.RelationReferences] = append(c.graph.Relations[models.RelationReferences], edge)
-			return true
-		})
-		return nil
-	})
 }
 
 func (c *Collector) subsystemsByUID() map[string]*models.EncodedSubsystem {

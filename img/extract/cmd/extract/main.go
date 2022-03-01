@@ -17,6 +17,7 @@ import (
 var (
 	stripPrefixes       []string
 	stripCurrentWorkdir bool
+	excludeTests        bool
 	bookmarksOnly       bool
 )
 
@@ -78,7 +79,7 @@ var rootCmd = &cobra.Command{
 			panic(err)
 		}
 		allPkgs := strings.Split(buffer.String(), "\n")
-		c, err := collector.NewCollector(allPkgs, logger)
+		c, err := collector.NewCollector(allPkgs, logger, !excludeTests)
 		if err != nil {
 			panic(err)
 		}
@@ -103,6 +104,7 @@ var rootCmd = &cobra.Command{
 func init() {
 	rootCmd.PersistentFlags().StringSliceVar(&stripPrefixes, "strip-prefix", []string{}, "a list of prefixes to strip from package names in the output")
 	rootCmd.PersistentFlags().BoolVar(&stripCurrentWorkdir, "strip-current-workdir", false, "strip the current working directory from all package names")
+	rootCmd.PersistentFlags().BoolVar(&excludeTests, "exclude-tests", false, "ignore test files during extraction")
 	rootCmd.PersistentFlags().BoolVar(&bookmarksOnly, "bookmarks-only", false, "only update the bookmarks from the project file")
 }
 
