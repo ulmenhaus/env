@@ -77,13 +77,15 @@ def pluralize(word):
     return f"{word}s" if not word.endswith("s") else f"{word}es"
 
 
-def tabulate_entries(page_pk, full_pks, key2rel2orobs):
+def tabulate_entries(page_pk, full_pks, key2rel2orobs, maybe_discard=()):
     all_relations = sorted(
         {rel
          for pk in full_pks for rel in key2rel2orobs[pk]})
     # HACK descriptions end up taking too much space in large tables
-    if len(all_relations) >= 5 and "Description" in all_relations:
-        all_relations.remove("Description")
+    if len(all_relations) >= 5:
+        for discard in maybe_discard:
+            if discard in all_relations:
+                all_relations.remove(discard)
     table = [[""] + sorted(all_relations)]
     for full_pk in full_pks:
         display_name = format_related(page_pk, full_pk)
@@ -236,7 +238,7 @@ def generate_markdown(snapshot, table, pk):
         for rel, subjects in rel2subj.items():
             markdown += f"\n### {pluralize(cls)} with this {rel} ({len(subjects)})\n"
             table = tabulate_entries(full_pk, sort_related(subjects),
-                                     key2rel2orobs)
+                                     key2rel2orobs, ["Class", rel])
             markdown += markdown_table(table)
     return markdown
 
