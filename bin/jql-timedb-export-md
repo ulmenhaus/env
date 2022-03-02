@@ -175,17 +175,28 @@ def generate_markdown(snapshot, table, pk):
     title, subtitle = pk, ""
     if table == "tasks":
         task = snapshot[table][pk]
-        pk_terms = pks.pk_terms_for_task(task, snapshot[table].get(task['Primary Goal'], {}))
+        pk_terms = pks.pk_terms_for_task(
+            task, snapshot[table].get(task['Primary Goal'], {}))
         noun_ixes = [2, 4]
         for nix in noun_ixes:
             noun = pk_terms[nix]
             if noun:
                 pk_terms[nix] = _render_link(noun, "/nouns " + noun)
         title = "".join(pk_terms[:5])
-        subtitle = "".join(pk_terms[6:])
+        subtitle = "".join(pk_terms[5:]).strip()
     if subtitle.endswith(")") and subtitle.startswith("("):
         subtitl = subtitle[1:-1]
-    markdown = "# {}\n**{}**\n".format(title, subtitle)
+    markdown = ""
+    if table in ["tasks", "nouns"]:
+        parent_key = "Primary Goal" if table == "tasks" else "Parent"
+        markdown += _render_link(
+            snapshot[table][pk][parent_key],
+            "/" + table + " " + snapshot[table][pk][parent_key])
+        link = snapshot[table][pk].get("Link")
+        if link:
+            markdown += " | " + link
+
+    markdown += "\n# {}\n**{}**\n".format(title, subtitle)
     markdown += markdown_table(
         [["**{}**".format(header) for header in sorted(singletons)],
          [by_relation[header][0][1] for header in sorted(singletons)]])
