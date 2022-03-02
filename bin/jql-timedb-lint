@@ -1,0 +1,75 @@
+#! /usr/local/bin/python3
+
+import json
+import sys
+
+from timedb import pks
+
+
+def _valid_foreign_keys(d):
+    known_nouns = set(d['nouns'])
+    used_nouns = (set(task['Direct'] for task in d['tasks'].values())
+                  | set(task['Indirect'] for task in d['tasks'].values()))
+    unknown_nouns = sorted(used_nouns - known_nouns)
+    for unknown in unknown_nouns:
+        print("Unknown noun referenced:", unknown)
+
+    detected = bool(unknown_nouns)
+    for pk, assertion in d['assertions'].items():
+        table, ref = assertion['Arg0'].split(" ", 1)
+        if table not in ["tasks", "nouns"]:
+            detected = True
+            print(f"Bad table in assertion {pk}")
+        else:
+            if ref not in d[table]:
+                detected = True
+                print(f"Unknown reference in assertion {pk}")
+    return detected
+
+
+def _valid_parents(d):
+    tasks = d['tasks']
+    nouns = d['nouns']
+    detected = False
+    for pk, task in tasks.items():
+        parent = task['Primary Goal']
+        if parent and (parent not in tasks):
+            detected = True
+            print(f"Task {pk} has an unknown parent {parent}")
+    for pk, noun in nouns.items():
+        parent = noun['Parent']
+        if parent and (parent not in nouns):
+            detected = True
+            print(f"Noun {pk} has an unknown parent {parent}")
+        elif not parent and pk != "root":
+            detected = True
+            print(f"Noun {pk} missing parent")
+    return False
+
+
+def _pk_mismatches(d):
+    tasks = d['tasks']
+    detected = False
+    for pk, task in tasks.items():
+        expected = pks.pk_for_task(task, tasks.get(task['Primary Goal'], {}))
+        if expected != pk:
+            detected = True
+            print(f"PK mismatch for task: '{pk}' should be '{expected}'")
+    return detected
+
+
+def main():
+    with open(sys.argv[1]) as f:
+        d = json.load(f)
+    lints = [
+        _valid_foreign_keys,
+        _valid_parents,
+        _pk_mismatches,
+    ]
+    if any(lint(d) for lint in lints):
+        print("errors dtected", file=sys.stderr)
+        exit(1)
+
+
+if __name__ == "__main__":
+    main()
