@@ -1,40 +1,35 @@
 import datetime
 
 
-def pk_for_task(task, parent):
+def pk_terms_for_task(task, parent):
     action = task['Action']
-    preposition = "with"
-    prepreposition = ""
+    preposition = " with " if task['Indirect'] else ""
+    prepreposition = " " if task['Direct'] else ""
     if action == "Attend" and not task['Direct']:
-        preposition = "to"
+        preposition = " to "
     if action in ("Migrate", "Transfer", "Travel"):
-        preposition = "to"
+        preposition = " to "
     elif action in ("Present", ):
-        preposition = "on"
+        preposition = " on "
     elif action in ("Buy", ):
-        preposition = "for"
+        preposition = " for "
     elif action in (
             "Ideate",
             "Deliberate",
     ):
-        preposition = "on"
+        preposition = " on "
     elif action in ("Upload", ):
-        preposition = "from"
+        preposition = " from "
     elif action in ("Vacation", ):
-        prepreposition = "in"
+        prepreposition = " in "
     elif action in ("Lunch", "Dine", "Shop", "Tennis"):
-        prepreposition = "at"
+        if task['Direct']:
+            prepreposition = " at "
     direct_clause, indirect_clause = "", ""
-    if task['Direct']:
-        direct_clause = " {}".format(task['Direct'])
-        if prepreposition:
-            direct_clause = " {}{}".format(prepreposition, direct_clause)
-    if task['Indirect']:
-        indirect_clause = " {} {}".format(preposition, task['Indirect'])
-    mandate = "{}{}{}".format(action, direct_clause, indirect_clause)
+    mandate = [action, prepreposition, task['Direct'], preposition, task['Indirect']]
     if task["Parameters"]:
         marker = " at" if action in ("Extend", "Improve", "Sustain") else ","
-        mandate += "{} {}".format(marker, task['Parameters'])
+        mandate.append("{} {}".format(marker, task['Parameters']))
     planned_start, planned_span = task["Param~Start"], task["Param~Span"]
     # TODO can probably get rid of the dependency on parent now that breakdown
     # tasks are simpler (just use the same span and start as their parent and
@@ -49,5 +44,9 @@ def pk_for_task(task, parent):
     # to match
     if task["Param~Span"] and task["Param~Span"] != "Day":
         distinguisher = "{} of {}".format(task["Param~Span"], distinguisher)
-    mandate += " ({})".format(distinguisher)
+    mandate.append(" ({})".format(distinguisher))
     return mandate
+
+
+def pk_for_task(task, parent):
+    return "".join(pk_terms_for_task(task, parent))

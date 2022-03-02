@@ -27,6 +27,8 @@ import requests
 
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
+from timedb import pks
+
 HOST_NAME = 'localhost'
 PORT_NUMBER = 8080
 MEMOS_PORT_NUMBER = 8081
@@ -171,10 +173,18 @@ def generate_markdown(snapshot, table, pk):
         if len(orobs) != 1 or rel in meta_rels
     }
     title, subtitle = pk, ""
-    if title.endswith(")"):
-        # HACK assumes only one subexpression in parens
-        title = pk.split("(", 1)[0]
-        subtitle = pk.split("(", 1)[1][:-1]
+    if table == "tasks":
+        task = snapshot[table][pk]
+        pk_terms = pks.pk_terms_for_task(task, snapshot[table].get(task['Primary Goal'], {}))
+        noun_ixes = [2, 4]
+        for nix in noun_ixes:
+            noun = pk_terms[nix]
+            if noun:
+                pk_terms[nix] = _render_link(noun, "/nouns " + noun)
+        title = "".join(pk_terms[:5])
+        subtitle = "".join(pk_terms[6:])
+    if subtitle.endswith(")") and subtitle.startswith("("):
+        subtitl = subtitle[1:-1]
     markdown = "# {}\n**{}**\n".format(title, subtitle)
     markdown += markdown_table(
         [["**{}**".format(header) for header in sorted(singletons)],
