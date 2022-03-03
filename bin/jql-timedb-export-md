@@ -147,6 +147,7 @@ def generate_markdown(snapshot, table, pk):
         "Procedure",
         "Memo",
         "Habit",
+        "Command",
     ]
     for key, value in assertions.items():
         rel_pk = value["Arg0"]
