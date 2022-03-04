@@ -30,8 +30,8 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from timedb import pks
 
 HOST_NAME = 'localhost'
-PORT_NUMBER = 8080
-MEMOS_PORT_NUMBER = 8081
+PORT_NUMBER = 9090
+MEMOS_PORT_NUMBER = 9091
 
 
 def markdown_table(rows):
