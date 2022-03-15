@@ -39,6 +39,13 @@ class ProjectManager(object):
         project["bookmarks"][self._key_for_bookmark(path, point)] = {}
         self._save_cache()
 
+    def add_jump(self, path, point):
+        project = self._cache["projects"][self.project]
+        if "jumps" not in project:
+            project["jumps"] = []
+        project["jumps"].append(self._key_for_bookmark(path, point))
+        self._save_cache()
+
     def _key_for_bookmark(self, path, point):
         project = self._cache["projects"][self.project]
         projdir = os.path.abspath(os.path.expanduser(project["workdir"]))
@@ -62,6 +69,10 @@ def main():
 
     @cli.group(name='bookmark')
     def bookmark_group():
+        pass
+
+    @cli.group(name='jump')
+    def jump_group():
         pass
 
     pm = ProjectManager(project=os.environ["TMUX_WINDOW_NAME"])
@@ -88,6 +99,13 @@ def main():
 
     bookmark_group.command()(add)
     bookmark_group.command()(rm)
+
+    @click.argument('path', type=click.STRING)
+    @click.argument('point', type=click.STRING)
+    def add(path, point):
+        return pm.add_jump(path, point)
+
+    jump_group.command()(add)
 
     cli(obj={})
 
