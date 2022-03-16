@@ -2,6 +2,8 @@
 
 import json
 import os
+import subprocess
+import tempfile
 
 import click
 import tabulate
@@ -34,16 +36,33 @@ class ProjectManager(object):
         ] for name, project in self._cache["projects"].items()]
         print(tabulate.tabulate(table))
 
+    def _prompt_for_description(self):
+        with tempfile.NamedTemporaryFile() as tmp:
+            # HACK hard-coding the location of prompt
+            subprocess.check_call([
+                "tmux", "popup", "-h", "8", "-E", "/usr/local/bin/prompt",
+                "Describe your bookmark", tmp.name
+            ])
+            tmp.seek(0)
+            return tmp.read().decode("utf-8")
+
     def add_bookmark(self, path, point):
+        description = self._prompt_for_description()
         project = self._cache["projects"][self.project]
-        project["bookmarks"][self._key_for_bookmark(path, point)] = {}
+        project["bookmarks"][self._key_for_bookmark(path, point)] = {
+            "description": description,
+        }
         self._save_cache()
 
     def add_jump(self, path, point):
         project = self._cache["projects"][self.project]
-        if "jumps" not in project:
-            project["jumps"] = []
-        project["jumps"].append(self._key_for_bookmark(path, point))
+        jumps = project.get("jumps", [])
+        jumps = project["jumps"]
+        key = self._key_for_bookmark(path, point)
+        while key in jumps:
+            jumps.remove(key)
+        jumps.insert(0, key)
+        project["jumps"] = jumps[:20]
         self._save_cache()
 
     def _key_for_bookmark(self, path, point):
