@@ -1,20 +1,22 @@
 package ui
 
 import (
-	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/jroimartin/gocui"
+	"github.com/ulmenhaus/env/img/jql/osm"
+	"github.com/ulmenhaus/env/img/jql/storage"
+	"github.com/ulmenhaus/env/img/jql/types"
+	"github.com/ulmenhaus/env/img/jql/ui"
 )
 
 const (
 	// HACK hard-coding path to tmux and emacsclient
-	TMUX_PATH = "/usr/local/bin/tmux"
+	TMUX_PATH         = "/usr/local/bin/tmux"
 	EMACS_CLIENT_PATH = "/usr/local/bin/emacsclient"
 )
 
@@ -40,15 +42,22 @@ var (
 	}
 )
 
+type Resource struct {
+	Location    string
+	Description string
+}
+
 // A MainView is the overall view including a list of resources
 type MainView struct {
 	Mode   MainViewMode
 	TypeIX int
 
-	project         Project
+	OSM *osm.ObjectStoreMapper
+	DB  *types.Database
+
 	projectName     string
 	resourceQ       string
-	activeResources []string
+	activeResources []Resource
 }
 
 // NewMainView returns a MainView initialized with a given Table
@@ -58,21 +67,26 @@ func NewMainView(g *gocui.Gui, projectName, jqlBinDir string) (*MainView, error)
 		return nil, err
 	}
 	projectsPath := filepath.Join(homedir, ".projects.json")
-	contents, err := ioutil.ReadFile(projectsPath)
+	mapper, err := osm.NewObjectStoreMapper(&storage.JSONStore{})
 	if err != nil {
 		return nil, err
 	}
-	projectsFile := &ProjectsFile{}
-	err = json.Unmarshal(contents, projectsFile)
+	f, err := os.Open(projectsPath)
 	if err != nil {
 		return nil, err
 	}
-	project, ok := projectsFile.Projects[projectName]
-	if !ok {
-		return nil, fmt.Errorf("No meta-data for project: %s", projectName)
+	defer f.Close()
+	db, err := mapper.Load(f)
+	if err != nil {
+		return nil, err
 	}
+
 	mv := &MainView{
-		project:     project,
+		OSM: mapper,
+		DB:  db,
+
+		TypeIX: 1,
+
 		projectName: projectName,
 	}
 	return mv, mv.refreshResources()
@@ -116,7 +130,7 @@ func (mv *MainView) listResourcesLayout(g *gocui.Gui) error {
 	view.SelFgColor = gocui.ColorBlack
 	view.Clear()
 	for _, active := range mv.activeResources {
-		_, err = view.Write([]byte(active + "\n"))
+		_, err = view.Write([]byte(active.Description + "\n"))
 		if err != nil {
 			return err
 		}
@@ -232,9 +246,68 @@ func (mv *MainView) decrementCursor(g *gocui.Gui, v *gocui.View) error {
 }
 
 func (mv *MainView) refreshResources() error {
-	mv.activeResources = []string{}
-	for _, jump := range mv.project.Jumps {
-		mv.activeResources = append(mv.activeResources, jump)
+	mv.activeResources = []Resource{}
+	switch ListResourcesTypes[mv.TypeIX] {
+	case ResourceTypeComponents:
+	case ResourceTypeBookmarks:
+		return mv.gatherBookmarks()
+	case ResourceTypeJumps:
+		return mv.gatherJumps()
+	}
+	return nil
+}
+
+func (mv *MainView) gatherJumps() error {
+	jumpsTable := mv.DB.Tables[JumpsTable]
+	jumps, err := jumpsTable.Query(
+		types.QueryParams{
+			Filters: []types.Filter{
+				&ui.EqualFilter{
+					Field:     FieldProject,
+					Col:       jumpsTable.IndexOfField(FieldProject),
+					Formatted: mv.projectName,
+				},
+			},
+			OrderBy: FieldOrder,
+		},
+	)
+	if err != nil {
+		return err
+	}
+
+	for _, jump := range jumps.Entries {
+		mv.activeResources = append(mv.activeResources, Resource{
+			// TODO auto-resolve a description based on components
+			Description: jump[jumpsTable.Primary()].Format(""),
+			Location:    jump[jumpsTable.Primary()].Format(""),
+		})
+	}
+	return nil
+}
+
+func (mv *MainView) gatherBookmarks() error {
+	bookmarksTable := mv.DB.Tables[BookmarksTable]
+	bookmarks, err := bookmarksTable.Query(
+		types.QueryParams{
+			Filters: []types.Filter{
+				&ui.EqualFilter{
+					Field:     FieldProject,
+					Col:       bookmarksTable.IndexOfField(FieldProject),
+					Formatted: mv.projectName,
+				},
+			},
+			OrderBy: FieldOrder,
+		},
+	)
+	if err != nil {
+		return err
+	}
+
+	for _, bookmark := range bookmarks.Entries {
+		mv.activeResources = append(mv.activeResources, Resource{
+			Description: bookmark[bookmarksTable.IndexOfField(FieldDescription)].Format(""),
+			Location:    bookmark[bookmarksTable.Primary()].Format(""),
+		})
 	}
 	return nil
 }
@@ -244,6 +317,7 @@ func (mv *MainView) gatherResources() error {
 }
 
 func (mv *MainView) selectItem(g *gocui.Gui, v *gocui.View) error {
+	// TODO should probably re-order these from MRU
 	return mv.selectJump(g, v)
 }
 
@@ -251,14 +325,18 @@ func (mv *MainView) selectJump(g *gocui.Gui, v *gocui.View) error {
 	_, oy := v.Origin()
 	_, cy := v.Cursor()
 	jump := mv.activeResources[oy+cy]
-	parts := strings.Split(jump, "#")
+	parts := strings.Split(jump.Location, "#")
 	path, pos := parts[0], parts[1]
 	cmd := exec.Command(EMACS_CLIENT_PATH, "-n", "-s", mv.projectName, path)
 	homedir, err := os.UserHomeDir()
 	if err != nil {
 		return err
 	}
-	cmd.Dir = strings.Replace(mv.project.Workdir, "~", homedir, 1)
+	workdir, err := mv.getProjectWorkdir()
+	if err != nil {
+		return err
+	}
+	cmd.Dir = strings.Replace(workdir, "~", homedir, 1)
 	err = cmd.Run()
 	if err != nil {
 		return err
@@ -279,4 +357,27 @@ func (mv *MainView) enterSearchMode(g *gocui.Gui, v *gocui.View) error {
 
 func (mv *MainView) toggleSearch(g *gocui.Gui, v *gocui.View) error {
 	return nil
+}
+
+func (mv *MainView) getProjectWorkdir() (string, error) {
+	allProjects := mv.DB.Tables[ProjectsTable]
+	projects, err := allProjects.Query(
+		types.QueryParams{
+			Filters: []types.Filter{
+				&ui.EqualFilter{
+					Field:     FieldProjectName,
+					Col:       allProjects.IndexOfField(FieldProjectName),
+					Formatted: mv.projectName,
+				},
+			},
+			OrderBy: FieldProjectName,
+		},
+	)
+	if err != nil {
+		return "", err
+	}
+	if projects.Total != 1 {
+		return "", fmt.Errorf("Expected one poject with this name, got: %d", projects.Total)
+	}
+	return projects.Entries[0][allProjects.IndexOfField(FieldWorkdir)].Format(""), nil
 }

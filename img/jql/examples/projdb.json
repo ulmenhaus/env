@@ -1,0 +1,40 @@
+{
+    "_schemata": {
+        "bookmarks.A Location": {
+            "primary": true,
+            "type": "string"
+        },
+        "bookmarks.Description": {
+            "type": "string"
+        },
+        "bookmarks.Order": {
+            "type": "int"
+        },
+        "bookmarks.Project": {
+            "type": "foreign.projects"
+        },
+        "jumps.A Location": {
+            "primary": true,
+            "type": "string"
+        },
+        "jumps.Order": {
+            "type": "int"
+        },
+        "jumps.Project": {
+            "type": "foreign.projects"
+        },
+        "projects.A Name": {
+            "primary": true,
+            "type": "string"
+        },
+        "projects.Default Resource Filter": {
+            "type": "string"
+        },
+        "projects.Workdir": {
+            "type": "string"
+        }
+    },
+    "bookmarks": {},
+    "jumps": {},
+    "projects": {}
+}

@@ -1,0 +1,143 @@
+{
+    "_schemata": {
+        "assertions.A Relation": {
+            "type": "string"
+        },
+        "assertions.Arg0": {
+            "type": "string"
+        },
+        "assertions.Arg1": {
+            "type": "string"
+        },
+        "assertions.Order": {
+            "type": "int"
+        },
+        "assertions._Description": {
+            "primary": true,
+            "type": "string"
+        },
+        "files.A Type": {
+            "features": {
+                "values": "blob, snippet, writeup"
+            },
+            "type": "enum"
+        },
+        "files.Project": {
+            "type": "string"
+        },
+        "files.Xtended Name": {
+            "type": "string"
+        },
+        "files.Z Output": {
+            "type": "string"
+        },
+        "files._Path": {
+            "primary": true,
+            "type": "string"
+        },
+        "log.A Task": {
+            "type": "foreign.tasks"
+        },
+        "log.A_Description": {
+            "primary": true,
+            "type": "string"
+        },
+        "log.Begin": {
+            "type": "time"
+        },
+        "log.End": {
+            "type": "time"
+        },
+        "log.Notes": {
+            "type": "string"
+        },
+        "log.Workspace": {
+            "features": {
+                "length": 8,
+                "strategy": "hex"
+            },
+            "type": "id"
+        },
+        "macros.Key": {
+            "primary": true,
+            "type": "string"
+        },
+        "macros.Location": {
+            "type": "string"
+        },
+        "macros.Params": {
+            "type": "string"
+        },
+        "macros.Reload": {
+            "features": {
+                "values": "no, yes"
+            },
+            "type": "enum"
+        },
+        "nouns.Description": {
+            "primary": true,
+            "type": "string"
+        },
+        "nouns.Feed": {
+            "type": "foreign.files"
+        },
+        "nouns.Link": {
+            "type": "foreign.files"
+        },
+        "nouns.Parent": {
+            "type": "foreign.nouns"
+        },
+        "nouns.Relation": {
+            "features": {
+                "values": ", Elem, Item, Vertex, Part, Feature, Possession"
+            },
+            "type": "enum"
+        },
+        "nouns.Status": {
+            "features": {
+                "values": "Unprocessed, Pending, Active, Satisfied, Revisit, Habitual, Abandoned, Someday"
+            },
+            "type": "enum"
+        },
+        "tasks.Action": {
+            "type": "string"
+        },
+        "tasks.Direct": {
+            "type": "foreign.nouns"
+        },
+        "tasks.Indirect": {
+            "type": "foreign.nouns"
+        },
+        "tasks.Parameters": {
+            "type": "string"
+        },
+        "tasks.Param~Span": {
+            "features": {
+                "values": "Day, Week, Month, Quarter, Half, Year, Era"
+            },
+            "type": "enum"
+        },
+        "tasks.Param~Start": {
+            "type": "date"
+        },
+        "tasks.Primary Goal": {
+            "type": "foreign.tasks"
+        },
+        "tasks.Status": {
+            "features": {
+                "values": "Pending, Active, Satisfied, Revisit, Failed, Habitual, Abandoned, Someday"
+            },
+            "type": "enum"
+        },
+        "tasks._Description": {
+            "primary": true,
+            "type": "string"
+        }
+    },
+    "assertions": {},
+    "files": {},
+    "log": {},
+    "macros": {},
+    "nouns": {},
+    "tasks": {}
+}

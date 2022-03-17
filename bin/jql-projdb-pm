@@ -19,20 +19,16 @@ class ProjectManager(object):
     def new_project(self, workdir):
         reldir = os.path.abspath(workdir).replace(os.path.expanduser("~"), "~")
         self._cache["projects"][self.project] = {
-            "workdir": reldir,
-            "bookmarks": {},
-            "commands": [],
-            "tags": [],
+            "Workdir": reldir,
+            "Default Resource Filter": "",
         }
         self._save_cache()
 
     def list_projects(self):
         table = [[
             name,
-            project["workdir"],
-            "{} bookmarks".format(len(project["bookmarks"])),
-            "{} commands".format(len(project["commands"])),
-            " ".join(project["tags"]),
+            project["Workdir"],
+            project["Default Resource Filter"],
         ] for name, project in self._cache["projects"].items()]
         print(tabulate.tabulate(table))
 
@@ -48,32 +44,46 @@ class ProjectManager(object):
 
     def add_bookmark(self, path, point):
         description = self._prompt_for_description()
-        project = self._cache["projects"][self.project]
-        project["bookmarks"][self._key_for_bookmark(path, point)] = {
-            "description": description,
+        key = self._key_for_bookmark(path, point)
+        self._cache["bookmarks"][key] = {
+            "Description": description,
+            "Project": self.project,
         }
         self._save_cache()
 
     def add_jump(self, path, point):
-        project = self._cache["projects"][self.project]
-        jumps = project.get("jumps", [])
-        jumps = project["jumps"]
+        all_jumps = self._cache["jumps"]
+        filtered_jumps = {
+            key: jump
+            for key, jump in all_jumps.items()
+            if jump["Project"] == self.project
+        }
+        other_jumps = {
+            key: jump
+            for key, jump in all_jumps.items() if key not in filtered_jumps
+        }
         key = self._key_for_bookmark(path, point)
-        while key in jumps:
-            jumps.remove(key)
-        jumps.insert(0, key)
-        project["jumps"] = jumps[:20]
+        max_increment = filtered_jumps[key]["Order"] if key in filtered_jumps else 100
+        for jump in filtered_jumps.values():
+            if jump['Order'] < max_increment:
+                jump['Order'] += 1
+        filtered_jumps[key] = {
+            "Order": 1,
+            "Project": self.project,
+        }
+        filtered_jumps.update(other_jumps) # unioning of dicts supported in python 3.9 for some future code golfing
+        self._cache["jumps"] = filtered_jumps
         self._save_cache()
 
     def _key_for_bookmark(self, path, point):
         project = self._cache["projects"][self.project]
-        projdir = os.path.abspath(os.path.expanduser(project["workdir"]))
+        projdir = os.path.abspath(os.path.expanduser(project["Workdir"]))
         relpath = os.path.abspath(path)[len(projdir) + 1:]
         return "{}#{}".format(relpath, point)
 
     def _save_cache(self):
         with open(self.path, 'w') as f:
-            json.dump(self._cache, f)
+            json.dump(self._cache, f, indent=4)
 
 
 @click.group()
