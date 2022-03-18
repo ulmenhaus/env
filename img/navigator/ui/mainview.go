@@ -60,6 +60,7 @@ type MainView struct {
 
 	projectName     string
 	resourceQ       string
+	allResources    []Resource
 	activeResources []Resource
 }
 
@@ -114,11 +115,13 @@ func NewMainView(g *gocui.Gui, projectName, jqlBinDir string) (*MainView, error)
 		mv.CodeDB = codeDB
 		mv.CodeOSM = codeMapper
 	}
-	return mv, mv.refreshResources()
+	return mv, mv.refreshAllResources()
 }
 
 // Edit handles keyboard inputs while searching
 func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifier) {
+	mv.editQuery(v, key, ch, mod)
+	return
 }
 
 func (mv *MainView) editQuery(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifier) {
@@ -133,7 +136,7 @@ func (mv *MainView) editQuery(v *gocui.View, key gocui.Key, ch rune, mod gocui.M
 	} else {
 		mv.resourceQ += string(ch)
 	}
-	mv.refreshResources()
+	mv.refreshActiveResources()
 }
 
 func (mv *MainView) Layout(g *gocui.Gui) error {
@@ -146,7 +149,7 @@ func (mv *MainView) listResourcesLayout(g *gocui.Gui) error {
 		return err
 	}
 	maxX, maxY := g.Size()
-	view, err := g.SetView(ResourceView, 0, 5, maxX-1, maxY-1)
+	view, err := g.SetView(ResourceView, 0, 3, maxX-1, maxY-3)
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	}
@@ -160,8 +163,29 @@ func (mv *MainView) listResourcesLayout(g *gocui.Gui) error {
 			return err
 		}
 	}
-	g.SetCurrentView(ResourceView)
 
+	subDisplay, err := g.SetView(SubDisplayView, 0, maxY-3, maxX-1, maxY-1)
+	if err != nil && err != gocui.ErrUnknownView {
+		return err
+	}
+	subDisplay.Clear()
+	subDisplay.Editable = true
+	subDisplay.Editor = mv
+	if mv.Mode == MainViewModeListResources {
+		_, cy := view.Cursor()
+		_, oy := view.Origin()
+		ix := cy + oy
+		if ix < len(mv.activeResources) {
+			subDisplay.Write([]byte(mv.activeResources[ix].Location))
+		}
+	} else if mv.Mode == MainViewModeQueryResources {
+		subDisplay.Write([]byte(mv.resourceQ))
+	}
+	if mv.Mode == MainViewModeListResources {
+		g.SetCurrentView(ResourceView)
+	} else if mv.Mode == MainViewModeQueryResources {
+		g.SetCurrentView(SubDisplayView)
+	}
 	return nil
 }
 func (mv *MainView) titleBar(g *gocui.Gui) error {
@@ -170,7 +194,7 @@ func (mv *MainView) titleBar(g *gocui.Gui) error {
 	for i, t := range types {
 		width := maxX / len(types)
 		startX := i * width
-		view, err := g.SetView(fmt.Sprintf("%s-%s", TypeView, t), startX, 2, startX+width, 4)
+		view, err := g.SetView(fmt.Sprintf("%s-%s", TypeView, t), startX, 0, startX+width, 2)
 		if err != nil && err != gocui.ErrUnknownView {
 			return err
 		}
@@ -225,16 +249,18 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 }
 
 func (mv *MainView) incrementType(g *gocui.Gui, v *gocui.View) error {
+	mv.resourceQ = ""
 	mv.TypeIX = (mv.TypeIX + 1) % len(ListResourcesTypes)
-	return mv.refreshResources()
+	return mv.refreshAllResources()
 }
 
 func (mv *MainView) decrementType(g *gocui.Gui, v *gocui.View) error {
+	mv.resourceQ = ""
 	mv.TypeIX -= 1
 	if mv.TypeIX < 0 {
 		mv.TypeIX = len(ListResourcesTypes) - 1
 	}
-	return mv.refreshResources()
+	return mv.refreshAllResources()
 }
 
 func (mv *MainView) incrementCursor(g *gocui.Gui, v *gocui.View) error {
@@ -274,15 +300,25 @@ func (mv *MainView) decrementCursor(g *gocui.Gui, v *gocui.View) error {
 	return nil
 }
 
-func (mv *MainView) refreshResources() error {
-	mv.activeResources = []Resource{}
+func (mv *MainView) refreshAllResources() error {
+	mv.allResources = []Resource{}
 	switch ListResourcesTypes[mv.TypeIX] {
 	case ResourceTypeComponents:
-		return mv.gatherComponents()
+		mv.gatherComponents()
 	case ResourceTypeBookmarks:
-		return mv.gatherBookmarks()
+		mv.gatherBookmarks()
 	case ResourceTypeJumps:
-		return mv.gatherJumps()
+		mv.gatherJumps()
+	}
+	return mv.refreshActiveResources()
+}
+
+func (mv *MainView) refreshActiveResources() error {
+	mv.activeResources = []Resource{}
+	for _, resource := range mv.allResources {
+		if strings.Contains(strings.ToLower(resource.Description), strings.ToLower(mv.resourceQ)) {
+			mv.activeResources = append(mv.activeResources, resource)
+		}
 	}
 	return nil
 }
@@ -306,7 +342,7 @@ func (mv *MainView) gatherJumps() error {
 	}
 
 	for _, jump := range jumps.Entries {
-		mv.activeResources = append(mv.activeResources, Resource{
+		mv.allResources = append(mv.allResources, Resource{
 			// TODO auto-resolve a description based on components
 			Description: jump[jumpsTable.Primary()].Format(""),
 			Location:    jump[jumpsTable.Primary()].Format(""),
@@ -330,7 +366,7 @@ func (mv *MainView) gatherComponents() error {
 	}
 
 	for _, component := range components.Entries {
-		mv.activeResources = append(mv.activeResources, Resource{
+		mv.allResources = append(mv.allResources, Resource{
 			Description: component[componentsTable.IndexOfField(FieldDisplayName)].Format(""),
 			Location:    component[componentsTable.IndexOfField(FieldSrcLocation)].Format(""),
 		})
@@ -357,7 +393,7 @@ func (mv *MainView) gatherBookmarks() error {
 	}
 
 	for _, bookmark := range bookmarks.Entries {
-		mv.activeResources = append(mv.activeResources, Resource{
+		mv.allResources = append(mv.allResources, Resource{
 			Description: bookmark[bookmarksTable.IndexOfField(FieldDescription)].Format(""),
 			Location:    bookmark[bookmarksTable.Primary()].Format(""),
 		})
@@ -422,6 +458,7 @@ func (mv *MainView) enterSearchMode(g *gocui.Gui, v *gocui.View) error {
 }
 
 func (mv *MainView) toggleSearch(g *gocui.Gui, v *gocui.View) error {
+	mv.Mode = MainViewModeQueryResources
 	return nil
 }
 

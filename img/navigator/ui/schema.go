@@ -12,8 +12,9 @@ const (
 
 	ComponentsTable string = "components"
 
-	ResourceView string = "Resources"
-	TypeView     string = "Types"
+	ResourceView   string = "Resources"
+	SubDisplayView string = "SubDisplay"
+	TypeView       string = "Types"
 
 	FieldDescription string = "Description"
 	FieldOrder       string = "Order"
