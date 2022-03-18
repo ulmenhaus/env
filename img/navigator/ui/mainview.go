@@ -185,6 +185,10 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 	if err != nil {
 		return err
 	}
+	err = g.SetKeybinding(ResourceView, 'c', gocui.ModNone, mv.changeDirectory)
+	if err != nil {
+		return err
+	}
 	err = g.SetKeybinding(ResourceView, '/', gocui.ModNone, mv.toggleSearch)
 	if err != nil {
 		return err
@@ -327,7 +331,6 @@ func (mv *MainView) selectJump(g *gocui.Gui, v *gocui.View) error {
 	jump := mv.activeResources[oy+cy]
 	parts := strings.Split(jump.Location, "#")
 	path, pos := parts[0], parts[1]
-	cmd := exec.Command(EMACS_CLIENT_PATH, "-n", "-s", mv.projectName, path)
 	homedir, err := os.UserHomeDir()
 	if err != nil {
 		return err
@@ -336,6 +339,7 @@ func (mv *MainView) selectJump(g *gocui.Gui, v *gocui.View) error {
 	if err != nil {
 		return err
 	}
+	cmd := exec.Command(EMACS_CLIENT_PATH, "-n", "-s", mv.projectName, path)
 	cmd.Dir = strings.Replace(workdir, "~", homedir, 1)
 	err = cmd.Run()
 	if err != nil {
@@ -343,6 +347,31 @@ func (mv *MainView) selectJump(g *gocui.Gui, v *gocui.View) error {
 	}
 
 	cmd = exec.Command(TMUX_PATH, "send", "Escape", "x", "goto-char", "ENTER", string(pos), "ENTER")
+	err = cmd.Run()
+	if err != nil {
+		return err
+	}
+	os.Exit(0)
+	return nil
+}
+
+func (mv *MainView) changeDirectory(g *gocui.Gui, v *gocui.View) error {
+	_, oy := v.Origin()
+	_, cy := v.Cursor()
+	res := mv.activeResources[oy+cy]
+	parts := strings.Split(res.Location, "#")
+	path, _ := parts[0], parts[1]
+	homedir, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	workdir, err := mv.getProjectWorkdir()
+	if err != nil {
+		return err
+	}
+	dir := filepath.Join(strings.Replace(workdir, "~", homedir, 1), filepath.Dir(path))
+
+	cmd := exec.Command(TMUX_PATH, "send", "cd", " ", dir, "ENTER")
 	err = cmd.Run()
 	if err != nil {
 		return err
