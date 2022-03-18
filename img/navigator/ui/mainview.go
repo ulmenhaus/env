@@ -55,6 +55,9 @@ type MainView struct {
 	OSM *osm.ObjectStoreMapper
 	DB  *types.Database
 
+	CodeOSM *osm.ObjectStoreMapper
+	CodeDB  *types.Database
+
 	projectName     string
 	resourceQ       string
 	activeResources []Resource
@@ -88,6 +91,28 @@ func NewMainView(g *gocui.Gui, projectName, jqlBinDir string) (*MainView, error)
 		TypeIX: 1,
 
 		projectName: projectName,
+	}
+
+	projWorkdir, err := mv.getProjectWorkdir()
+	if err != nil {
+		return nil, err
+	}
+	projectPath := filepath.Join(projWorkdir, ".project.json")
+	codeMapper, err := osm.NewObjectStoreMapper(&storage.JSONStore{})
+	if err != nil {
+		return nil, err
+	}
+	f, err = os.Open(projectPath)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	} else if err == nil {
+		defer f.Close()
+		codeDB, err := mapper.Load(f)
+		if err != nil {
+			return nil, err
+		}
+		mv.CodeDB = codeDB
+		mv.CodeOSM = codeMapper
 	}
 	return mv, mv.refreshResources()
 }
@@ -253,6 +278,7 @@ func (mv *MainView) refreshResources() error {
 	mv.activeResources = []Resource{}
 	switch ListResourcesTypes[mv.TypeIX] {
 	case ResourceTypeComponents:
+		return mv.gatherComponents()
 	case ResourceTypeBookmarks:
 		return mv.gatherBookmarks()
 	case ResourceTypeJumps:
@@ -289,6 +315,29 @@ func (mv *MainView) gatherJumps() error {
 	return nil
 }
 
+func (mv *MainView) gatherComponents() error {
+	if mv.CodeDB == nil {
+		return nil
+	}
+	componentsTable := mv.CodeDB.Tables[ComponentsTable]
+	components, err := componentsTable.Query(
+		types.QueryParams{
+			OrderBy: FieldDisplayName,
+		},
+	)
+	if err != nil {
+		return err
+	}
+
+	for _, component := range components.Entries {
+		mv.activeResources = append(mv.activeResources, Resource{
+			Description: component[componentsTable.IndexOfField(FieldDisplayName)].Format(""),
+			Location:    component[componentsTable.IndexOfField(FieldSrcLocation)].Format(""),
+		})
+	}
+	return nil
+}
+
 func (mv *MainView) gatherBookmarks() error {
 	bookmarksTable := mv.DB.Tables[BookmarksTable]
 	bookmarks, err := bookmarksTable.Query(
@@ -316,10 +365,6 @@ func (mv *MainView) gatherBookmarks() error {
 	return nil
 }
 
-func (mv *MainView) gatherResources() error {
-	return nil
-}
-
 func (mv *MainView) selectItem(g *gocui.Gui, v *gocui.View) error {
 	// TODO should probably re-order these from MRU
 	return mv.selectJump(g, v)
@@ -331,16 +376,12 @@ func (mv *MainView) selectJump(g *gocui.Gui, v *gocui.View) error {
 	jump := mv.activeResources[oy+cy]
 	parts := strings.Split(jump.Location, "#")
 	path, pos := parts[0], parts[1]
-	homedir, err := os.UserHomeDir()
-	if err != nil {
-		return err
-	}
 	workdir, err := mv.getProjectWorkdir()
 	if err != nil {
 		return err
 	}
 	cmd := exec.Command(EMACS_CLIENT_PATH, "-n", "-s", mv.projectName, path)
-	cmd.Dir = strings.Replace(workdir, "~", homedir, 1)
+	cmd.Dir = workdir
 	err = cmd.Run()
 	if err != nil {
 		return err
@@ -361,15 +402,11 @@ func (mv *MainView) changeDirectory(g *gocui.Gui, v *gocui.View) error {
 	res := mv.activeResources[oy+cy]
 	parts := strings.Split(res.Location, "#")
 	path, _ := parts[0], parts[1]
-	homedir, err := os.UserHomeDir()
-	if err != nil {
-		return err
-	}
 	workdir, err := mv.getProjectWorkdir()
 	if err != nil {
 		return err
 	}
-	dir := filepath.Join(strings.Replace(workdir, "~", homedir, 1), filepath.Dir(path))
+	dir := filepath.Join(workdir, filepath.Dir(path))
 
 	cmd := exec.Command(TMUX_PATH, "send", "cd", " ", dir, "ENTER")
 	err = cmd.Run()
@@ -408,5 +445,11 @@ func (mv *MainView) getProjectWorkdir() (string, error) {
 	if projects.Total != 1 {
 		return "", fmt.Errorf("Expected one poject with this name, got: %d", projects.Total)
 	}
-	return projects.Entries[0][allProjects.IndexOfField(FieldWorkdir)].Format(""), nil
+	workdir := projects.Entries[0][allProjects.IndexOfField(FieldWorkdir)].Format("")
+	homedir, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return strings.Replace(workdir, "~", homedir, 1), nil
+
 }
