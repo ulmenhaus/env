@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/jroimartin/gocui"
 	"github.com/ulmenhaus/env/img/jql/osm"
@@ -23,6 +24,7 @@ type MainViewMode int
 const (
 	MainViewModeListBar MainViewMode = iota
 	MainViewModeListCycles
+	MainViewModeSwitchingToJQL
 )
 
 // A MainView is the overall view including a project list
@@ -110,7 +112,16 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 	log.Clear()
 	tasks.SelBgColor = gocui.ColorWhite
 	tasks.SelFgColor = gocui.ColorBlack
-	tasks.Highlight = true
+	tasks.Highlight = mv.Mode != MainViewModeSwitchingToJQL
+
+	if mv.Mode == MainViewModeSwitchingToJQL {
+		// HACK give the event loop time to clear highlighting from the tty
+		// so that when we switch to jql we don't have inverted colors
+		go func() {
+			time.Sleep(50 * time.Millisecond)
+			mv.switchToJQL(g, tasks)
+		}()
+	}
 
 	for _, desc := range mv.tabulatedTasks() {
 		fmt.Fprintf(tasks, "%s\n", desc)
@@ -204,7 +215,7 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(TasksView, 'q', gocui.ModNone, mv.switchToJQL)
+	err = g.SetKeybinding(TasksView, 'q', gocui.ModNone, mv.triggerSwitchToJQL)
 	if err != nil {
 		return err
 	}
@@ -398,6 +409,11 @@ func (mv *MainView) cursorUp(g *gocui.Gui, v *gocui.View) error {
 		}
 	}
 	return mv.refreshView(g)
+}
+
+func (mv *MainView) triggerSwitchToJQL(g *gocui.Gui, v *gocui.View) error {
+	mv.Mode = MainViewModeSwitchingToJQL
+	return nil
 }
 
 func (mv *MainView) switchToJQL(g *gocui.Gui, v *gocui.View) error {
