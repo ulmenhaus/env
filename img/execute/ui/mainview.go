@@ -25,6 +25,7 @@ const (
 	MainViewModeListBar MainViewMode = iota
 	MainViewModeListCycles
 	MainViewModeSwitchingToJQL
+	MainViewModeGoingToJQLEntry
 )
 
 // A MainView is the overall view including a project list
@@ -112,14 +113,18 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 	log.Clear()
 	tasks.SelBgColor = gocui.ColorWhite
 	tasks.SelFgColor = gocui.ColorBlack
-	tasks.Highlight = mv.Mode != MainViewModeSwitchingToJQL
+	tasks.Highlight = mv.Mode != MainViewModeSwitchingToJQL && mv.Mode != MainViewModeGoingToJQLEntry
 
-	if mv.Mode == MainViewModeSwitchingToJQL {
+	if mv.Mode == MainViewModeSwitchingToJQL || mv.Mode == MainViewModeGoingToJQLEntry {
 		// HACK give the event loop time to clear highlighting from the tty
 		// so that when we switch to jql we don't have inverted colors
 		go func() {
 			time.Sleep(50 * time.Millisecond)
-			mv.switchToJQL(g, tasks)
+			if mv.Mode == MainViewModeSwitchingToJQL {
+				mv.switchToJQL(g, tasks)
+			} else if mv.Mode == MainViewModeGoingToJQLEntry {
+				mv.goToJQLEntry(g, tasks)
+			}
 		}()
 	}
 
@@ -219,7 +224,7 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(TasksView, 'g', gocui.ModNone, mv.goToJQLEntry)
+	err = g.SetKeybinding(TasksView, 'g', gocui.ModNone, mv.triggerGoToJQLEntry)
 	if err != nil {
 		return err
 	}
@@ -432,6 +437,11 @@ func (mv *MainView) switchToJQL(g *gocui.Gui, v *gocui.View) error {
 
 	err = syscall.Exec(binary, args, env)
 	return err
+}
+
+func (mv *MainView) triggerGoToJQLEntry(g *gocui.Gui, v *gocui.View) error {
+	mv.Mode = MainViewModeGoingToJQLEntry
+	return nil
 }
 
 func (mv *MainView) goToJQLEntry(g *gocui.Gui, v *gocui.View) error {
