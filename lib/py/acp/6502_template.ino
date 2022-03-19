@@ -31,8 +31,9 @@ void onClock() {
 	char rwc = reading ? 'R' : 'W';
   unsigned char data = 0;
 
+	bool with_arduino = ((address < 0x6000) || (address >= 0x8000));
 
-	if (reading) {
+	if (reading && with_arduino) {
 		unsigned int offset = address - 0x8000;
 
 		if (address < RAMLEN) {
