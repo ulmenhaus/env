@@ -5,6 +5,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/jroimartin/gocui"
@@ -42,8 +45,34 @@ var (
 	}
 )
 
+type Location struct {
+	Path  string
+	Point int
+}
+
+func (l Location) String() string {
+	return fmt.Sprintf("%s#%d", l.Path, l.Point)
+}
+
+func NewLocation(str string) Location {
+	parts := strings.SplitN(str, "#", 2)
+	path, pointS := parts[0], ""
+	if len(parts) > 1 {
+		pointS = parts[1]
+	}
+	point, err := strconv.Atoi(pointS)
+	if err != nil {
+		// NOTE maybe redundant, but explicitly checking error here
+		point = 0
+	}
+	return Location{
+		Path:  path,
+		Point: point,
+	}
+}
+
 type Resource struct {
-	Location    string
+	Location    Location
 	Description string
 }
 
@@ -62,6 +91,8 @@ type MainView struct {
 	resourceQ       string
 	allResources    []Resource
 	activeResources []Resource
+
+	componentLookup map[string][]Resource // maps each file to a list of components sorted by location
 }
 
 // NewMainView returns a MainView initialized with a given Table
@@ -176,7 +207,7 @@ func (mv *MainView) listResourcesLayout(g *gocui.Gui) error {
 		_, oy := view.Origin()
 		ix := cy + oy
 		if ix < len(mv.activeResources) {
-			subDisplay.Write([]byte(mv.activeResources[ix].Location))
+			subDisplay.Write([]byte(mv.activeResources[ix].Location.String()))
 		}
 	} else if mv.Mode == MainViewModeQueryResources {
 		subDisplay.Write([]byte(mv.resourceQ))
@@ -242,6 +273,10 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 	if err != nil {
 		return err
 	}
+	err = g.SetKeybinding(ResourceView, 'q', gocui.ModNone, mv.clearSearch)
+	if err != nil {
+		return err
+	}
 	if err := g.SetKeybinding(ResourceView, gocui.KeyEnter, gocui.ModNone, mv.selectItem); err != nil {
 		return err
 	}
@@ -304,19 +339,55 @@ func (mv *MainView) refreshAllResources() error {
 	mv.allResources = []Resource{}
 	switch ListResourcesTypes[mv.TypeIX] {
 	case ResourceTypeComponents:
-		mv.gatherComponents()
+		err := mv.gatherComponents()
+		if err != nil {
+			return err
+		}
 	case ResourceTypeBookmarks:
-		mv.gatherBookmarks()
+		err := mv.gatherBookmarks()
+		if err != nil {
+			return err
+		}
 	case ResourceTypeJumps:
-		mv.gatherJumps()
+		if mv.componentLookup == nil {
+			mv.componentLookup = map[string][]Resource{}
+			err := mv.gatherComponents()
+			if err != nil {
+				return err
+			}
+			for _, res := range mv.allResources {
+				mv.componentLookup[res.Location.Path] = append(mv.componentLookup[res.Location.Path], res)
+			}
+			for key := range mv.componentLookup {
+				sort.Slice(mv.componentLookup[key], func(i, j int) bool {
+					return mv.componentLookup[key][i].Location.Point < mv.componentLookup[key][j].Location.Point
+				})
+			}
+			mv.allResources = []Resource{}
+		}
+		err := mv.gatherJumps()
+		if err != nil {
+			return err
+		}
 	}
 	return mv.refreshActiveResources()
 }
 
 func (mv *MainView) refreshActiveResources() error {
 	mv.activeResources = []Resource{}
+	// if the source query is all lower case then we don't want to be case sensitive
+	shouldLower := strings.ToLower(mv.resourceQ) == mv.resourceQ
+	regex, err := regexp.Compile(mv.resourceQ)
+	if err != nil {
+		// TODO would be nice to just do a basic string match in this case
+		return err
+	}
 	for _, resource := range mv.allResources {
-		if strings.Contains(strings.ToLower(resource.Description), strings.ToLower(mv.resourceQ)) {
+		description := resource.Description
+		if shouldLower{
+			description = strings.ToLower(resource.Description)
+		}
+		if regex.Match([]byte(description)) {
 			mv.activeResources = append(mv.activeResources, resource)
 		}
 	}
@@ -342,10 +413,27 @@ func (mv *MainView) gatherJumps() error {
 	}
 
 	for _, jump := range jumps.Entries {
+		source := NewLocation(jump[jumpsTable.Primary()].Format(""))
+		tgt := NewLocation(jump[jumpsTable.IndexOfField(FieldTarget)].Format(""))
+		description := jump[jumpsTable.Primary()].Format("")
+		// NOTE a bisect would probably be more efficient here but this is good enough
+		for _, res := range mv.componentLookup[source.Path] {
+			if res.Location.Point > source.Point {
+				break
+			}
+			description = res.Description
+		}
+		suffix := ""
+		for _, res := range mv.componentLookup[tgt.Path] {
+			if res.Location.Point > tgt.Point {
+				break
+			}
+			suffix = " -> " + res.Description
+		}
+		description += suffix
 		mv.allResources = append(mv.allResources, Resource{
-			// TODO auto-resolve a description based on components
-			Description: jump[jumpsTable.Primary()].Format(""),
-			Location:    jump[jumpsTable.Primary()].Format(""),
+			Description: description,
+			Location:    source,
 		})
 	}
 	return nil
@@ -368,7 +456,7 @@ func (mv *MainView) gatherComponents() error {
 	for _, component := range components.Entries {
 		mv.allResources = append(mv.allResources, Resource{
 			Description: component[componentsTable.IndexOfField(FieldDisplayName)].Format(""),
-			Location:    component[componentsTable.IndexOfField(FieldSrcLocation)].Format(""),
+			Location:    NewLocation(component[componentsTable.IndexOfField(FieldSrcLocation)].Format("")),
 		})
 	}
 	return nil
@@ -395,7 +483,7 @@ func (mv *MainView) gatherBookmarks() error {
 	for _, bookmark := range bookmarks.Entries {
 		mv.allResources = append(mv.allResources, Resource{
 			Description: bookmark[bookmarksTable.IndexOfField(FieldDescription)].Format(""),
-			Location:    bookmark[bookmarksTable.Primary()].Format(""),
+			Location:    NewLocation(bookmark[bookmarksTable.Primary()].Format("")),
 		})
 	}
 	return nil
@@ -403,27 +491,25 @@ func (mv *MainView) gatherBookmarks() error {
 
 func (mv *MainView) selectItem(g *gocui.Gui, v *gocui.View) error {
 	// TODO should probably re-order these from MRU
-	return mv.selectJump(g, v)
+	return mv.selectRes(g, v)
 }
 
-func (mv *MainView) selectJump(g *gocui.Gui, v *gocui.View) error {
+func (mv *MainView) selectRes(g *gocui.Gui, v *gocui.View) error {
 	_, oy := v.Origin()
 	_, cy := v.Cursor()
-	jump := mv.activeResources[oy+cy]
-	parts := strings.Split(jump.Location, "#")
-	path, pos := parts[0], parts[1]
+	res := mv.activeResources[oy+cy]
 	workdir, err := mv.getProjectWorkdir()
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command(EMACS_CLIENT_PATH, "-n", "-s", mv.projectName, path)
+	cmd := exec.Command(EMACS_CLIENT_PATH, "-n", "-s", mv.projectName, res.Location.Path)
 	cmd.Dir = workdir
 	err = cmd.Run()
 	if err != nil {
 		return err
 	}
 
-	cmd = exec.Command(TMUX_PATH, "send", "Escape", "x", "goto-char", "ENTER", string(pos), "ENTER")
+	cmd = exec.Command(TMUX_PATH, "send", "Escape", "x", "goto-char", "ENTER", strconv.Itoa(res.Location.Point), "ENTER")
 	err = cmd.Run()
 	if err != nil {
 		return err
@@ -436,13 +522,11 @@ func (mv *MainView) changeDirectory(g *gocui.Gui, v *gocui.View) error {
 	_, oy := v.Origin()
 	_, cy := v.Cursor()
 	res := mv.activeResources[oy+cy]
-	parts := strings.Split(res.Location, "#")
-	path, _ := parts[0], parts[1]
 	workdir, err := mv.getProjectWorkdir()
 	if err != nil {
 		return err
 	}
-	dir := filepath.Join(workdir, filepath.Dir(path))
+	dir := filepath.Join(workdir, filepath.Dir(res.Location.Path))
 
 	cmd := exec.Command(TMUX_PATH, "send", "cd", " ", dir, "ENTER")
 	err = cmd.Run()
@@ -489,4 +573,9 @@ func (mv *MainView) getProjectWorkdir() (string, error) {
 	}
 	return strings.Replace(workdir, "~", homedir, 1), nil
 
+}
+
+func (mv *MainView) clearSearch(g *gocui.Gui, v *gocui.View) error {
+	mv.resourceQ = ""
+	return mv.refreshActiveResources()
 }

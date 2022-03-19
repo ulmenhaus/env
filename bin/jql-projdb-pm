@@ -44,14 +44,14 @@ class ProjectManager(object):
 
     def add_bookmark(self, path, point):
         description = self._prompt_for_description()
-        key = self._key_for_bookmark(path, point)
+        key = self._point_to_string(path, point)
         self._cache["bookmarks"][key] = {
             "Description": description,
             "Project": self.project,
         }
         self._save_cache()
 
-    def add_jump(self, path, point):
+    def add_jump(self, path, source, target):
         all_jumps = self._cache["jumps"]
         filtered_jumps = {
             key: jump
@@ -62,12 +62,13 @@ class ProjectManager(object):
             key: jump
             for key, jump in all_jumps.items() if key not in filtered_jumps
         }
-        key = self._key_for_bookmark(path, point)
+        key = self._point_to_string(path, source)
         max_increment = filtered_jumps[key]["Order"] if key in filtered_jumps else 100
         for jump in filtered_jumps.values():
             if jump['Order'] < max_increment:
                 jump['Order'] += 1
         filtered_jumps[key] = {
+            "A Target": self._point_to_string(path, target),
             "Order": 1,
             "Project": self.project,
         }
@@ -75,7 +76,7 @@ class ProjectManager(object):
         self._cache["jumps"] = filtered_jumps
         self._save_cache()
 
-    def _key_for_bookmark(self, path, point):
+    def _point_to_string(self, path, point):
         project = self._cache["projects"][self.project]
         projdir = os.path.abspath(os.path.expanduser(project["Workdir"]))
         relpath = os.path.abspath(path)[len(projdir) + 1:]
@@ -130,9 +131,10 @@ def main():
     bookmark_group.command()(rm)
 
     @click.argument('path', type=click.STRING)
-    @click.argument('point', type=click.STRING)
-    def add(path, point):
-        return pm.add_jump(path, point)
+    @click.argument('source', type=click.STRING)
+    @click.argument('target', type=click.STRING)
+    def add(path, source, target):
+        return pm.add_jump(path, source, target)
 
     jump_group.command()(add)
 
