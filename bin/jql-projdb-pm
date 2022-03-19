@@ -51,7 +51,7 @@ class ProjectManager(object):
         }
         self._save_cache()
 
-    def add_jump(self, path, source, target):
+    def add_jump(self, source_path, source_point, target_path, target_point):
         all_jumps = self._cache["jumps"]
         filtered_jumps = {
             key: jump
@@ -62,13 +62,13 @@ class ProjectManager(object):
             key: jump
             for key, jump in all_jumps.items() if key not in filtered_jumps
         }
-        key = self._point_to_string(path, source)
+        key = self._point_to_string(source_path, source_point)
         max_increment = filtered_jumps[key]["Order"] if key in filtered_jumps else 100
         for jump in filtered_jumps.values():
             if jump['Order'] < max_increment:
                 jump['Order'] += 1
         filtered_jumps[key] = {
-            "A Target": self._point_to_string(path, target),
+            "A Target": self._point_to_string(target_path, target_point),
             "Order": 1,
             "Project": self.project,
         }
@@ -130,11 +130,12 @@ def main():
     bookmark_group.command()(add)
     bookmark_group.command()(rm)
 
-    @click.argument('path', type=click.STRING)
-    @click.argument('source', type=click.STRING)
-    @click.argument('target', type=click.STRING)
-    def add(path, source, target):
-        return pm.add_jump(path, source, target)
+    @click.argument('source_path', type=click.STRING)
+    @click.argument('source_point', type=click.STRING)
+    @click.argument('target_path', type=click.STRING)
+    @click.argument('target_point', type=click.STRING)
+    def add(source_path, source_point, target_path, target_point):
+        return pm.add_jump(source_path, source_point, target_path, target_point)
 
     jump_group.command()(add)
 

@@ -189,19 +189,19 @@ func FormatJQL(g *models.EncodedGraph, stripPrefixes []string, projectName strin
 	m["base_references"] = references
 	m["macros"] = map[string]interface{}{
 		"E": map[string]interface{}{
-			"Location": "jql-system-accumulator",
+			"Location": "jql-codedb-accumulate",
 			"Params":   "",
 		},
 		"e": map[string]interface{}{
-			"Location": "jql-component-edit",
+			"Location": "jql-codedb-edit",
 			"Params":   "",
 		},
 		"R": map[string]interface{}{
-			"Location": "extract --strip-current-workdir",
+			"Location": "jql-codedb-extract --strip-current-workdir",
 			"Reload":   "yes",
 		},
 		"b": map[string]interface{}{
-			"Location": "extract --bookmarks-only",
+			"Location": "jql-codedb-extract --bookmarks-only",
 			"Reload":   "yes",
 		},
 	}
