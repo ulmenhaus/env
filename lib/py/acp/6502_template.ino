@@ -1,22 +1,13 @@
 #define RAMLEN 1024
+#define ROMLEN {ROM_LENGTH}
 
 const char ADDR[] = {52, 50, 48, 46, 44, 42, 40, 38, 36, 34, 32, 30, 28, 26, 24, 22};
 const char DATA[] = {53, 51, 49, 47, 45, 43, 41, 39};
 const char MEMORY[] = {{MEMORY_ARRAY}};
 char RAM[RAMLEN];
 
-#define MEMLEN 128
 #define RW 37
 #define CLOCK 2
-
-void setup() {
-  for (int n = 0; n < 16; n++) {
-    pinMode(ADDR[n], INPUT);
-  }
-  pinMode(CLOCK, INPUT);
-  attachInterrupt(digitalPinToInterrupt(CLOCK), onClock, RISING);
-  Serial.begin(9600);
-}
 
 void onClock() {
   char output[15];
@@ -42,7 +33,7 @@ void onClock() {
 			data = 0x00;
 		} else if (address == 0xfffd) {
 			data = 0x80;
-		} else if (offset < MEMLEN) {
+		} else if (offset < ROMLEN) {
 			data = MEMORY[offset];
 		} else {
 			data = 0;
@@ -74,6 +65,15 @@ void onClock() {
 	if (log_debug) {
 			Serial.println(output);
 		}
+}
+
+void setup() {
+  for (int n = 0; n < 16; n++) {
+    pinMode(ADDR[n], INPUT);
+  }
+  pinMode(CLOCK, INPUT);
+  attachInterrupt(digitalPinToInterrupt(CLOCK), onClock, RISING);
+  Serial.begin(9600);
 }
 
 void loop() {

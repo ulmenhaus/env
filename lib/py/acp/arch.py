@@ -28,8 +28,11 @@ class Arch6502(Architecture):
             template = f.read()
         with open(mem, 'rb') as f:
             mem_table = f.read()
+        if len(mem_table) > 0x8000 - 2:
+            raise ValuError("Can't fit ROM in 6502 address space")
         int_vals = ", ".join(map(str, mem_table))
         output = template.replace("{MEMORY_ARRAY}", int_vals)
+        output = output.replace("{ROM_LENGTH}", str(len(mem_table)))
         output = output.replace("{LOG_DEBUG}", "true" if log_level == "debug" else "false")
         with open(os.path.join(proj_dir, "Project.ino"), 'w') as f:
             f.write(output)
