@@ -19,10 +19,11 @@ const (
 	FieldDescription string = "Description"
 	FieldOrder       string = "Order"
 	FieldProject     string = "Project"
-	FieldTarget      string = "A Target"
 	FieldProjectName string = "A Name"
 	FieldWorkdir     string = "Workdir"
 
 	FieldDisplayName string = "DisplayName"
 	FieldSrcLocation string = "SrcLocation"
+
+	FieldTarget      string = "A Target"
 )

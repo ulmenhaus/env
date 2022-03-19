@@ -17,6 +17,13 @@
             "primary": true,
             "type": "string"
         },
+        "jumps.A Source": {
+            "primary": true,
+            "type": "string"
+        },
+        "jumps.A Target": {
+            "type": "string"
+        },
         "jumps.Order": {
             "type": "int"
         },

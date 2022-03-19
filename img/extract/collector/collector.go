@@ -41,7 +41,6 @@ var (
 )
 
 type Collector struct {
-	nmes []string
 	pkgs []*packages.Package
 
 	graph       *models.EncodedGraph
