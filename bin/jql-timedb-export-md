@@ -111,6 +111,14 @@ def tabulate_entries(page_pk, full_pks, key2rel2orobs, maybe_discard=()):
     return table
 
 
+def _comment_prefix(filename):
+    ftype = filename.split(".")[-1]
+    types = {
+        "s": ";;",
+        "py": "##",
+        }
+    return types[ftype]
+
 def generate_markdown(snapshot, table, pk):
     # TODO a lot of these mappings are invariant and can be cached
     full_pk = "{} {}".format(table, pk)
@@ -224,7 +232,7 @@ def generate_markdown(snapshot, table, pk):
     markdown += "\n## Related"
     markdown += f"\n### Children ({len(children)})\n"
     markdown += markdown_table(
-        tabulate_entries(full_pk, sort_related(children), key2rel2orobs))
+        tabulate_entries(full_pk, sort_related(children), key2rel2orobs, ["Description", "Meta"]))
 
     cls2rel2subj = collections.defaultdict(
         lambda: collections.defaultdict(list))
@@ -361,8 +369,9 @@ def inject_externals(default_project, markdown):
             after = None
             if ":" in filename:
                 filename, section = filename.split(":")
-                after = f"## start_section: {section}"
-                until = f"## end_section: {section}"
+                comment_prefix = _comment_prefix(filename)
+                after = f"{comment_prefix} start_section: {section}"
+                until = f"{comment_prefix} end_section: {section}"
             suffix = filename.split(".", 1)[1]
             if "/" not in filename:
                 filename = "{}/{}".format(default_project, filename)
