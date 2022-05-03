@@ -1,4 +1,4 @@
-#! /usr/bin/python
+#! /usr/bin/python3
 
 import datetime
 import json
@@ -191,7 +191,8 @@ def main():
     modes = HabitModes(data)
     locs = modes.locals()
     globs = modes.globals()
-    for task_pk, task_data in data['tasks'].items():
+    snapshot = list(data['tasks'].items())
+    for task_pk, task_data in snapshot:
         modes.task_pk = task_pk
         modes.task_data = task_data
         if task_data["Status"] != "Active":

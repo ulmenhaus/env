@@ -22,9 +22,11 @@ def pk_terms_for_task(task, parent):
         preposition = " from "
     elif action in ("Vacation", ):
         prepreposition = " in "
-    elif action in ("Lunch", "Dine", "Shop", "Tennis"):
+    elif action in ("Lunch", "Dine", "Shop", "Tennis", "Coffee"):
         if task['Direct']:
             prepreposition = " at "
+    elif action in ("Tend", ):
+        prepreposition = " to "
     direct_clause, indirect_clause = "", ""
     mandate = [action, prepreposition, task['Direct'], preposition, task['Indirect']]
     if task["Parameters"]:

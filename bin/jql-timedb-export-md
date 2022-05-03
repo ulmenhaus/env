@@ -496,7 +496,7 @@ class MemosHandler(BaseHTTPRequestHandler):
             else:
                 markdown = "## {}".format(memo['question'])
 
-            if "\n" in memo['answer']:
+            if ("\n" in memo['answer']) or ("$" in memo['answer']):
                 if show:
                     markdown += "\n" + memo['answer']
                 else:
@@ -804,7 +804,10 @@ def _memos_daemon():
         for _ in _watch_for_update("schema2.json"):
             print("Time DB updated -- reloading")
             with open("schema2.json") as f:
-                MarkdownHandler.snapshot = json.load(f)
+                try:
+                    MarkdownHandler.snapshot = json.load(f)
+                except:
+                    print("exception while realoding. continuing.")
             MemosHandler._sync_from_assertions()
 
     thread = threading.Thread(target=watch_for_updates, daemon=True)
