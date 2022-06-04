@@ -3,8 +3,11 @@
 import datetime
 import json
 
+from timedb.pks import pk_for_task
+
 
 class HabitModes(object):
+
     def __init__(self, data):
         self.data = data
         self.task_pk = None
@@ -35,7 +38,8 @@ class HabitModes(object):
             direct_pk = ordered.pop(0)
             # Use the original stamp as an identifier for the task of this project
             # so that we don't get duplicates if we fill in on a different day
-            new_pk = "{} {} ({} of {})".format(action, direct_pk, original_span, original_stamp)
+            new_pk = "{} {} ({} of {})".format(action, direct_pk,
+                                               original_span, original_stamp)
             if new_pk in self.data["tasks"]:
                 if self.data["tasks"][new_pk]["Status"] in ("Pending",
                                                             "Active"):
@@ -78,11 +82,7 @@ class HabitModes(object):
             if freq == 1:
                 params = ""
                 params_suffix = ""
-            pk = "{} {}{} ({})".format(action, direct, params_suffix,
-                                       datep_stamp)
-            if pk in self.data["tasks"]:
-                continue
-            self.data["tasks"][pk] = self._new_task(
+            task = self._new_task(
                 action=action,
                 direct=direct,
                 indirect=indirect,
@@ -91,6 +91,9 @@ class HabitModes(object):
                 params=params,
                 primary_goal=primary_goal,
             )
+            pk = pk_for_task(task, self.task_data)
+            if pk not in self.data["tasks"]:
+                self.data["tasks"][pk] = task
 
     def incrementality(self,
                        start=0,
@@ -112,8 +115,8 @@ class HabitModes(object):
         param = start
         # HACK assumes current is separated by spaces
         curr_index = fmt.split(" ").index("{cur}")
-        get_param = lambda task_data: int(task_data["Parameters"].split(" ")[curr_index]
-                                          )
+        get_param = lambda task_data: int(task_data["Parameters"].split(" ")[
+            curr_index])
         if ordered:
             current = get_param(ordered[0][1])
             param = current
@@ -136,17 +139,17 @@ class HabitModes(object):
         params = fmt.format(start=start, cur=param, end=end)
         action = self.task_data["Action"]
         direct = self.task_data["Direct"]
-        pk = "{} {}, {} ({})".format(action, direct, params,
-                                     today.strftime("%d %b %Y"))
+        task = self._new_task(
+            action=action,
+            direct=direct,
+            param_date=param_date,
+            param_time='Day',
+            params=params,
+            primary_goal=self.task_pk,
+        )
+        pk = pk_for_task(task, self.task_data)
         if pk not in self.data["tasks"]:
-            self.data["tasks"][pk] = self._new_task(
-                action=action,
-                direct=direct,
-                param_date=param_date,
-                param_time='Day',
-                params=params,
-                primary_goal=self.task_pk,
-            )
+            self.data["tasks"][pk] = task
 
     def _new_task(self,
                   action='',

@@ -27,6 +27,9 @@ def pk_terms_for_task(task, parent):
             prepreposition = " at "
     elif action in ("Tend", ):
         prepreposition = " to "
+    elif action in ("Jam", ):
+        if task['Direct']:
+            prepreposition = " at "
     direct_clause, indirect_clause = "", ""
     mandate = [action, prepreposition, task['Direct'], preposition, task['Indirect']]
     if task["Parameters"]:
