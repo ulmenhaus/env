@@ -76,7 +76,7 @@ def pluralize(word):
     # HACK a few rules for pluralization
     if word.endswith("y") and len(word) > 2 and word[-2] not in "aeou":
         return word[:-1] + "ies"
-    return f"{word}s" if not word.endswith("s") else f"{word}es"
+    return f"{word}s" if not (word.endswith("s") or word.endswith("h")) else f"{word}es"
 
 
 def tabulate_entries(page_pk, full_pks, key2rel2orobs, maybe_discard=()):
@@ -116,24 +116,33 @@ def _comment_prefix(filename):
     types = {
         "s": ";;",
         "py": "##",
-        }
+    }
     return types[ftype]
+
+
+def gather_classes(assertions):
+    src2cls = {}
+    for key, value in assertions.items():
+        src, rel, tgt = map(value.get, ["Arg0", "A Relation", "Arg1"])
+        if rel != ".Class" or not tgt.startswith(
+                "@timedb:") or not tgt.endswith(":"):
+            continue
+        tgt_pk = tgt[len("@timedb:"):-1]
+        if ":" in tgt_pk:
+            continue
+        src2cls[src] = tgt_pk
+    return src2cls
+
 
 def generate_markdown(snapshot, table, pk):
     # TODO a lot of these mappings are invariant and can be cached
     full_pk = "{} {}".format(table, pk)
     get_candidate_parents = lambda row: set(
         map(row.get, ["Parent", "Direct", "Indirect", "Primary Goal"]))
-    search_tables = ["nouns", "tasks"]
-    children = {
-        "{} {}".format(tab, k): v
-        for tab in search_tables
-        # TODO should check if the table matches as well
-        for k, v in snapshot[tab].items() if pk in get_candidate_parents(v)
-    }
     # NOTE full_pk_2_sort_key and key2rel2orobs are both general purpose mappings
     # that we can generate and cache every time we reload the table
 
+    search_tables = ["nouns", "tasks"]
     # When tabulating entries, sort in descending order of start date -- children that
     # don't have (e.g. nouns) take priority -- further sort in reverse lexicographic order from there
     full_pk_2_sort_key = {
@@ -229,24 +238,31 @@ def generate_markdown(snapshot, table, pk):
             return point
 
         markdown += "\n".join(map(format_orob, sorted_multitons))
+    src2cls = gather_classes(assertions)
+    cls2children = collections.defaultdict(dict)
+    for tab in search_tables:
+        # TODO should check if the table matches as well
+        for k, v in snapshot[tab].items():
+            if pk not in get_candidate_parents(v):
+                continue
+            full_pk = f"{tab} {k}"
+            cls_name = "Children"
+            if full_pk in src2cls:
+                cls_name = f"Child {pluralize(src2cls[full_pk])}"
+            elif tab == "tasks":
+                cls_name = "Child tasks"
+            cls2children[cls_name][full_pk] = v
+
     markdown += "\n## Related"
-    markdown += f"\n### Children ({len(children)})\n"
-    markdown += markdown_table(
-        tabulate_entries(full_pk, sort_related(children), key2rel2orobs, ["Description", "Meta"]))
+    for cls_name, children in cls2children.items():
+        markdown += f"\n### {cls_name} ({len(children)})\n"
+        markdown += markdown_table(
+            tabulate_entries(full_pk, sort_related(children), key2rel2orobs,
+                             ["Description", "Meta"]))
 
     cls2rel2subj = collections.defaultdict(
         lambda: collections.defaultdict(list))
 
-    src2cls = {}
-    for key, value in assertions.items():
-        src, rel, tgt = map(value.get, ["Arg0", "A Relation", "Arg1"])
-        if rel != ".Class" or not tgt.startswith(
-                "@timedb:") or not tgt.endswith(":"):
-            continue
-        tgt_pk = tgt[len("@timedb:"):-1]
-        if ":" in tgt_pk:
-            continue
-        src2cls[src] = tgt_pk
     # TODO would be good to cache a bidrectional map of assertions and to
     # refactor this method in general
     for key, value in assertions.items():
