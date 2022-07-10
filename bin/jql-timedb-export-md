@@ -48,14 +48,14 @@ def markdown_table(rows):
                      for row in rows)
 
 
-def format_related(parent_full_pk, child_full_pk):
+def format_related_tasks(grandparent, parent, child):
     """
     Remove common prefix and suffix for easier reading
     """
     # NOTE when we break out context codes and ordinals we should be
     # able to just use the shortname/description
-    child_parts = child_full_pk.split(" ")
-    parent_parts = parent_full_pk.split(" ")
+    child_parts = pks.pk_terms_for_task(child, parent)
+    parent_parts = pks.pk_terms_for_task(parent, grandparent)
     while child_parts and parent_parts and child_parts[0] == parent_parts[0]:
         child_parts.pop(0)
         parent_parts.pop(0)
@@ -76,10 +76,11 @@ def pluralize(word):
     # HACK a few rules for pluralization
     if word.endswith("y") and len(word) > 2 and word[-2] not in "aeou":
         return word[:-1] + "ies"
-    return f"{word}s" if not (word.endswith("s") or word.endswith("h")) else f"{word}es"
+    return f"{word}s" if not (word.endswith("s")
+                              or word.endswith("h")) else f"{word}es"
 
 
-def tabulate_entries(page_pk, full_pks, key2rel2orobs, maybe_discard=()):
+def tabulate_entries(snapshot, full_page_pk, full_pks, key2rel2orobs, maybe_discard=()):
     all_relations = sorted(
         {rel
          for pk in full_pks for rel in key2rel2orobs[pk]})
@@ -89,8 +90,15 @@ def tabulate_entries(page_pk, full_pks, key2rel2orobs, maybe_discard=()):
             if discard in all_relations:
                 all_relations.remove(discard)
     table = [[""] + sorted(all_relations)]
+    page_tab, page_pk = full_page_pk.split(" ", 1)
+    parent = snapshot[page_tab][page_pk]
+    grandparent_rel = "Parent" if page_tab == "nouns" else "Primary Goal"
+    grandparent = snapshot[page_tab][parent[grandparent_rel]]
     for full_pk in full_pks:
-        display_name = format_related(page_pk, full_pk)
+        tab, pk = full_pk.split(" ", 1)
+        display_name = pk
+        if page_tab == "tasks" and tab == "tasks":
+            display_name = format_related_tasks(grandparent, parent, snapshot[tab][pk])
         row = [_render_link(display_name, "/" + full_pk)]
         table.append(row)
         for rel in all_relations:
@@ -245,20 +253,20 @@ def generate_markdown(snapshot, table, pk):
         for k, v in snapshot[tab].items():
             if pk not in get_candidate_parents(v):
                 continue
-            full_pk = f"{tab} {k}"
+            child_full_pk = f"{tab} {k}"
             cls_name = "Children"
-            if full_pk in src2cls:
-                cls_name = f"Child {pluralize(src2cls[full_pk])}"
+            if child_full_pk in src2cls:
+                cls_name = f"Child {pluralize(src2cls[child_full_pk])}"
             elif tab == "tasks":
                 cls_name = "Child tasks"
-            cls2children[cls_name][full_pk] = v
+            cls2children[cls_name][child_full_pk] = v
 
     markdown += "\n## Related"
     for cls_name, children in cls2children.items():
         markdown += f"\n### {cls_name} ({len(children)})\n"
         markdown += markdown_table(
-            tabulate_entries(full_pk, sort_related(children), key2rel2orobs,
-                             ["Description", "Meta"]))
+            tabulate_entries(snapshot, full_pk, sort_related(children),
+                             key2rel2orobs, ["Description", "Meta"]))
 
     cls2rel2subj = collections.defaultdict(
         lambda: collections.defaultdict(list))
@@ -284,7 +292,7 @@ def generate_markdown(snapshot, table, pk):
     for cls, rel2subj in cls2rel2subj.items():
         for rel, subjects in rel2subj.items():
             markdown += f"\n### {pluralize(cls)} with this {rel} ({len(subjects)})\n"
-            table = tabulate_entries(full_pk, sort_related(subjects),
+            table = tabulate_entries(snapshot, full_pk, sort_related(subjects),
                                      key2rel2orobs, ["Class", rel])
             markdown += markdown_table(table)
     return markdown
@@ -437,6 +445,8 @@ class MarkdownHandler(BaseHTTPRequestHandler):
                 return
         s.send_header("Content-type", "text/html")
         s.end_headers()
+        if " " not in full_pk:
+            return
         table, pk = full_pk.split(" ", 1)
         project = "notes"
         if table == "writeup":
