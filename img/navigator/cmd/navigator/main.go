@@ -10,11 +10,13 @@ import (
 )
 
 func main() {
-	// HACK ignoring error as tmux is expected to exit 127
-	tmuxCmd := exec.Command(ui.TMUX_PATH, "run", ":#W")
+	tmuxCmd := exec.Command(ui.TMUX_PATH, "display", "-p", ":#W")
 	tmuxOut, err := tmuxCmd.Output()
-	parts := strings.Split(string(tmuxOut), "'")
-	projectName := parts[1][1:]
+	if err != nil {
+		panic(err)
+	}
+	// tmux pane name will start with a colon which we ignore
+	projectName := strings.TrimSpace(string(tmuxOut))[1:]
 	// TODO use a cli library
 	jqlBinDir := os.Args[1]
 	g, err := gocui.NewGui(gocui.OutputNormal)

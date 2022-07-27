@@ -204,6 +204,10 @@ func FormatJQL(g *models.EncodedGraph, stripPrefixes []string, projectName strin
 			"Location": "jql-codedb-extract --bookmarks-only",
 			"Reload":   "yes",
 		},
+		"B": map[string]interface{}{
+			"Location": "jql-codedb-filter",
+			"Reload":   "no",
+		},
 	}
 	bookmarks, err := GetProjectBookmarks(projectName)
 	if err != nil {

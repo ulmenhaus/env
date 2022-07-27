@@ -1,0 +1,40 @@
+#! /usr/bin/python3
+"""
+For jql system explorer schema (see extract tool)
+
+This macro will take the last component jumped to in a given project
+and filter the base references table to find all references to it
+"""
+
+import json
+import os
+import sys
+
+from projdb.manager import ProjectManager
+
+
+def main():
+    iface = json.load(sys.stdin)
+    snapshot = json.loads(iface["snapshot"])
+    current_view = iface["current_view"]
+    pm = ProjectManager(project=os.environ["TMUX_WINDOW_NAME"])
+    jumps = pm.get_jumps()
+    location = jumps[0]['A Target']
+    display_names = [
+        key for key, comp in snapshot['components'].items()
+        if comp['SrcLocation'] == location
+    ]
+    if len(display_names) > 1:
+        display_names = list(filter(lambda dn: not dn.endswith(".type"), display_names))
+    if len(display_names) != 1:
+        raise ValueError("Expected 1 display name for", display_names)
+    current_view['table'] = 'base_references'
+    current_view['filter'] = {
+        "field": "SDDest",
+        "formatted": display_names[0],
+    }
+    json.dump(iface, sys.stdout)
+
+
+if __name__ == "__main__":
+    main()

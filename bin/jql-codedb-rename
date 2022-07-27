@@ -1,0 +1,51 @@
+#! /usr/bin/python3
+"""
+For jql system explorer schema (see extract tool)
+
+This macro will take a component and rename all references to it in the system
+
+Usage:
+jql-codedb-rename "<full component name>" "<new short name>"
+"""
+
+import collections
+import json
+import os
+import sys
+
+from projdb.manager import ProjectManager
+
+
+def main():
+    src, tgt = sys.argv[1:]
+    with open(".project.json") as f:
+        codedb = json.load(f)
+
+    matching = [(key, comp) for key, comp in codedb['components'].items() if key.startswith(src)]
+    if len(matching) != 1:
+        raise ValueError("Unexpected set of matching components", matching)
+    key, comp = matching[0]
+    path2locs = collections.defaultdict(list)
+    for full_loc, ref in codedb['base_references'].items():
+        if ref['SDDest'] != key:
+            continue
+        path, loc = full_loc.split("#")
+        path2locs[path].append(int(loc))
+
+    to_replace = src.split(" ")[0].split(".")[-1].encode("utf-8")
+    replace_with = tgt.encode("utf-8")
+    for path, locs in path2locs.items():
+        to_traverse = list(sorted(locs, reverse=True))
+        with open(path, 'rb') as f:
+            contents = f.read()
+        for loc in to_traverse:
+            before, after = contents[:loc - 1], contents[loc - 1:]
+            if not after.startswith(to_replace):
+                raise ValueError("Unexpected contents at", path, loc, after[:len(to_replace)])
+            # note the most efficient algorithm but shmeh
+            contents = before + replace_with + after[len(to_replace):]
+        with open(path, 'wb') as f:
+            f.write(contents)
+
+if __name__ == "__main__":
+    main()
