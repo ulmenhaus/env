@@ -95,6 +95,10 @@ func (c *Collector) CollectAll() error {
 func (c *Collector) CollectNodes() {
 	for _, pkg := range c.pkgs {
 		for _, f := range pkg.Syntax {
+			// skip benchmark code
+			if strings.Contains(pkg.Fset.File(f.Pos()).Name(), filepath.Join("Library", "Caches", "go-build")) {
+				continue
+			}
 			for _, decl := range f.Decls {
 				switch typed := decl.(type) {
 				case *ast.FuncDecl:
@@ -155,7 +159,7 @@ func (c *Collector) CollectReferences() {
 					Start: sourceOffset,
 				}
 				loc := models.EncodedLocation{
-					Path:  pf.Name(),
+					Path:   pf.Name(),
 					Offset: offset,
 				}
 				candidate, ok := c.start2node[sourceLoc.FullStart()]

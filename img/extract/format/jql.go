@@ -19,6 +19,8 @@ type ComponentEntry struct {
 	RefsWithin  int    `json:"RW"`
 	SrcLocation string `json:"SrcLocation"`
 	SoParent    string `json:"SoParent"`
+	Test        string `json:"Test"`
+	Top         string `json:"Top"`
 }
 
 type ReferenceEntry struct {
@@ -77,6 +79,12 @@ func schema() map[string]interface{} {
 			"type": "string",
 		},
 		"base_references.SDDest": map[string]interface{}{
+			"type": "string",
+		},
+		"components.Test": map[string]interface{}{
+			"type": "string",
+		},
+		"components.Top": map[string]interface{}{
 			"type": "string",
 		},
 		"macros.Key": map[string]interface{}{
@@ -168,6 +176,8 @@ func FormatJQL(g *models.EncodedGraph, stripPrefixes []string, projectName strin
 			LoC:         int(en.Location.Lines),
 			SoParent:    uid2ds[parents[en.UID]],
 			SrcLocation: formatLocation(en.Location),
+			Test:        bool2string(strings.HasSuffix(en.Location.Path, "_test.go")),
+			Top:         bool2string(isPublic(en.UID)),
 		}
 	}
 	for _, ss := range g.Subsystems {
@@ -175,6 +185,8 @@ func FormatJQL(g *models.EncodedGraph, stripPrefixes []string, projectName strin
 			Kind:        ss.Kind,
 			SoParent:    uid2ds[parents[ss.UID]],
 			SrcLocation: formatLocation(ss.Location),
+			Test:        bool2string(false),
+			Top:         bool2string(true),
 		}
 	}
 	references := map[string]ReferenceEntry{}
@@ -215,4 +227,17 @@ func FormatJQL(g *models.EncodedGraph, stripPrefixes []string, projectName strin
 	}
 	m["bookmarks"] = bookmarks
 	return m
+}
+
+func bool2string(b bool) string {
+	if b {
+		return "yes"
+	}
+	return "no"
+}
+
+func isPublic(uid string) bool {
+	parts := strings.Split(uid, ".")
+	last := parts[len(parts)-1]
+	return strings.ToUpper(last[:1]) == last[:1]
 }
