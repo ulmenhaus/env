@@ -52,6 +52,7 @@ class HabitModes(object):
                 param_date=self.task_data["Param~Start"],
                 param_time=original_span,
                 primary_goal=self.task_pk,
+                status="Planned",
             )
 
     def regularity(self, freq=1, span='Day', sched=None, indirect=''):
@@ -90,6 +91,7 @@ class HabitModes(object):
                 param_time=span,
                 params=params,
                 primary_goal=primary_goal,
+                status = 'Active' if span == 'Day' else 'Planned',
             )
             pk = pk_for_task(task, self.task_data)
             if pk not in self.data["tasks"]:

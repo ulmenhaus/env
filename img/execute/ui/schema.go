@@ -9,7 +9,9 @@ Defines the constants of the time tracking schema for jql
 const (
 	// The status views share the names with the statuses themselves
 	StateUnprocessed string = "Unprocessed"
+	StatusHabitual   string = "Habitual"
 	StatusPending    string = "Pending"
+	StatusPlanned    string = "Planned"
 	StatusActive     string = "Active"
 	StatusSatisfied  string = "Satisfied"
 	StatusSomeday    string = "Someday"
@@ -29,9 +31,13 @@ const (
 	FieldSpan           string = "Param~Span"
 	FieldStatus         string = "Status"
 	FieldTask           string = "A Task"
+	FieldArg0           string = "Arg0"
+	FieldArg1           string = "Arg1"
+	FieldARelation      string = "A Relation"
 
-	TableLog   string = "log"
-	TableTasks string = "tasks"
+	TableLog        string = "log"
+	TableTasks      string = "tasks"
+	TableAssertions string = "assertions"
 
 	JQLName string = "jql"
 

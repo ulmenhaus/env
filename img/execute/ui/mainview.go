@@ -242,10 +242,6 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(TasksView, gocui.KeySpace, gocui.ModNone, mv.markToday)
-	if err != nil {
-		return err
-	}
 	err = g.SetKeybinding(TasksView, 'X', gocui.ModNone, mv.refreshTasks)
 	if err != nil {
 		return err
@@ -479,17 +475,14 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 	descriptionField := taskTable.IndexOfField(FieldDescription)
 	projectField := taskTable.IndexOfField(FieldPrimaryGoal)
 	spanField := taskTable.IndexOfField(FieldSpan)
+	statusField := taskTable.IndexOfField(FieldStatus)
 
-	active, err := mv.queryAllTasks(StatusActive)
+	active, err := mv.queryAllTasks(StatusPlanned, StatusActive)
 	if err != nil {
 		return err
 	}
 	mv.tasks = map[string]([][]types.Entry){}
 	for _, task := range active {
-		logs, err := mv.queryLogs(task)
-		if err != nil {
-			return err
-		}
 		span := task[spanField].Format("")
 		// qurater scope tasks are good to keep an eye on, but to keep the
 		// UX simple let's lump then in with the tasks for "this month"
@@ -497,7 +490,7 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 			span = SpanMonth
 		}
 		// If the task has already been started then mark it as active for today
-		if len(logs.Entries) != 0 {
+		if task[statusField].Format("") == "Active" {
 			span = SpanDay
 		}
 		if mv.Mode == MainViewModeListCycles {
@@ -556,14 +549,18 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 	return nil
 }
 
-func (mv *MainView) queryAllTasks(status string) ([][]types.Entry, error) {
+func (mv *MainView) queryAllTasks(status ...string) ([][]types.Entry, error) {
+	statusMap := map[string]bool{}
+	for _, s := range status {
+		statusMap[s] = true
+	}
 	taskTable := mv.DB.Tables[TableTasks]
 	resp, err := taskTable.Query(types.QueryParams{
 		Filters: []types.Filter{
-			&ui.EqualFilter{
+			&ui.InFilter{
 				Field:     FieldStatus,
 				Col:       taskTable.IndexOfField(FieldStatus),
-				Formatted: status,
+				Formatted: statusMap,
 			},
 		},
 		OrderBy: FieldDescription,
@@ -596,44 +593,6 @@ func (mv *MainView) queryLogs(task []types.Entry) (*types.Response, error) {
 		OrderBy: FieldBegin,
 		Dec:     true,
 	})
-}
-
-func (mv *MainView) markToday(g *gocui.Gui, v *gocui.View) error {
-	taskTable := mv.DB.Tables[TableTasks]
-	logTable := mv.DB.Tables[TableLog]
-	var cy, oy int
-	view, err := g.View(TasksView)
-	if err != nil && err != gocui.ErrUnknownView {
-		return err
-	} else if err == nil {
-		_, oy = view.Origin()
-		_, cy = view.Cursor()
-	}
-
-	selectedTask := mv.tasks[mv.span][oy+cy]
-
-	if len(mv.log) == 0 {
-		err = mv.newTime(g, fmt.Sprintf("%s (0001)", selectedTask[taskTable.IndexOfField(FieldDescription)].Format("")), selectedTask, true)
-		if err != nil {
-			return err
-		}
-	} else {
-		log0 := mv.log[0]
-		begin := log0[logTable.IndexOfField(FieldBegin)].Format("")
-		end := log0[logTable.IndexOfField(FieldEnd)].Format("")
-		if begin != end || len(mv.log) > 1 {
-			return nil
-		}
-		err = logTable.Delete(log0[logTable.Primary()].Format(""))
-		if err != nil {
-			return err
-		}
-	}
-	err = mv.saveContents(g, v)
-	if err != nil {
-		return err
-	}
-	return mv.refreshView(g)
 }
 
 func (mv *MainView) retrieveAttentionCycle(table *types.Table, task []types.Entry) ([]types.Entry, error) {
@@ -679,8 +638,84 @@ func (mv *MainView) switchModes(g *gocui.Gui, v *gocui.View) error {
 	return mv.refreshView(g)
 }
 
+func (mv *MainView) queryActiveAndHabitualTasks() (*types.Response, error) {
+	taskTable := mv.DB.Tables[TableTasks]
+	return taskTable.Query(types.QueryParams{
+		Filters: []types.Filter{
+			&ui.InFilter{
+				Field: FieldStatus,
+				Col:   taskTable.IndexOfField(FieldStatus),
+				Formatted: map[string]bool{
+					StatusActive:   true,
+					StatusHabitual: true,
+				},
+			},
+		},
+	})
+}
+
+func (mv *MainView) queryPlans(taskPKs []string) (*types.Response, error) {
+	taskCols := map[string]bool{}
+	for _, task := range taskPKs {
+		taskCols[fmt.Sprintf("tasks %s", task)] = true
+	}
+	assertionsTable := mv.DB.Tables[TableAssertions]
+	return assertionsTable.Query(types.QueryParams{
+		Filters: []types.Filter{
+			&ui.InFilter{
+				Field:     FieldArg0,
+				Col:       assertionsTable.IndexOfField(FieldArg0),
+				Formatted: taskCols,
+			},
+			&ui.EqualFilter{
+				Field:     FieldARelation,
+				Col:       assertionsTable.IndexOfField(FieldARelation),
+				Formatted: ".Plan",
+			},
+		},
+	})
+}
+
+func (mv *MainView) populateToday() error {
+	// gather active and habitual tasks
+	// gather each plan for those tasks
+	// show an item if it is a plan or if it is an active leaf task with no plans
+	// save contents
+	taskTable := mv.DB.Tables[TableTasks]
+	assertionsTable := mv.DB.Tables[TableAssertions]
+	tasks, err := mv.queryActiveAndHabitualTasks()
+	if err != nil {
+		return err
+	}
+
+	allTasks := []string{}
+	task2children := map[string]([][]types.Entry){}
+	task2plans := map[string][]string{}
+
+	for _, task := range tasks.Entries {
+		allTasks = append(allTasks, task[taskTable.Primary()].Format(""))
+		parent := task[taskTable.IndexOfField(FieldPrimaryGoal)].Format("")
+		task2children[parent] = append(task2children[parent], task)
+	}
+
+	plans, err := mv.queryPlans(allTasks)
+	if err != nil {
+		return err
+	}
+	for _, plan := range plans.Entries {
+		task := plan[assertionsTable.IndexOfField(FieldArg0)].Format("")[len("tasks "):]
+
+		task2plans[task] = append(task2plans[task], plan[assertionsTable.IndexOfField(FieldArg1)].Format(""))
+	}
+	return nil
+}
+
 func (mv *MainView) refreshTasks(g *gocui.Gui, v *gocui.View) error {
 	err := exec.Command("jql-timedb-autofill").Run()
+	if err != nil {
+		return err
+	}
+	err = mv.populateToday()
 	if err != nil {
 		return err
 	}

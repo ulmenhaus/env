@@ -125,7 +125,7 @@
         },
         "tasks.Status": {
             "features": {
-                "values": "Pending, Active, Satisfied, Revisit, Failed, Habitual, Abandoned, Someday"
+              "values": "Pending, Planned, Active, Satisfied, Revisit, Failed, Habitual, Abandoned, Someday"
             },
             "type": "enum"
         },
