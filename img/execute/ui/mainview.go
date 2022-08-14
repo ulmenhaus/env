@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"math/rand"
 	"os"
 	"os/exec"
 	"sort"
@@ -45,6 +46,7 @@ type MainView struct {
 
 // NewMainView returns a MainView initialized with a given Table
 func NewMainView(path string, g *gocui.Gui) (*MainView, error) {
+	rand.Seed(time.Now().UnixNano())
 	mv := &MainView{
 		path: path,
 	}
@@ -182,6 +184,10 @@ func (mv *MainView) tabulatedTasks() []string {
 }
 
 func (mv *MainView) saveContents(g *gocui.Gui, v *gocui.View) error {
+	return mv.save()
+}
+
+func (mv *MainView) save() error {
 	f, err := os.OpenFile(mv.path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
 		return err
@@ -676,6 +682,43 @@ func (mv *MainView) queryPlans(taskPKs []string) (*types.Response, error) {
 	})
 }
 
+func (mv *MainView) queryDayPlan() ([]types.Entry, error) {
+	taskTable := mv.DB.Tables[TableTasks]
+	resp, err := taskTable.Query(types.QueryParams{
+		Filters: []types.Filter{
+			&ui.EqualFilter{
+				Field:     FieldAction,
+				Col:       taskTable.IndexOfField(FieldAction),
+				Formatted: "Plan",
+			},
+			&ui.EqualFilter{
+				Field:     FieldDirect,
+				Col:       taskTable.IndexOfField(FieldDirect),
+				Formatted: "today",
+			},
+			&ui.EqualFilter{
+				Field:     FieldSpan,
+				Col:       taskTable.IndexOfField(FieldSpan),
+				Formatted: "Day",
+			},
+			&ui.EqualFilter{
+				Field:     FieldStatus,
+				Col:       taskTable.IndexOfField(FieldStatus),
+				Formatted: "Active",
+			},
+		},
+		OrderBy: FieldStart,
+		Dec:     true,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(resp.Entries) == 0 {
+		return nil, fmt.Errorf("did not find a plan for today")
+	}
+	return resp.Entries[0], nil
+}
+
 func (mv *MainView) populateToday() error {
 	// gather active and habitual tasks
 	// gather each plan for those tasks
@@ -703,11 +746,52 @@ func (mv *MainView) populateToday() error {
 		return err
 	}
 	for _, plan := range plans.Entries {
+		planString := plan[assertionsTable.IndexOfField(FieldArg1)].Format("")
+		// only include active plans though we query for all plans here because they may be useful later
+		if strings.HasPrefix(planString, "[x] ") {
+			continue
+		}
 		task := plan[assertionsTable.IndexOfField(FieldArg0)].Format("")[len("tasks "):]
 
-		task2plans[task] = append(task2plans[task], plan[assertionsTable.IndexOfField(FieldArg1)].Format(""))
+		task2plans[task] = append(task2plans[task], planString)
 	}
-	return nil
+	dayPlan, err := mv.queryDayPlan()
+	if err != nil {
+		return err
+	}
+	items := []string{}
+	for _, task := range tasks.Entries {
+		pk := task[taskTable.Primary()].Format("")
+		status := task[taskTable.IndexOfField(FieldStatus)].Format("")
+		if status != "Active" || len(task2children[pk]) != 0 || len(task2plans[pk]) != 0 {
+			continue
+		}
+		items = append(items, fmt.Sprintf("[ ] %s", pk))
+	}
+	for _, taskPlans := range task2plans {
+		for _, plan := range taskPlans {
+			if !strings.HasPrefix(plan, "[ ] ") {
+				plan = "[ ] " + plan
+			}
+			items = append(items, plan)
+		}
+	}
+	// TODO Should only add the delta from what is already there
+	for ix, item := range items {
+		// pk doesn't really matter here so using a random integer
+		pk := fmt.Sprintf("%d", rand.Int63())
+		fields := map[string]string{
+			FieldArg0:      fmt.Sprintf("tasks %s", dayPlan[taskTable.Primary()].Format("")),
+			FieldArg1:      item,
+			FieldARelation: ".Pending", // For now while testing populate the .Pending relation
+			FieldOrder:     fmt.Sprintf("%d", ix),
+		}
+		err := assertionsTable.InsertWithFields(pk, fields)
+		if err != nil {
+			return err
+		}
+	}
+	return mv.save()
 }
 
 func (mv *MainView) refreshTasks(g *gocui.Gui, v *gocui.View) error {
@@ -715,9 +799,13 @@ func (mv *MainView) refreshTasks(g *gocui.Gui, v *gocui.View) error {
 	if err != nil {
 		return err
 	}
+	err = mv.load(g)
+	if err != nil {
+		return err
+	}
 	err = mv.populateToday()
 	if err != nil {
 		return err
 	}
-	return mv.load(g)
+	return mv.refreshView(g)
 }

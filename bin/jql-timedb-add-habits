@@ -71,7 +71,7 @@ def _add_habit(snapshot, habit, cm):
         "Param~Span": parent['Param~Span'],
         "Param~Start": parent['Param~Start'],
         "Primary Goal": parent_pk,
-        "Status": "Active",
+        "Status": "Habitual",
     }
     pk = pk_for_task(new_task, parent)
     snapshot['tasks'][pk] = new_task

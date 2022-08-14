@@ -42,6 +42,7 @@ class HabitModes(object):
                                                original_span, original_stamp)
             if new_pk in self.data["tasks"]:
                 if self.data["tasks"][new_pk]["Status"] in ("Pending",
+                                                            "Planned",
                                                             "Active"):
                     added += 1
                 continue
@@ -200,10 +201,11 @@ def main():
     for task_pk, task_data in snapshot:
         modes.task_pk = task_pk
         modes.task_data = task_data
-        if task_data["Status"] != "Active":
+        if task_data["Status"] != "Habitual":
             continue
         indirect = task_data["Indirect"]
         if indirect in locs:
+            print(indirect, task_data)
             eval("{}({})".format(indirect, task_data['Parameters']), locs,
                  globs)
     with open("schema2.json", 'w') as f:

@@ -29,11 +29,13 @@ const (
 	FieldLogDescription string = "A_Description"
 	FieldPrimaryGoal    string = "Primary Goal"
 	FieldSpan           string = "Param~Span"
+	FieldStart          string = "Param~Start"
 	FieldStatus         string = "Status"
 	FieldTask           string = "A Task"
 	FieldArg0           string = "Arg0"
 	FieldArg1           string = "Arg1"
 	FieldARelation      string = "A Relation"
+	FieldOrder          string = "Order"
 
 	TableLog        string = "log"
 	TableTasks      string = "tasks"

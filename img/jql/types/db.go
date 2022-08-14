@@ -182,6 +182,20 @@ func (t *Table) Insert(pk string) error {
 	return nil
 }
 
+func (t *Table) InsertWithFields(pk string, fields map[string]string) error {
+	err := t.Insert(pk)
+	if err != nil {
+		return err
+	}
+	for field, value := range fields {
+		err = t.Update(pk, field, value)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Update modifies a row
 func (t *Table) Update(pk, field, value string) error {
 	col, ok := t.columnsByName[field]
