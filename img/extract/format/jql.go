@@ -185,8 +185,8 @@ func FormatJQL(g *models.EncodedGraph, stripPrefixes []string, projectName strin
 			Kind:        ss.Kind,
 			SoParent:    uid2ds[parents[ss.UID]],
 			SrcLocation: formatLocation(ss.Location),
-			Test:        bool2string(false),
-			Top:         bool2string(true),
+			Test:        bool2string(strings.HasSuffix(ss.Location.Path, "_test.go")),
+			Top:         bool2string(ss.Kind != "struct" || isPublic(ss.UID)),
 		}
 	}
 	references := map[string]ReferenceEntry{}
@@ -239,5 +239,8 @@ func bool2string(b bool) string {
 func isPublic(uid string) bool {
 	parts := strings.Split(uid, ".")
 	last := parts[len(parts)-1]
-	return strings.ToUpper(last[:1]) == last[:1]
+	if last == "type" {
+		last = parts[len(parts) - 2]
+	}
+	return strings.ToUpper(last[:1]) == last[:1] && last[:1] != "_"
 }
