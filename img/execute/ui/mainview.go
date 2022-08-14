@@ -45,36 +45,38 @@ type MainView struct {
 
 // NewMainView returns a MainView initialized with a given Table
 func NewMainView(path string, g *gocui.Gui) (*MainView, error) {
+	mv := &MainView{
+		path: path,
+	}
+	return mv, mv.load(g)
+}
+
+func (mv *MainView) load(g *gocui.Gui) error {
 	var store storage.Store
-	if strings.HasSuffix(path, ".json") {
+	if strings.HasSuffix(mv.path, ".json") {
 		store = &storage.JSONStore{}
 	} else {
-		return nil, fmt.Errorf("unknown file type")
+		return fmt.Errorf("unknown file type")
 	}
 	mapper, err := osm.NewObjectStoreMapper(store)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	f, err := os.Open(path)
+	f, err := os.Open(mv.path)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer f.Close()
 	db, err := mapper.Load(f)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	mv := &MainView{
-		OSM: mapper,
-		DB:  db,
-
-		Mode: MainViewModeListBar,
-		path: path,
-
-		tasks: map[string]([][]types.Entry){},
-		span:  SpanDay,
-	}
-	return mv, mv.refreshView(g)
+	mv.OSM = mapper
+	mv.DB = db
+	mv.Mode = MainViewModeListBar
+	mv.tasks = map[string]([][]types.Entry){}
+	mv.span = SpanDay
+	return mv.refreshView(g)
 }
 
 // Edit handles keyboard inputs while in table mode
@@ -241,6 +243,10 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 		return err
 	}
 	err = g.SetKeybinding(TasksView, gocui.KeySpace, gocui.ModNone, mv.markToday)
+	if err != nil {
+		return err
+	}
+	err = g.SetKeybinding(TasksView, 'X', gocui.ModNone, mv.refreshTasks)
 	if err != nil {
 		return err
 	}
@@ -671,4 +677,12 @@ func (mv *MainView) switchModes(g *gocui.Gui, v *gocui.View) error {
 		mv.Mode = MainViewModeListBar
 	}
 	return mv.refreshView(g)
+}
+
+func (mv *MainView) refreshTasks(g *gocui.Gui, v *gocui.View) error {
+	err := exec.Command("jql-timedb-autofill").Run()
+	if err != nil {
+		return err
+	}
+	return mv.load(g)
 }
