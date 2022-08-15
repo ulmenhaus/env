@@ -766,6 +766,13 @@ func (mv *MainView) populateToday() error {
 		if status != "Active" || len(task2children[pk]) != 0 || len(task2plans[pk]) != 0 {
 			continue
 		}
+		action := task[taskTable.IndexOfField(FieldAction)].Format("")
+		direct := task[taskTable.IndexOfField(FieldDirect)].Format("")
+		indirect := task[taskTable.IndexOfField(FieldIndirect)].Format("")
+		// no need for self reference here
+		if action == "Plan" && direct == "today" && indirect == "" {
+			continue
+		}
 		items = append(items, fmt.Sprintf("[ ] %s", pk))
 	}
 	for _, taskPlans := range task2plans {
@@ -783,7 +790,7 @@ func (mv *MainView) populateToday() error {
 		fields := map[string]string{
 			FieldArg0:      fmt.Sprintf("tasks %s", dayPlan[taskTable.Primary()].Format("")),
 			FieldArg1:      item,
-			FieldARelation: ".Pending", // For now while testing populate the .Pending relation
+			FieldARelation: ".To Plan", // In a breakdown of Do Today, Do Tomorrow, & To Plan we add to the end
 			FieldOrder:     fmt.Sprintf("%d", ix),
 		}
 		err := assertionsTable.InsertWithFields(pk, fields)
