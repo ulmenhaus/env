@@ -719,6 +719,31 @@ func (mv *MainView) queryDayPlan() ([]types.Entry, error) {
 	return resp.Entries[0], nil
 }
 
+func (mv *MainView) queryExistingTasks(planPK string) (map[string]bool, error) {
+	assertionsTable := mv.DB.Tables[TableAssertions]
+	resp, err := assertionsTable.Query(types.QueryParams{
+		Filters: []types.Filter{
+			&ui.EqualFilter{
+				Field:     FieldArg0,
+				Col:       assertionsTable.IndexOfField(FieldArg0),
+				Formatted: fmt.Sprintf("tasks %s", planPK),
+			},
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	existing := map[string]bool{}
+	for _, entry := range resp.Entries {
+		task := entry[assertionsTable.IndexOfField(FieldArg1)].Format("")
+		if !strings.HasPrefix(task, "[ ] ") {
+			continue
+		}
+		existing[task] = true
+	}
+	return existing, nil
+}
+
 func (mv *MainView) populateToday() error {
 	// gather active and habitual tasks
 	// gather each plan for those tasks
@@ -783,15 +808,23 @@ func (mv *MainView) populateToday() error {
 			items = append(items, plan)
 		}
 	}
-	// TODO Should only add the delta from what is already there
+	dayPlanPK := dayPlan[taskTable.Primary()].Format("")
+	existingTasks, err := mv.queryExistingTasks(dayPlanPK)
+	if err != nil {
+		return err
+	}
+
 	for ix, item := range items {
+		if existingTasks[item] {
+			continue
+		}
 		// pk doesn't really matter here so using a random integer
 		pk := fmt.Sprintf("%d", rand.Int63())
 		fields := map[string]string{
-			FieldArg0:      fmt.Sprintf("tasks %s", dayPlan[taskTable.Primary()].Format("")),
+			FieldArg0:      fmt.Sprintf("tasks %s", dayPlanPK),
 			FieldArg1:      item,
 			FieldARelation: ".To Plan", // In a breakdown of Do Today, Do Tomorrow, & To Plan we add to the end
-			FieldOrder:     fmt.Sprintf("%d", ix),
+			FieldOrder:     fmt.Sprintf("%d", ix + len(existingTasks)),
 		}
 		err := assertionsTable.InsertWithFields(pk, fields)
 		if err != nil {
