@@ -719,6 +719,38 @@ func (mv *MainView) queryDayPlan() ([]types.Entry, error) {
 	return resp.Entries[0], nil
 }
 
+func (mv *MainView) queryYesterday() ([]types.Entry, error) {
+	taskTable := mv.DB.Tables[TableTasks]
+	resp, err := taskTable.Query(types.QueryParams{
+		Filters: []types.Filter{
+			&ui.EqualFilter{
+				Field:     FieldAction,
+				Col:       taskTable.IndexOfField(FieldAction),
+				Formatted: "Plan",
+			},
+			&ui.EqualFilter{
+				Field:     FieldDirect,
+				Col:       taskTable.IndexOfField(FieldDirect),
+				Formatted: "today",
+			},
+			&ui.EqualFilter{
+				Field:     FieldSpan,
+				Col:       taskTable.IndexOfField(FieldSpan),
+				Formatted: "Day",
+			},
+		},
+		OrderBy: FieldStart,
+		Dec:     true,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(resp.Entries) < 2 {
+		return nil, fmt.Errorf("did not find a plan for yesterday")
+	}
+	return resp.Entries[1], nil
+}
+
 func (mv *MainView) queryExistingTasks(planPK string) (map[string]bool, error) {
 	assertionsTable := mv.DB.Tables[TableAssertions]
 	resp, err := assertionsTable.Query(types.QueryParams{
@@ -744,7 +776,76 @@ func (mv *MainView) queryExistingTasks(planPK string) (map[string]bool, error) {
 	return existing, nil
 }
 
-func (mv *MainView) populateToday() error {
+func (mv *MainView) copyOldTasks() error {
+	taskTable := mv.DB.Tables[TableTasks]
+	assertionsTable := mv.DB.Tables[TableAssertions]
+
+	yesterday, err := mv.queryYesterday()
+	if err != nil {
+		return err
+	}
+	today, err := mv.queryDayPlan()
+	if err != nil {
+		return err
+	}
+
+	todayPK := today[taskTable.Primary()].Format("")
+	yesterdayPK := yesterday[taskTable.Primary()].Format("")
+
+	todayBullets, err := assertionsTable.Query(types.QueryParams{
+		Filters: []types.Filter{
+			&ui.EqualFilter{
+				Field:     FieldArg0,
+				Col:       assertionsTable.IndexOfField(FieldArg0),
+				Formatted: fmt.Sprintf("tasks %s", todayPK),
+			},
+		},
+	})
+	if err != nil {
+		return err
+	}
+	// short-circuit if today is already populated
+	if len(todayBullets.Entries) > 0 {
+		return nil
+	}
+
+	oldBullets, err := assertionsTable.Query(types.QueryParams{
+		Filters: []types.Filter{
+			&ui.EqualFilter{
+				Field:     FieldArg0,
+				Col:       assertionsTable.IndexOfField(FieldArg0),
+				Formatted: fmt.Sprintf("tasks %s", yesterdayPK),
+			},
+		},
+	})
+	if err != nil {
+		return err
+	}
+
+	for ix, oldBullet := range oldBullets.Entries {
+		rel := oldBullet[assertionsTable.IndexOfField(FieldARelation)].Format("")
+		val := oldBullet[assertionsTable.IndexOfField(FieldArg1)].Format("")
+
+		if strings.HasPrefix(val, "[x] ") {
+			continue
+		}
+		// pk doesn't really matter here so using a random integer
+		pk := fmt.Sprintf("%d", rand.Int63())
+		fields := map[string]string{
+			FieldArg0:      fmt.Sprintf("tasks %s", todayPK),
+			FieldArg1:      val,
+			FieldARelation: rel,
+			FieldOrder:     fmt.Sprintf("%d", ix),
+		}
+		err := assertionsTable.InsertWithFields(pk, fields)
+		if err != nil {
+			return err
+		}
+	}
+	return mv.save()
+}
+
+func (mv *MainView) gatherNewTasks() error {
 	// gather active and habitual tasks
 	// gather each plan for those tasks
 	// show an item if it is a plan or if it is an active leaf task with no plans
@@ -824,7 +925,7 @@ func (mv *MainView) populateToday() error {
 			FieldArg0:      fmt.Sprintf("tasks %s", dayPlanPK),
 			FieldArg1:      item,
 			FieldARelation: ".To Plan", // In a breakdown of Do Today, Do Tomorrow, & To Plan we add to the end
-			FieldOrder:     fmt.Sprintf("%d", ix + len(existingTasks)),
+			FieldOrder:     fmt.Sprintf("%d", ix+len(existingTasks)),
 		}
 		err := assertionsTable.InsertWithFields(pk, fields)
 		if err != nil {
@@ -835,6 +936,8 @@ func (mv *MainView) populateToday() error {
 }
 
 func (mv *MainView) refreshTasks(g *gocui.Gui, v *gocui.View) error {
+	// TODO(rabrams) this whole sequence is pretty inefficient. It involves multiple redundant
+	// O(n) operations plus loading and re-loading the data.
 	err := exec.Command("jql-timedb-autofill").Run()
 	if err != nil {
 		return err
@@ -843,7 +946,15 @@ func (mv *MainView) refreshTasks(g *gocui.Gui, v *gocui.View) error {
 	if err != nil {
 		return err
 	}
-	err = mv.populateToday()
+	err = mv.copyOldTasks()
+	if err != nil {
+		return err
+	}
+	err = mv.load(g)
+	if err != nil {
+		return err
+	}
+	err = mv.gatherNewTasks()
 	if err != nil {
 		return err
 	}
