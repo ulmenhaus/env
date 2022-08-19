@@ -822,9 +822,10 @@ func (mv *MainView) copyOldTasks() error {
 		return err
 	}
 
-	for ix, oldBullet := range oldBullets.Entries {
+	for _, oldBullet := range oldBullets.Entries {
 		rel := oldBullet[assertionsTable.IndexOfField(FieldARelation)].Format("")
 		val := oldBullet[assertionsTable.IndexOfField(FieldArg1)].Format("")
+		order := oldBullet[assertionsTable.IndexOfField(FieldOrder)].Format("")
 
 		if strings.HasPrefix(val, "[x] ") {
 			continue
@@ -835,7 +836,7 @@ func (mv *MainView) copyOldTasks() error {
 			FieldArg0:      fmt.Sprintf("tasks %s", todayPK),
 			FieldArg1:      val,
 			FieldARelation: rel,
-			FieldOrder:     fmt.Sprintf("%d", ix),
+			FieldOrder:     order,
 		}
 		err := assertionsTable.InsertWithFields(pk, fields)
 		if err != nil {

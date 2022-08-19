@@ -57,6 +57,16 @@ def _pk_mismatches(d):
             print(f"PK mismatch for task: '{pk}' should be '{expected}'")
     return detected
 
+def _plans_are_bullets(d):
+    assertions = d['assertions']
+    detected = False
+    pks = set()
+    for pk, assn in assertions.items():
+        if assn['A Relation'] == '.Plan' and not assn['Arg1'].startswith("* ["):
+            pks.add(assn['Arg0'])
+    for pk in sorted(pks):
+        print(f"{pk} has non-bullet plans")
+    return any(pks)
 
 def main():
     with open(sys.argv[1]) as f:
@@ -65,6 +75,7 @@ def main():
         _valid_foreign_keys,
         _valid_parents,
         _pk_mismatches,
+        _plans_are_bullets,
     ]
     if any(lint(d) for lint in lints):
         print("errors dtected", file=sys.stderr)
