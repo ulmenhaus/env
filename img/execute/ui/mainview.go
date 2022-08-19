@@ -42,6 +42,22 @@ type MainView struct {
 	span  string
 	log   [][]types.Entry
 	path  string
+
+	// today
+	today      []DayItem
+	today2item map[string]DayItemMeta
+}
+
+type DayItem struct {
+	Break       string
+	Description string
+	PK          string
+}
+
+type DayItemMeta struct {
+	Description string
+	TaskPK      string
+	AssertionPK string
 }
 
 // NewMainView returns a MainView initialized with a given Table
@@ -77,7 +93,7 @@ func (mv *MainView) load(g *gocui.Gui) error {
 	mv.DB = db
 	mv.Mode = MainViewModeListBar
 	mv.tasks = map[string]([][]types.Entry){}
-	mv.span = SpanDay
+	mv.span = Today
 	return mv.refreshView(g)
 }
 
@@ -155,6 +171,9 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 }
 
 func (mv *MainView) tabulatedTasks() []string {
+	if mv.span == Today {
+		return mv.todayTasks()
+	}
 	taskTable := mv.DB.Tables[TableTasks]
 	projectField := taskTable.IndexOfField(FieldPrimaryGoal)
 	descriptionField := taskTable.IndexOfField(FieldDescription)
@@ -181,6 +200,19 @@ func (mv *MainView) tabulatedTasks() []string {
 			))
 	}
 	return toret
+}
+
+func (mv *MainView) todayTasks() []string {
+	tasks := []string{}
+	currentBreak := ""
+	for _, item := range mv.today {
+		if item.Break != currentBreak {
+			tasks = append(tasks, item.Break)
+			currentBreak = item.Break
+		}
+		tasks = append(tasks, " "+item.Description)
+	}
+	return tasks
 }
 
 func (mv *MainView) saveContents(g *gocui.Gui, v *gocui.View) error {
@@ -249,6 +281,10 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 		return err
 	}
 	err = g.SetKeybinding(TasksView, 'X', gocui.ModNone, mv.refreshTasks)
+	if err != nil {
+		return err
+	}
+	err = g.SetKeybinding(TasksView, 'x', gocui.ModNone, mv.markTask)
 	if err != nil {
 		return err
 	}
@@ -543,15 +579,72 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 	}
 
 	mv.log = [][]types.Entry{}
-	if oy+cy >= len(mv.tasks[mv.span]) {
-		return nil
+	if mv.span != Today {
+		if oy+cy < len(mv.tasks[mv.span]) {
+			selectedTask := mv.tasks[mv.span][oy+cy]
+			resp, err := mv.queryLogs(selectedTask)
+			if err != nil {
+				return err
+			}
+			mv.log = resp.Entries
+		}
 	}
-	selectedTask := mv.tasks[mv.span][oy+cy]
-	resp, err := mv.queryLogs(selectedTask)
+	return mv.refreshToday()
+}
+
+func (mv *MainView) refreshToday() error {
+	mv.today = []DayItem{}
+	mv.today2item = map[string]DayItemMeta{}
+
+	today, err := mv.queryDayPlan()
 	if err != nil {
 		return err
 	}
-	mv.log = resp.Entries
+	if today == nil {
+		return nil
+	}
+	assertionsTable := mv.DB.Tables[TableAssertions]
+	tasksTable := mv.DB.Tables[TableTasks]
+	resp, err := assertionsTable.Query(types.QueryParams{
+		Filters: []types.Filter{
+			&ui.EqualFilter{
+				Field:     FieldArg0,
+				Col:       assertionsTable.IndexOfField(FieldArg0),
+				Formatted: fmt.Sprintf("tasks %s", today[tasksTable.Primary()].Format("")),
+			},
+			&ui.EqualFilter{
+				Field:     FieldARelation,
+				Col:       assertionsTable.IndexOfField(FieldARelation),
+				Formatted: ".Do Today",
+			},
+		},
+		OrderBy: FieldOrder,
+	})
+	if err != nil {
+		return err
+	}
+
+	currentBreak := ""
+	for _, entry := range resp.Entries {
+		val := entry[assertionsTable.IndexOfField(FieldArg1)].Format("")
+		if !strings.HasPrefix(val, "[") {
+			currentBreak = val
+			continue
+		}
+		mv.today = append(mv.today, DayItem{
+			Description: val,
+			Break:       currentBreak,
+			PK:          entry[assertionsTable.Primary()].Format(""),
+		})
+	}
+
+	newTasks, err := mv.gatherNewTasks()
+	if err != nil {
+		return err
+	}
+	for _, newTask := range newTasks {
+		mv.today2item[newTask.Description] = newTask
+	}
 	return nil
 }
 
@@ -577,9 +670,6 @@ func (mv *MainView) queryAllTasks(status ...string) ([][]types.Entry, error) {
 	}
 	entries := [][]types.Entry{}
 	for _, entry := range resp.Entries {
-		if IsGoalCycle(taskTable, entry) || IsCompositeTask(taskTable, entry) {
-			continue
-		}
 		entries = append(entries, entry)
 	}
 	return entries, nil
@@ -714,7 +804,7 @@ func (mv *MainView) queryDayPlan() ([]types.Entry, error) {
 		return nil, err
 	}
 	if len(resp.Entries) == 0 {
-		return nil, fmt.Errorf("did not find a plan for today")
+		return nil, nil
 	}
 	return resp.Entries[0], nil
 }
@@ -788,6 +878,9 @@ func (mv *MainView) copyOldTasks() error {
 	if err != nil {
 		return err
 	}
+	if today == nil {
+		return nil
+	}
 
 	todayPK := today[taskTable.Primary()].Format("")
 	yesterdayPK := yesterday[taskTable.Primary()].Format("")
@@ -846,7 +939,7 @@ func (mv *MainView) copyOldTasks() error {
 	return mv.save()
 }
 
-func (mv *MainView) gatherNewTasks() error {
+func (mv *MainView) gatherNewTasks() ([]DayItemMeta, error) {
 	// gather active and habitual tasks
 	// gather each plan for those tasks
 	// show an item if it is a plan or if it is an active leaf task with no plans
@@ -855,12 +948,12 @@ func (mv *MainView) gatherNewTasks() error {
 	assertionsTable := mv.DB.Tables[TableAssertions]
 	tasks, err := mv.queryActiveAndHabitualTasks()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	allTasks := []string{}
 	task2children := map[string]([][]types.Entry){}
-	task2plans := map[string][]string{}
+	task2plans := map[string][]DayItemMeta{}
 
 	for _, task := range tasks.Entries {
 		allTasks = append(allTasks, task[taskTable.Primary()].Format(""))
@@ -870,23 +963,26 @@ func (mv *MainView) gatherNewTasks() error {
 
 	plans, err := mv.queryPlans(allTasks)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	items := []DayItemMeta{}
 	for _, plan := range plans.Entries {
 		planString := plan[assertionsTable.IndexOfField(FieldArg1)].Format("")
 		// only include active plans though we query for all plans here because they may be useful later
 		if strings.HasPrefix(planString, "[x] ") {
 			continue
 		}
+		if !strings.HasPrefix(planString, "[ ] ") {
+			planString = "[ ] " + planString
+		}
 		task := plan[assertionsTable.IndexOfField(FieldArg0)].Format("")[len("tasks "):]
 
-		task2plans[task] = append(task2plans[task], planString)
+		task2plans[task] = append(task2plans[task], DayItemMeta{
+			Description: planString,
+			TaskPK:      task,
+			AssertionPK: plan[assertionsTable.Primary()].Format(""),
+		})
 	}
-	dayPlan, err := mv.queryDayPlan()
-	if err != nil {
-		return err
-	}
-	items := []string{}
 	for _, task := range tasks.Entries {
 		pk := task[taskTable.Primary()].Format("")
 		status := task[taskTable.IndexOfField(FieldStatus)].Format("")
@@ -900,15 +996,33 @@ func (mv *MainView) gatherNewTasks() error {
 		if action == "Plan" && direct == "today" && indirect == "" {
 			continue
 		}
-		items = append(items, fmt.Sprintf("[ ] %s", pk))
+		items = append(items, DayItemMeta{
+			Description: fmt.Sprintf("[ ] %s", pk),
+			TaskPK:      pk,
+		})
 	}
 	for _, taskPlans := range task2plans {
-		for _, plan := range taskPlans {
-			if !strings.HasPrefix(plan, "[ ] ") {
-				plan = "[ ] " + plan
-			}
-			items = append(items, plan)
+		for _, item := range taskPlans {
+			items = append(items, item)
 		}
+	}
+	return items, nil
+}
+
+func (mv *MainView) insertNewTasks() error {
+	taskTable := mv.DB.Tables[TableTasks]
+	assertionsTable := mv.DB.Tables[TableAssertions]
+
+	newTasks, err := mv.gatherNewTasks()
+	if err != nil {
+		return err
+	}
+	dayPlan, err := mv.queryDayPlan()
+	if err != nil {
+		return err
+	}
+	if dayPlan == nil {
+		return nil
 	}
 	dayPlanPK := dayPlan[taskTable.Primary()].Format("")
 	existingTasks, err := mv.queryExistingTasks(dayPlanPK)
@@ -916,15 +1030,15 @@ func (mv *MainView) gatherNewTasks() error {
 		return err
 	}
 
-	for ix, item := range items {
-		if existingTasks[item] {
+	for ix, item := range newTasks {
+		if existingTasks[item.Description] {
 			continue
 		}
 		// pk doesn't really matter here so using a random integer
 		pk := fmt.Sprintf("%d", rand.Int63())
 		fields := map[string]string{
 			FieldArg0:      fmt.Sprintf("tasks %s", dayPlanPK),
-			FieldArg1:      item,
+			FieldArg1:      item.Description,
 			FieldARelation: ".To Plan", // In a breakdown of Do Today, Do Tomorrow, & To Plan we add to the end
 			FieldOrder:     fmt.Sprintf("%d", ix+len(existingTasks)),
 		}
@@ -955,7 +1069,65 @@ func (mv *MainView) refreshTasks(g *gocui.Gui, v *gocui.View) error {
 	if err != nil {
 		return err
 	}
-	err = mv.gatherNewTasks()
+	err = mv.insertNewTasks()
+	if err != nil {
+		return err
+	}
+	return mv.refreshView(g)
+}
+
+func (mv *MainView) markTask(g *gocui.Gui, v *gocui.View) error {
+	if mv.span != Today {
+		return nil
+	}
+	_, oy := v.Origin()
+	_, cy := v.Cursor()
+
+	ix := oy + cy
+	todayTasks := mv.todayTasks()
+	if ix >= len(todayTasks) {
+		return nil
+	}
+	// this is a bit of a hack since the today view can present tasks in different trees
+	// so we ony want to mark the selection if it actually is a task and clear any prefixes
+	selection := strings.TrimLeft(todayTasks[ix], " ")
+	if !strings.HasPrefix(selection, "[") {
+		return nil
+	}
+
+	newVal := strings.Replace(selection, "[ ]", "[x]", 1)
+	assertionsTable := mv.DB.Tables[TableAssertions]
+	tasksTable := mv.DB.Tables[TableTasks]
+	for _, item := range mv.today {
+		if item.Description != selection {
+			continue
+		}
+		err := assertionsTable.Update(item.PK, FieldArg1, newVal)
+		if err != nil {
+			return err
+		}
+	}
+
+	meta, ok := mv.today2item[selection]
+	if !ok {
+		// Likely a one-off task in our plan so has no source to update
+		return nil
+	}
+
+	if meta.AssertionPK != "" {
+		err := assertionsTable.Update(meta.AssertionPK, FieldArg1, newVal)
+		if err != nil {
+			return err
+		}
+	} else if meta.TaskPK != "" {
+		err := tasksTable.Update(meta.TaskPK, FieldStatus, StatusSatisfied)
+		if err != nil {
+			return err
+		}
+	}
+	// Sadly no support for unmarking a task because by this point we've lost the context
+	// on where the task came from. You have to manually unmark it.
+	err := mv.save()
 	if err != nil {
 		return err
 	}

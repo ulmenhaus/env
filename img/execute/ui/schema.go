@@ -47,6 +47,7 @@ const (
 	TasksView  string = "tasks"
 	LogView    string = "log"
 
+	Today       string = "Today"
 	SpanDay     string = "Day"
 	SpanWeek    string = "Week"
 	SpanMonth   string = "Month"
@@ -54,29 +55,16 @@ const (
 	SpanPending string = "Pending"
 )
 
-var Spans []string = []string{SpanDay, SpanWeek, SpanMonth, SpanPending}
+var Spans []string = []string{"Today", SpanDay, SpanWeek, SpanMonth, SpanPending}
 
 var Span2Title map[string]string = map[string]string{
-	SpanDay:     "Today",
-	SpanWeek:    "This Week",
-	SpanMonth:   "This Month",
+	Today:       "Today",
+	SpanDay:     "Active",
+	SpanWeek:    "Later This Week",
+	SpanMonth:   "Later This Month",
 	SpanPending: "Pending",
 }
 
 func IsAttentionCycle(table *types.Table, elem []types.Entry) bool {
 	return elem[table.IndexOfField(FieldAction)].Format("") == "Attend" && elem[table.IndexOfField(FieldDirect)].Format("") == ""
-}
-
-func IsGoalCycle(table *types.Table, elem []types.Entry) bool {
-	return elem[table.IndexOfField(FieldAction)].Format("") == "Accomplish" && elem[table.IndexOfField(FieldDirect)].Format("") == "set goals"
-}
-
-func IsCompositeTask(table *types.Table, elem []types.Entry) bool {
-	compositeIndirects := map[string]bool{
-		"breakdown":      true,
-		"habituality":    true,
-		"incrementality": true,
-		"regularity":     true,
-	}
-	return compositeIndirects[elem[table.IndexOfField(FieldIndirect)].Format("")]
 }
