@@ -653,9 +653,12 @@ class MemosHandler(BaseHTTPRequestHandler):
                 fore = row[0]
                 rev = row[colix]
                 # In this special case we only go in the foreward direction
-                if not (rev_name == "Response" and fore_name == "Question"):
+                # and don't qualify the question
+                if rev_name == "Response" and fore_name == "Question":
+                    yield fore, rev
+                else:
                     yield "{} for {}".format(fore_name, rev), fore
-                yield "{} for {}".format(rev_name, fore), rev
+                    yield "{} for {}".format(rev_name, fore), rev
 
     def _save():
         with open("memos.json", 'w') as f:
