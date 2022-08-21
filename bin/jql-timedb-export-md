@@ -652,7 +652,9 @@ class MemosHandler(BaseHTTPRequestHandler):
             for row in rows:
                 fore = row[0]
                 rev = row[colix]
-                yield "{} for {}".format(fore_name, rev), fore
+                # In this special case we only go in the foreward direction
+                if not (rev_name == "Response" and fore_name == "Question"):
+                    yield "{} for {}".format(fore_name, rev), fore
                 yield "{} for {}".format(rev_name, fore), rev
 
     def _save():
