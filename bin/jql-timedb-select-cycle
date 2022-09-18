@@ -15,7 +15,7 @@ import sys
 def find_active_root_cycle(snapshot):
     for pk, task in snapshot['tasks'].items():
         if task['Action'] == "Accomplish" and task[
-                'Direct'] == "set goals" and task['Status'] == "Active":
+                'Direct'] == "set goals" and task['Status'] == "Habitual":
             return pk
 
 

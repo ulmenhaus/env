@@ -91,7 +91,7 @@ class CycleManager(object):
                 return pk
         # fallback to active task as we are executing and want to add a cycle
         for pk, task in tasks.items():
-            if is_candidate(task) and task['Status'] == "Active":
+            if is_candidate(task) and task['Status'] == "Habitual":
                 return pk
 
     def construct_lineage(self, pk):

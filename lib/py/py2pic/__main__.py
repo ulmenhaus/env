@@ -82,7 +82,7 @@ def main():
 
     cmds = [
         "rm -f {name}_wrapper.eps",
-        "m4 pstricks.m4 {name}.m4 > {name}.pic",
+        "m4 pstricks.m4 libcct.m4 liblog.m4 libgen.m4 lib3D.m4 {name}.m4 > {name}.pic",
         "dpic -p {name}.pic > {name}.tex",
         "latex {name}_wrapper.tex",
         "dvips {name}_wrapper.dvi",
