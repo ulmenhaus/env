@@ -44,9 +44,10 @@ type MainView struct {
 	path  string
 
 	// today
-	today      []DayItem
-	today2item map[string]DayItemMeta
-	ix2item    map[int]DayItem
+	cachedTodayTasks []string
+	today            []DayItem
+	today2item       map[string]DayItemMeta
+	ix2item          map[int]DayItem
 }
 
 type DayItem struct {
@@ -149,7 +150,7 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 		}()
 	}
 
-	for _, desc := range mv.tabulatedTasks() {
+	for _, desc := range mv.tabulatedTasks(g, tasks) {
 		fmt.Fprintf(tasks, "%s\n", desc)
 	}
 
@@ -171,9 +172,14 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 	return nil
 }
 
-func (mv *MainView) tabulatedTasks() []string {
+func (mv *MainView) tabulatedTasks(g *gocui.Gui, v *gocui.View) []string {
 	if mv.span == Today {
-		return mv.todayTasks()
+		wasNil := mv.cachedTodayTasks == nil
+		mv.cachedTodayTasks = mv.todayTasks()
+		if wasNil {
+			mv.selectNextFreeTask(g, v)
+		}
+		return mv.cachedTodayTasks
 	}
 	taskTable := mv.DB.Tables[TableTasks]
 	projectField := taskTable.IndexOfField(FieldPrimaryGoal)
@@ -296,12 +302,25 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 	return nil
 }
 
+func (mv *MainView) selectNextFreeTask(g *gocui.Gui, v *gocui.View) {
+	for i, task := range mv.cachedTodayTasks {
+		// TODO(rabrams) bit of a hack here to identify which tasks are undone
+		if strings.HasPrefix(task, " [ ]") {
+			v.SetCursor(0, i)
+			return
+		}
+	}
+}
+
 func (mv *MainView) nextSpan(g *gocui.Gui, v *gocui.View) error {
 	ixs := map[string]int{}
 	for ix, span := range Spans {
 		ixs[span] = ix
 	}
 	mv.span = Spans[(ixs[mv.span]+1)%len(Spans)]
+	if mv.span == Today {
+		mv.selectNextFreeTask(g, v)
+	}
 	return mv.refreshView(g)
 }
 
@@ -315,6 +334,9 @@ func (mv *MainView) prevSpan(g *gocui.Gui, v *gocui.View) error {
 		prevIx = len(Spans) - 1
 	}
 	mv.span = Spans[prevIx]
+	if mv.span == Today {
+		mv.selectNextFreeTask(g, v)
+	}
 	return mv.refreshView(g)
 }
 
@@ -1103,13 +1125,12 @@ func (mv *MainView) markTask(g *gocui.Gui, v *gocui.View) error {
 	_, cy := v.Cursor()
 
 	ix := oy + cy
-	todayTasks := mv.todayTasks()
-	if ix >= len(todayTasks) {
+	if ix >= len(mv.cachedTodayTasks) {
 		return nil
 	}
 	// this is a bit of a hack since the today view can present tasks in different trees
 	// so we ony want to mark the selection if it actually is a task and clear any prefixes
-	selection := strings.TrimLeft(todayTasks[ix], " ")
+	selection := strings.TrimLeft(mv.cachedTodayTasks[ix], " ")
 	if !strings.HasPrefix(selection, "[") {
 		return nil
 	}
