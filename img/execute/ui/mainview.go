@@ -46,6 +46,7 @@ type MainView struct {
 	// today
 	today      []DayItem
 	today2item map[string]DayItemMeta
+	ix2item    map[int]DayItem
 }
 
 type DayItem struct {
@@ -204,14 +205,17 @@ func (mv *MainView) tabulatedTasks() []string {
 
 func (mv *MainView) todayTasks() []string {
 	tasks := []string{}
+	ix2item := map[int]DayItem{}
 	currentBreak := ""
 	for _, item := range mv.today {
 		if item.Break != currentBreak {
 			tasks = append(tasks, item.Break)
 			currentBreak = item.Break
 		}
+		ix2item[len(tasks)] = item
 		tasks = append(tasks, " "+item.Description)
 	}
+	mv.ix2item = ix2item
 	return tasks
 }
 
@@ -489,12 +493,27 @@ func (mv *MainView) triggerGoToJQLEntry(g *gocui.Gui, v *gocui.View) error {
 }
 
 func (mv *MainView) goToJQLEntry(g *gocui.Gui, v *gocui.View) error {
-	taskTable := mv.DB.Tables[TableTasks]
 	_, oy := v.Origin()
 	_, cy := v.Cursor()
-	selectedTask := mv.tasks[mv.span][oy+cy]
-	pk := selectedTask[taskTable.IndexOfField(FieldDescription)].Format("")
+	ix := oy + cy
+	if mv.span == Today {
+		item, ok := mv.ix2item[ix]
+		if !ok {
+			return nil
+		}
+		meta, ok := mv.today2item[item.Description]
+		if !ok {
+			return nil
+		}
+		return mv.goToPK(g, v, meta.TaskPK)
+	} else {
+		taskTable := mv.DB.Tables[TableTasks]
+		selectedTask := mv.tasks[mv.span][ix]
+		return mv.goToPK(g, v, selectedTask[taskTable.IndexOfField(FieldDescription)].Format(""))
+	}
+}
 
+func (mv *MainView) goToPK(g *gocui.Gui, v *gocui.View, pk string) error {
 	err := mv.saveContents(g, v)
 	if err != nil {
 		return err
@@ -1098,6 +1117,7 @@ func (mv *MainView) markTask(g *gocui.Gui, v *gocui.View) error {
 	newVal := strings.Replace(selection, "[ ]", "[x]", 1)
 	assertionsTable := mv.DB.Tables[TableAssertions]
 	tasksTable := mv.DB.Tables[TableTasks]
+	// TODO(rabrams) this code predates having ix2item. See if it can be cleaned up with it.
 	for _, item := range mv.today {
 		if item.Description != selection {
 			continue

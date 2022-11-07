@@ -363,7 +363,10 @@ func (c *Collector) BuildSubsystems() {
 		case KindField, KindMethod:
 			parentShort := strings.Join(strings.Split(filepath.Base(node.UID), ".")[:2], ".")
 			parentType := fmt.Sprintf("%s/%s.type", filepath.Dir(node.UID), parentShort)
-			parent := subsystems[parentType]
+			parent, ok := subsystems[parentType]
+			if !ok {
+				fmt.Printf("Missing parent for %s when evaluating %s\n", parentType, node.UID)
+			}
 			parent.Parts = append(parent.Parts, node.UID)
 			// Fields and methods will be subsystems of their parent types so will inherit their parent files and packages
 			// parentFile := subsystems[file]
