@@ -463,9 +463,28 @@ func (mv *MainView) cursorDown(g *gocui.Gui, v *gocui.View) error {
 		return nil
 	}
 	cx, cy := v.Cursor()
-	if err := v.SetCursor(cx, cy+1); err != nil {
+	_, oy := v.Origin()
+	delta := 1
+	if mv.span == Today {
+		for {
+			ix := cy + oy + delta
+			// TODO(rabrams) would be good to comprehensively stop the cursor at the end of each
+			// span's list
+			if ix >= len(mv.cachedTodayTasks) {
+				break
+			}
+			// TODO(rabrams) bit of a hack here to identify which tasks can be skipped
+			// because they're already done -- NOTE we don't do the same for cursor-up
+			// so you can backtrack to those if you want
+			if strings.HasPrefix(mv.cachedTodayTasks[ix], " [ ]") {
+				break
+			}
+			delta += 1
+		}
+	}
+	if err := v.SetCursor(cx, cy+delta); err != nil {
 		ox, oy := v.Origin()
-		if err := v.SetOrigin(ox, oy+1); err != nil {
+		if err := v.SetOrigin(ox, oy+delta); err != nil {
 			return err
 		}
 	}
@@ -1169,6 +1188,10 @@ func (mv *MainView) markTask(g *gocui.Gui, v *gocui.View) error {
 	// Sadly no support for unmarking a task because by this point we've lost the context
 	// on where the task came from. You have to manually unmark it.
 	err := mv.save()
+	if err != nil {
+		return err
+	}
+	err = mv.cursorDown(g, v)
 	if err != nil {
 		return err
 	}
