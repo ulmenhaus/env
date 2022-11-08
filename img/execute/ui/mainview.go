@@ -27,6 +27,7 @@ const (
 	MainViewModeListCycles
 	MainViewModeSwitchingToJQL
 	MainViewModeGoingToJQLEntry
+	MainViewModeGoingToToday
 )
 
 // A MainView is the overall view including a project list
@@ -135,9 +136,9 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 	log.Clear()
 	tasks.SelBgColor = gocui.ColorWhite
 	tasks.SelFgColor = gocui.ColorBlack
-	tasks.Highlight = mv.Mode != MainViewModeSwitchingToJQL && mv.Mode != MainViewModeGoingToJQLEntry
+	tasks.Highlight = mv.Mode != MainViewModeSwitchingToJQL && mv.Mode != MainViewModeGoingToJQLEntry && mv.Mode != MainViewModeGoingToToday
 
-	if mv.Mode == MainViewModeSwitchingToJQL || mv.Mode == MainViewModeGoingToJQLEntry {
+	if mv.Mode == MainViewModeSwitchingToJQL || mv.Mode == MainViewModeGoingToJQLEntry || mv.Mode == MainViewModeGoingToToday {
 		// HACK give the event loop time to clear highlighting from the tty
 		// so that when we switch to jql we don't have inverted colors
 		go func() {
@@ -146,6 +147,8 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 				mv.switchToJQL(g, tasks)
 			} else if mv.Mode == MainViewModeGoingToJQLEntry {
 				mv.goToJQLEntry(g, tasks)
+			} else if mv.Mode == MainViewModeGoingToToday {
+				mv.goToToday(g, tasks)
 			}
 		}()
 	}
@@ -295,6 +298,10 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 		return err
 	}
 	err = g.SetKeybinding(TasksView, 'x', gocui.ModNone, mv.markTask)
+	if err != nil {
+		return err
+	}
+	err = g.SetKeybinding(TasksView, 't', gocui.ModNone, mv.triggerGoToToday)
 	if err != nil {
 		return err
 	}
@@ -526,6 +533,22 @@ func (mv *MainView) switchToJQL(g *gocui.Gui, v *gocui.View) error {
 
 	err = syscall.Exec(binary, args, env)
 	return err
+}
+
+func (mv *MainView) triggerGoToToday(g *gocui.Gui, v *gocui.View) error {
+	mv.Mode = MainViewModeGoingToToday
+	return nil
+}
+
+func (mv *MainView) goToToday(g *gocui.Gui, v *gocui.View) error {
+	today, err := mv.queryDayPlan()
+	if err != nil {
+		return err
+	}
+	if today == nil {
+		return nil
+	}
+	return mv.goToPK(g, v, today[mv.DB.Tables[TableTasks].Primary()].Format(""))
 }
 
 func (mv *MainView) triggerGoToJQLEntry(g *gocui.Gui, v *gocui.View) error {
