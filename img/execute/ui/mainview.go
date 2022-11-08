@@ -28,6 +28,8 @@ const (
 	MainViewModeSwitchingToJQL
 	MainViewModeGoingToJQLEntry
 	MainViewModeGoingToToday
+	MainViewModeQueryingForTask
+	MainViewModeQueryingForNewPlan
 )
 
 // A MainView is the overall view including a project list
@@ -49,6 +51,16 @@ type MainView struct {
 	today            []DayItem
 	today2item       map[string]DayItemMeta
 	ix2item          map[int]DayItem
+
+	// state used for searching tasks
+	topicQ          string
+	unfilteredTasks []string
+	filteredTasks   []string
+	queryCallback   func(taskPK string) error
+
+	// state used for querying for a new plan
+	newPlanTaskPK string
+	newPlanDescription string
 }
 
 type DayItem struct {
@@ -100,12 +112,131 @@ func (mv *MainView) load(g *gocui.Gui) error {
 	return mv.refreshView(g)
 }
 
-// Edit handles keyboard inputs while in table mode
 func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifier) {
-	return
+	if mv.Mode == MainViewModeQueryingForTask {
+		mv.editSearch(v, key, ch, mod)
+		return
+	} else if mv.Mode == MainViewModeQueryingForNewPlan {
+		mv.editNewPlan(v, key, ch, mod)
+		return
+	}
+}
+
+func (mv *MainView) editSearch(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifier) {
+	if key == gocui.KeyBackspace || key == gocui.KeyBackspace2 {
+		if len(mv.topicQ) != 0 {
+			mv.topicQ = mv.topicQ[:len(mv.topicQ)-1]
+		}
+	} else if key == gocui.KeySpace {
+		mv.topicQ += " "
+	} else {
+		mv.topicQ += string(ch)
+	}
+	mv.setTopics()
+}
+
+func (mv *MainView) editNewPlan(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifier) {
+	if key == gocui.KeyBackspace || key == gocui.KeyBackspace2 {
+		if len(mv.newPlanDescription) != 0 {
+			mv.newPlanDescription = mv.newPlanDescription[:len(mv.newPlanDescription)-1]
+		}
+	} else if key == gocui.KeySpace {
+		mv.newPlanDescription += " "
+	} else {
+		mv.newPlanDescription += string(ch)
+	}
+}
+
+func (mv *MainView) selectQueryItem(g *gocui.Gui, v *gocui.View) error {
+	_, oy := v.Origin()
+	_, cy := v.Cursor()
+	ix := oy + cy
+	selected := mv.filteredTasks[ix]
+	err := g.DeleteView(QueryTasksView)
+	if err != nil {
+		return err
+	}
+	err = g.DeleteView(QueryView)
+	if err != nil {
+		return err
+	}
+	mv.topicQ = ""
+	mv.Mode = MainViewModeListBar
+	return mv.queryCallback(selected)
+}
+
+func (mv *MainView) setTopics() error {
+	mv.filteredTasks = []string{}
+	for _, task := range mv.unfilteredTasks {
+		if strings.Contains(strings.ToLower(task), mv.topicQ) {
+			mv.filteredTasks = append(mv.filteredTasks, task)
+		}
+	}
+	return nil
 }
 
 func (mv *MainView) Layout(g *gocui.Gui) error {
+	if mv.Mode == MainViewModeQueryingForTask {
+		return mv.queryForTaskLayout(g)
+	} else if mv.Mode == MainViewModeQueryingForNewPlan {
+		return mv.queryForNewPlanLayout(g)
+	} else {
+		return mv.listTasksLayout(g)
+	}
+}
+
+func (mv *MainView) createNewPlan(g *gocui.Gui, v *gocui.View) error {
+	err := g.DeleteView(NewPlanView)
+	if err != nil {
+		return err
+	}
+	mv.Mode = MainViewModeListBar
+	assnTable := mv.DB.Tables[TableAssertions]
+	return nil
+}
+
+func (mv *MainView) queryForNewPlanLayout(g *gocui.Gui) error {
+	maxX, _ := g.Size()
+	newPlanView, err := g.SetView(NewPlanView, 4, 5, maxX-4, 9)
+	if err != nil && err != gocui.ErrUnknownView {
+		return err
+	}
+	newPlanView.Editable = true
+	newPlanView.Editor = mv
+	g.SetCurrentView(NewPlanView)
+	newPlanView.Clear()
+	newPlanView.Write([]byte("New Plan Description\n"))
+	newPlanView.Write([]byte(mv.newPlanDescription))
+	return nil
+}
+
+func (mv *MainView) queryForTaskLayout(g *gocui.Gui) error {
+	maxX, maxY := g.Size()
+	queryTasksView, err := g.SetView(QueryTasksView, 4, 5, maxX-4, maxY-7)
+	if err != nil && err != gocui.ErrUnknownView {
+		return err
+	}
+	queryTasksView.Highlight = true
+	queryTasksView.SelBgColor = gocui.ColorWhite
+	queryTasksView.SelFgColor = gocui.ColorBlack
+	queryTasksView.Editable = true
+	queryTasksView.Editor = mv
+	queryTasksView.Clear()
+	g.SetCurrentView(QueryTasksView)
+	for _, task := range mv.filteredTasks {
+		spaces := maxX - len(task)
+		queryTasksView.Write([]byte(task + strings.Repeat(" ", spaces) + "\n"))
+	}
+	query, err := g.SetView(QueryView, 4, maxY-7, maxX-4, maxY-5)
+	if err != nil && err != gocui.ErrUnknownView {
+		return err
+	}
+	query.Clear()
+	query.Write([]byte(mv.topicQ))
+	return nil
+}
+
+func (mv *MainView) listTasksLayout(g *gocui.Gui) error {
 	maxX, maxY := g.Size()
 	counts, err := g.SetView(CountsView, 0, 0, (maxX*3)/4, 2)
 	if err != nil && err != gocui.ErrUnknownView {
@@ -305,6 +436,12 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 	if err != nil {
 		return err
 	}
+	if err := g.SetKeybinding(QueryTasksView, gocui.KeyEnter, gocui.ModNone, mv.selectQueryItem); err != nil {
+		return err
+	}
+	if err := g.SetKeybinding(NewPlanView, gocui.KeyEnter, gocui.ModNone, mv.createNewPlan); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -347,7 +484,47 @@ func (mv *MainView) prevSpan(g *gocui.Gui, v *gocui.View) error {
 	return mv.refreshView(g)
 }
 
+func (mv *MainView) queryForTask(g *gocui.Gui, v *gocui.View, callback func(cycle string) error) error {
+	mv.Mode = MainViewModeQueryingForTask
+	mv.queryCallback = callback
+	return nil
+}
+
+func (mv *MainView) insertNewPlan(g *gocui.Gui, v *gocui.View) error {
+	_, oy := v.Origin()
+	_, cy := v.Cursor()
+	ix := oy + cy
+	currentPK := ""
+	item, ok := mv.ix2item[ix]
+	if ok {
+		if meta, ok := mv.today2item[item.Description]; ok {
+			currentPK = meta.TaskPK
+		}
+	}
+	inProgress, err := mv.queryInProgressTasks(currentPK)
+	if err != nil {
+		return err
+	}
+	if currentPK != "" {
+		inProgress = append([]string{currentPK}, inProgress...)
+	}
+	mv.unfilteredTasks = inProgress
+	mv.filteredTasks = mv.unfilteredTasks
+	return mv.queryForTask(g, v, func(taskPK string) error {
+		return mv.queryForNewPlan(taskPK)
+	})
+}
+
+func (mv *MainView) queryForNewPlan(taskPK string) error {
+	mv.Mode = MainViewModeQueryingForNewPlan
+	mv.newPlanTaskPK = taskPK
+	return nil
+}
+
 func (mv *MainView) bumpStatus(g *gocui.Gui, v *gocui.View) error {
+	if mv.span == Today {
+		return mv.insertNewPlan(g, v)
+	}
 	return mv.addToStatus(g, v, 1)
 }
 
@@ -729,6 +906,22 @@ func (mv *MainView) refreshToday() error {
 		mv.today2item[newTask.Description] = newTask
 	}
 	return nil
+}
+
+func (mv *MainView) queryInProgressTasks(ignore string) ([]string, error) {
+	tasks, err := mv.queryAllTasks(StatusActive, StatusHabitual)
+	if err != nil {
+		return nil, err
+	}
+	taskTable := mv.DB.Tables[TableTasks]
+	pks := []string{}
+	for _, task := range tasks {
+		pk := task[taskTable.Primary()].Format("")
+		if pk != ignore {
+			pks = append(pks, pk)
+		}
+	}
+	return pks, nil
 }
 
 func (mv *MainView) queryAllTasks(status ...string) ([][]types.Entry, error) {
