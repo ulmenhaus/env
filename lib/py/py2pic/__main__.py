@@ -65,10 +65,12 @@ def main():
 
     if not os.path.exists("build"):
         os.mkdir("build")
-    for fpath in glob.glob(os.path.join(os.path.dirname(__file__), "*.m4")):
-        target = os.path.join("build", os.path.basename(fpath))
-        if not os.path.exists(target):
-            shutil.copyfile(fpath, target)
+    globs = ["*.m4", "*.pic"]
+    for gl in globs:
+        for fpath in glob.glob(os.path.join(os.path.dirname(__file__), gl)):
+            target = os.path.join("build", os.path.basename(fpath))
+            if not os.path.exists(target):
+                shutil.copyfile(fpath, target)
 
     os.chdir("build")
 

@@ -59,7 +59,7 @@ type MainView struct {
 	queryCallback   func(taskPK string) error
 
 	// state used for querying for a new plan
-	newPlanTaskPK string
+	newPlanTaskPK      string
 	newPlanDescription string
 }
 
@@ -192,7 +192,104 @@ func (mv *MainView) createNewPlan(g *gocui.Gui, v *gocui.View) error {
 	}
 	mv.Mode = MainViewModeListBar
 	assnTable := mv.DB.Tables[TableAssertions]
-	return nil
+	tasksTable := mv.DB.Tables[TableTasks]
+	newOrder := 0
+	plansResp, err := mv.queryPlans([]string{mv.newPlanTaskPK})
+	if err != nil {
+		return err
+	}
+	for _, plan := range plansResp.Entries {
+		order, ok := plan[assnTable.IndexOfField(FieldOrder)].(types.Integer)
+		if !ok {
+			continue
+		}
+		orderInt := int(order)
+		if orderInt >= newOrder {
+			newOrder = orderInt + 1
+		}
+	}
+
+	// pk doesn't really matter here so using a random integer
+	pk := fmt.Sprintf("%d", rand.Int63())
+	fields := map[string]string{
+		FieldArg0:      fmt.Sprintf("tasks %s", mv.newPlanTaskPK),
+		FieldArg1:      fmt.Sprintf("[ ] %s", mv.newPlanDescription),
+		FieldARelation: ".Plan",
+		FieldOrder:     fmt.Sprintf("%d", newOrder),
+	}
+	err = assnTable.InsertWithFields(pk, fields)
+	if err != nil {
+		return err
+	}
+
+	tasksView, err := g.View(TasksView)
+	if err != nil {
+		return err
+	}
+	_, oy := tasksView.Origin()
+	_, cy := tasksView.Cursor()
+	ix := oy + cy
+	insertsAfter := mv.ix2item[ix]
+	dayPlan, err := mv.queryDayPlan()
+	if err != nil {
+		return err
+	}
+	dayPlanLink := fmt.Sprintf("tasks %s", dayPlan[tasksTable.Primary()].Format(""))
+	existingTodos, err := assnTable.Query(types.QueryParams{
+		Filters: []types.Filter{
+			&ui.EqualFilter{
+				Field:     FieldArg0,
+				Col:       assnTable.IndexOfField(FieldArg0),
+				Formatted: dayPlanLink,
+			},
+			&ui.EqualFilter{
+				Field:     FieldARelation,
+				Col:       assnTable.IndexOfField(FieldARelation),
+				Formatted: ".Do Today",
+			},
+		},
+		OrderBy: FieldOrder,
+	})
+	if err != nil {
+		return err
+	}
+	dayOrder := 0
+	for _, entry := range existingTodos.Entries {
+		if entry[assnTable.IndexOfField(FieldArg1)].Format("") == insertsAfter.Description {
+			dayOrder = int(entry[assnTable.IndexOfField(FieldOrder)].(types.Integer))
+		}
+	}
+	for _, entry := range existingTodos.Entries {
+		order, ok := entry[assnTable.IndexOfField(FieldOrder)].(types.Integer)
+		if !ok {
+			continue
+		}
+		orderInt := int(order)
+		if orderInt > dayOrder {
+			err = assnTable.Update(entry[assnTable.Primary()].Format(""), FieldOrder, fmt.Sprintf("%d", orderInt + 1))
+			if err != nil {
+				return err
+			}
+		}
+	}
+	fields = map[string]string{
+		FieldArg0:      dayPlanLink,
+		FieldArg1:      fmt.Sprintf("[ ] %s", mv.newPlanDescription),
+		FieldARelation: ".Do Today",
+		FieldOrder:     fmt.Sprintf("%d", dayOrder + 1),
+	}
+	pk = fmt.Sprintf("%d", rand.Int63())
+	err = assnTable.InsertWithFields(pk, fields)
+	if err != nil {
+		return err
+	}
+
+	mv.newPlanDescription = ""
+	err = mv.save()
+	if err != nil {
+		return err
+	}
+	return mv.refreshView(g)
 }
 
 func (mv *MainView) queryForNewPlanLayout(g *gocui.Gui) error {
@@ -408,6 +505,10 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 	if err != nil {
 		return err
 	}
+	err = g.SetKeybinding(TasksView, 'G', gocui.ModNone, mv.selectAndGoToTask)
+	if err != nil {
+		return err
+	}
 	err = g.SetKeybinding(TasksView, 'g', gocui.ModNone, mv.triggerGoToJQLEntry)
 	if err != nil {
 		return err
@@ -433,6 +534,10 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 		return err
 	}
 	err = g.SetKeybinding(TasksView, 't', gocui.ModNone, mv.triggerGoToToday)
+	if err != nil {
+		return err
+	}
+	err = g.SetKeybinding(TasksView, 'd', gocui.ModNone, mv.deleteDayPlan)
 	if err != nil {
 		return err
 	}
@@ -490,7 +595,7 @@ func (mv *MainView) queryForTask(g *gocui.Gui, v *gocui.View, callback func(cycl
 	return nil
 }
 
-func (mv *MainView) insertNewPlan(g *gocui.Gui, v *gocui.View) error {
+func (mv *MainView) setTaskList(g *gocui.Gui, v *gocui.View) error {
 	_, oy := v.Origin()
 	_, cy := v.Cursor()
 	ix := oy + cy
@@ -510,8 +615,26 @@ func (mv *MainView) insertNewPlan(g *gocui.Gui, v *gocui.View) error {
 	}
 	mv.unfilteredTasks = inProgress
 	mv.filteredTasks = mv.unfilteredTasks
+	return nil
+}
+
+func (mv *MainView) insertNewPlan(g *gocui.Gui, v *gocui.View) error {
+	err := mv.setTaskList(g, v)
+	if err != nil {
+		return err
+	}
 	return mv.queryForTask(g, v, func(taskPK string) error {
 		return mv.queryForNewPlan(taskPK)
+	})
+}
+
+func (mv *MainView) selectAndGoToTask(g *gocui.Gui, v *gocui.View) error {
+	err := mv.setTaskList(g, v)
+	if err != nil {
+		return err
+	}
+	return mv.queryForTask(g, v, func(taskPK string) error {
+		return mv.goToPK(g, v, taskPK)
 	})
 }
 
@@ -1408,6 +1531,26 @@ func (mv *MainView) markTask(g *gocui.Gui, v *gocui.View) error {
 		return err
 	}
 	err = mv.cursorDown(g, v)
+	if err != nil {
+		return err
+	}
+	return mv.refreshView(g)
+}
+
+func (mv *MainView) deleteDayPlan(g *gocui.Gui, v *gocui.View) error {
+	if mv.span != Today {
+		return nil
+	}
+	_, oy := v.Origin()
+	_, cy := v.Cursor()
+	ix := oy + cy
+	item := mv.ix2item[ix]
+	assnTable := mv.DB.Tables[TableAssertions]
+	err := assnTable.Delete(item.PK)
+	if err != nil {
+		return err
+	}
+	err = mv.save()
 	if err != nil {
 		return err
 	}
