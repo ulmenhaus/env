@@ -266,7 +266,7 @@ func (mv *MainView) createNewPlan(g *gocui.Gui, v *gocui.View) error {
 		}
 		orderInt := int(order)
 		if orderInt > dayOrder {
-			err = assnTable.Update(entry[assnTable.Primary()].Format(""), FieldOrder, fmt.Sprintf("%d", orderInt + 1))
+			err = assnTable.Update(entry[assnTable.Primary()].Format(""), FieldOrder, fmt.Sprintf("%d", orderInt+1))
 			if err != nil {
 				return err
 			}
@@ -276,7 +276,7 @@ func (mv *MainView) createNewPlan(g *gocui.Gui, v *gocui.View) error {
 		FieldArg0:      dayPlanLink,
 		FieldArg1:      fmt.Sprintf("[ ] %s", mv.newPlanDescription),
 		FieldARelation: ".Do Today",
-		FieldOrder:     fmt.Sprintf("%d", dayOrder + 1),
+		FieldOrder:     fmt.Sprintf("%d", dayOrder+1),
 	}
 	pk = fmt.Sprintf("%d", rand.Int63())
 	err = assnTable.InsertWithFields(pk, fields)
@@ -322,7 +322,10 @@ func (mv *MainView) queryForTaskLayout(g *gocui.Gui) error {
 	g.SetCurrentView(QueryTasksView)
 	for _, task := range mv.filteredTasks {
 		spaces := maxX - len(task)
-		queryTasksView.Write([]byte(task + strings.Repeat(" ", spaces) + "\n"))
+		if spaces > 0 {
+			task += strings.Repeat(" ", spaces)
+		}
+		queryTasksView.Write([]byte(task + "\n"))
 	}
 	query, err := g.SetView(QueryView, 4, maxY-7, maxX-4, maxY-5)
 	if err != nil && err != gocui.ErrUnknownView {
@@ -341,9 +344,9 @@ func (mv *MainView) listTasksLayout(g *gocui.Gui) error {
 	}
 	counts.Clear()
 	for _, span := range Spans {
-		prefix := " "
+		prefix := "  "
 		if span == mv.span {
-			prefix = "*"
+			prefix = " *"
 		}
 		suffix := fmt.Sprintf("(%d)", len(mv.tasks[span]))
 		if len(mv.tasks[span]) == 0 {

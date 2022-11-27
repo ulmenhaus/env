@@ -16,11 +16,10 @@ const (
 	FieldDescription string = "Description"
 	FieldFeed        string = "Feed"
 	FieldLink        string = "Link"
-	FieldResource    string = "Resource"
+	FieldParent      string = "Parent"
 	FieldStatus      string = "Status"
 
-	TableResources string = "resources"
-	TableItems     string = "items"
+	TableNouns string = "nouns"
 
 	JQLName string = "jql"
 )

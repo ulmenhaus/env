@@ -74,15 +74,15 @@ func NewMainView(path string, g *gocui.Gui) (*MainView, error) {
 func (mv *MainView) fetchResources() error {
 	// TODO use constants for column names
 	// TODO would be good to parallelize fetches
-	resourceTable, ok := mv.DB.Tables[TableResources]
+	nounsTable, ok := mv.DB.Tables[TableNouns]
 	if !ok {
 		return fmt.Errorf("expected resources table to exist")
 	}
-	resp, err := resourceTable.Query(types.QueryParams{
+	resp, err := nounsTable.Query(types.QueryParams{
 		Filters: []types.Filter{
 			&ui.EqualFilter{
 				Field:     FieldFeed,
-				Col:       resourceTable.IndexOfField(FieldFeed),
+				Col:       nounsTable.IndexOfField(FieldFeed),
 				Formatted: "",
 				Not:       true,
 			},
@@ -98,29 +98,31 @@ func (mv *MainView) fetchResources() error {
 		status. If they have neither and no in progress tasks and no feed, then we also
 		add it.
 	*/
-	mv.resources = resp.Entries
+	mv.resources = [][]types.Entry{}
+	for _, entry := range resp.Entries {
+		if !strings.Contains(entry[nounsTable.IndexOfField(FieldFeed)].Format(""), "://") {
+			continue
+		}
+		mv.resources = append(mv.resources, entry)
+	}
 	return nil
 }
 
 func (mv *MainView) fetchNewItems(g *gocui.Gui, v *gocui.View) error {
 	// TODO worth taking a second pass at this function for code cleanliness and performance
-	resourceTable, ok := mv.DB.Tables[TableResources]
+	nounsTable, ok := mv.DB.Tables[TableNouns]
 	if !ok {
-		return fmt.Errorf("expected resources table to exist")
-	}
-	itemTable, ok := mv.DB.Tables[TableItems]
-	if !ok {
-		return fmt.Errorf("expected items table to exist")
+		return fmt.Errorf("expected nouns table to exist")
 	}
 
 	for _, entry := range mv.resources {
 		byDescription := map[string]Item{}
-		allItems, err := itemTable.Query(types.QueryParams{
+		allItems, err := nounsTable.Query(types.QueryParams{
 			Filters: []types.Filter{
 				&ui.EqualFilter{
-					Field:     FieldResource,
-					Col:       itemTable.IndexOfField(FieldResource),
-					Formatted: entry[resourceTable.IndexOfField(FieldDescription)].Format(""),
+					Field:     FieldParent,
+					Col:       nounsTable.IndexOfField(FieldParent),
+					Formatted: entry[nounsTable.IndexOfField(FieldDescription)].Format(""),
 				},
 			},
 		})
@@ -128,33 +130,33 @@ func (mv *MainView) fetchNewItems(g *gocui.Gui, v *gocui.View) error {
 			return err
 		}
 		for _, rawItem := range allItems.Entries {
-			byDescription[rawItem[itemTable.IndexOfField(FieldDescription)].Format("")] = Item{
-				Description: rawItem[itemTable.IndexOfField(FieldDescription)].Format(""),
-				Link:        rawItem[itemTable.IndexOfField(FieldLink)].Format(""),
+			byDescription[rawItem[nounsTable.IndexOfField(FieldDescription)].Format("")] = Item{
+				Description: rawItem[nounsTable.IndexOfField(FieldDescription)].Format(""),
+				Link:        rawItem[nounsTable.IndexOfField(FieldLink)].Format(""),
 			}
 		}
 
-		feedURL := entry[resourceTable.IndexOfField(FieldFeed)].Format("")
+		feedURL := entry[nounsTable.IndexOfField(FieldFeed)].Format("")
 		feed, err := NewFeed(feedURL)
 		if err != nil {
 			return err
 		}
 		latest, err := feed.FetchNew()
 		if err != nil {
-			return fmt.Errorf("Failed to fetch feed for %s: %s", entry[itemTable.IndexOfField(FieldDescription)].Format(""), err)
+			return fmt.Errorf("Failed to fetch feed for %s: %s", entry[nounsTable.IndexOfField(FieldDescription)].Format(""), err)
 		}
 		for _, item := range latest {
 			if _, ok := byDescription[item.Description]; ok {
 				continue
 			}
 			description := item.Description
-			err = itemTable.Insert(description)
+			err = nounsTable.Insert(description)
 			if err != nil {
 				// TODO would be good to use a specific error type
 				if strings.HasPrefix(err.Error(), "Row already exists") {
 					for i := 1; i < 100; i++ {
 						description = fmt.Sprintf("%s (%02d)", item.Description, i)
-						err = itemTable.Insert(description)
+						err = nounsTable.Insert(description)
 						if err == nil {
 							break
 						} else if strings.HasPrefix(err.Error(), "Row already exists") {
@@ -168,12 +170,13 @@ func (mv *MainView) fetchNewItems(g *gocui.Gui, v *gocui.View) error {
 				}
 			}
 
-			err = itemTable.Update(description, FieldLink, item.Link)
+			// TODO now that we support insert with fields we probably don't need separate updates here
+			err = nounsTable.Update(description, FieldLink, item.Link)
 			if err != nil {
 				return fmt.Errorf("Failed to update link for entry: %s", err)
 			}
 
-			err = itemTable.Update(description, FieldResource, entry[resourceTable.IndexOfField(FieldDescription)].Format(""))
+			err = nounsTable.Update(description, FieldParent, entry[nounsTable.IndexOfField(FieldDescription)].Format(""))
 			if err != nil {
 				return fmt.Errorf("Failed to update resource for entry: %s", err)
 			}
@@ -323,15 +326,15 @@ func (mv *MainView) moveDown(g *gocui.Gui, v *gocui.View) error {
 	}
 	_, cy := v.Cursor()
 	pk := mv.breakdown[name][cy].Description
-	itemTable, ok := mv.DB.Tables[TableItems]
+	nounsTable, ok := mv.DB.Tables[TableNouns]
 	if !ok {
-		return fmt.Errorf("Expected to find items table")
+		return fmt.Errorf("Expected to find nouns table")
 	}
-	new, err := itemTable.Entries[pk][itemTable.IndexOfField(FieldStatus)].Add(-1)
+	new, err := nounsTable.Entries[pk][nounsTable.IndexOfField(FieldStatus)].Add(-1)
 	if err != nil {
 		return err
 	}
-	itemTable.Entries[pk][itemTable.IndexOfField(FieldStatus)] = new
+	nounsTable.Entries[pk][nounsTable.IndexOfField(FieldStatus)] = new
 	return mv.refreshView(g)
 }
 
@@ -345,15 +348,15 @@ func (mv *MainView) moveUp(g *gocui.Gui, v *gocui.View) error {
 	}
 	_, cy := v.Cursor()
 	pk := mv.breakdown[name][cy].Description
-	itemTable, ok := mv.DB.Tables[TableItems]
+	nounsTable, ok := mv.DB.Tables[TableNouns]
 	if !ok {
 		return fmt.Errorf("Expected to find items table")
 	}
-	new, err := itemTable.Entries[pk][itemTable.IndexOfField(FieldStatus)].Add(1)
+	new, err := nounsTable.Entries[pk][nounsTable.IndexOfField(FieldStatus)].Add(1)
 	if err != nil {
 		return err
 	}
-	itemTable.Entries[pk][itemTable.IndexOfField(FieldStatus)] = new
+	nounsTable.Entries[pk][nounsTable.IndexOfField(FieldStatus)] = new
 	return mv.refreshView(g)
 }
 
@@ -395,7 +398,7 @@ func (mv *MainView) switchToJQL(g *gocui.Gui, v *gocui.View) error {
 		return err
 	}
 
-	args := []string{JQLName, mv.path, TableResources}
+	args := []string{JQLName, mv.path, TableNouns}
 
 	env := os.Environ()
 
@@ -405,13 +408,9 @@ func (mv *MainView) switchToJQL(g *gocui.Gui, v *gocui.View) error {
 
 func (mv *MainView) refreshView(g *gocui.Gui) error {
 	// TODO this method could use a second pass for code cleanliness and performance
-	resourceTable, ok := mv.DB.Tables[TableResources]
+	nounsTable, ok := mv.DB.Tables[TableNouns]
 	if !ok {
-		return fmt.Errorf("expected resources table to exist")
-	}
-	itemTable, ok := mv.DB.Tables[TableItems]
-	if !ok {
-		return fmt.Errorf("expected items table to exist")
+		return fmt.Errorf("expected nouns table to exist")
 	}
 	var cy int
 	view, err := g.View(ResourcesView)
@@ -423,12 +422,12 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 
 	entry := mv.resources[cy]
 
-	rawItems, err := itemTable.Query(types.QueryParams{
+	rawItems, err := nounsTable.Query(types.QueryParams{
 		Filters: []types.Filter{
 			&ui.EqualFilter{
-				Field:     FieldResource,
-				Col:       itemTable.IndexOfField(FieldResource),
-				Formatted: entry[resourceTable.IndexOfField(FieldDescription)].Format(""),
+				Field:     FieldParent,
+				Col:       nounsTable.IndexOfField(FieldParent),
+				Formatted: entry[nounsTable.IndexOfField(FieldDescription)].Format(""),
 			},
 		},
 	})
@@ -438,13 +437,13 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 	mv.breakdown = map[string][]Item{}
 
 	for _, rawItem := range rawItems.Entries {
-		status := rawItem[itemTable.IndexOfField(FieldStatus)].Format("")
+		status := rawItem[nounsTable.IndexOfField(FieldStatus)].Format("")
 		if mv.breakdown[status] == nil {
 			mv.breakdown[status] = []Item{}
 		}
 		mv.breakdown[status] = append(mv.breakdown[status], Item{
-			Description: rawItem[itemTable.IndexOfField(FieldDescription)].Format(""),
-			Link:        rawItem[itemTable.IndexOfField(FieldLink)].Format(""),
+			Description: rawItem[nounsTable.IndexOfField(FieldDescription)].Format(""),
+			Link:        rawItem[nounsTable.IndexOfField(FieldLink)].Format(""),
 		})
 	}
 	for _, items := range mv.breakdown {
