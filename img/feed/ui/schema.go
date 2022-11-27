@@ -6,11 +6,12 @@ Defines the constants of the time tracking schema for jql
 
 const (
 	// The status views share the names with the statuses themselves
-	StateUnprocessed string = "Unprocessed"
-	StatusSomeday    string = "Someday"
-	StatusPending    string = "Pending"
-	StatusSatisfied  string = "Satisfied"
+	StatusUnprocessed string = "Unprocessed"
+	StatusPending     string = "Pending"
+	StatusActive      string = "Active"
+	StatusSatisfied   string = "Satisfied"
 
+	FreshView     string = "Fresh"
 	ResourcesView string = "Resources"
 
 	FieldDescription string = "Description"

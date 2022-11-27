@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -34,7 +35,12 @@ type MainView struct {
 	resources [][]types.Entry
 	path      string
 
-	breakdown map[string][]Item
+	breakdown map[string][]Item // for the currently selected feed, maps status to items
+
+	fresh map[string][]Item // stores new items from the feed that the user then manually discards or adds to the table
+
+	ignored     map[string](map[string]bool) // stores a map from feed name to a set of ignored entries
+	ignoredPath string
 }
 
 // NewMainView returns a MainView initialized with a given Table
@@ -63,6 +69,26 @@ func NewMainView(path string, g *gocui.Gui) (*MainView, error) {
 		DB:  db,
 
 		path: path,
+
+		fresh: map[string][]Item{},
+	}
+	mv.ignoredPath = path + ".ignored"
+	_, err = os.Stat(mv.ignoredPath)
+	if os.IsNotExist(err) {
+		mv.ignored = map[string](map[string]bool){}
+	} else if err != nil {
+		return nil, err
+	} else {
+		ignored := map[string](map[string]bool){}
+		contents, err := os.ReadFile(mv.ignoredPath)
+		if err != nil {
+			return nil, err
+		}
+		err = json.Unmarshal(contents, &ignored)
+		if err != nil {
+			return nil, err
+		}
+		mv.ignored = ignored
 	}
 	err = mv.fetchResources()
 	if err != nil {
@@ -104,6 +130,10 @@ func (mv *MainView) fetchResources() error {
 			continue
 		}
 		mv.resources = append(mv.resources, entry)
+		entryName := entry[nounsTable.IndexOfField(FieldDescription)].Format("")
+		if mv.ignored[entryName] == nil {
+			mv.ignored[entryName] = map[string]bool{}
+		}
 	}
 	return nil
 }
@@ -117,12 +147,14 @@ func (mv *MainView) fetchNewItems(g *gocui.Gui, v *gocui.View) error {
 
 	for _, entry := range mv.resources {
 		byDescription := map[string]Item{}
+		entryName := entry[nounsTable.IndexOfField(FieldDescription)].Format("")
+		mv.fresh[entryName] = []Item{}
 		allItems, err := nounsTable.Query(types.QueryParams{
 			Filters: []types.Filter{
 				&ui.EqualFilter{
 					Field:     FieldParent,
 					Col:       nounsTable.IndexOfField(FieldParent),
-					Formatted: entry[nounsTable.IndexOfField(FieldDescription)].Format(""),
+					Formatted: entryName,
 				},
 			},
 		})
@@ -149,40 +181,62 @@ func (mv *MainView) fetchNewItems(g *gocui.Gui, v *gocui.View) error {
 			if _, ok := byDescription[item.Description]; ok {
 				continue
 			}
-			description := item.Description
-			err = nounsTable.Insert(description)
-			if err != nil {
-				// TODO would be good to use a specific error type
-				if strings.HasPrefix(err.Error(), "Row already exists") {
-					for i := 1; i < 100; i++ {
-						description = fmt.Sprintf("%s (%02d)", item.Description, i)
-						err = nounsTable.Insert(description)
-						if err == nil {
-							break
-						} else if strings.HasPrefix(err.Error(), "Row already exists") {
-							continue
-						} else {
-							return err
-						}
-					}
-				} else {
-					return fmt.Errorf("Failed to add entry: %s", err)
-				}
-			}
-
-			// TODO now that we support insert with fields we probably don't need separate updates here
-			err = nounsTable.Update(description, FieldLink, item.Link)
-			if err != nil {
-				return fmt.Errorf("Failed to update link for entry: %s", err)
-			}
-
-			err = nounsTable.Update(description, FieldParent, entry[nounsTable.IndexOfField(FieldDescription)].Format(""))
-			if err != nil {
-				return fmt.Errorf("Failed to update resource for entry: %s", err)
+			if !mv.ignored[entryName][item.Description] {
+				mv.fresh[entryName] = append(mv.fresh[entryName], item)
 			}
 		}
 	}
 	return nil
+}
+
+func (mv *MainView) addFreshItem(g *gocui.Gui, v *gocui.View) error {
+	resources, err := g.View(ResourcesView)
+	if err != nil {
+		return err
+	}
+	_, selectedResource := resources.Cursor()
+	nounsTable, ok := mv.DB.Tables[TableNouns]
+	if !ok {
+		return fmt.Errorf("expected resources table to exist")
+	}
+	feed := mv.resources[selectedResource]
+	entryName := feed[nounsTable.IndexOfField(FieldDescription)].Format("")
+	_, cy := v.Cursor()
+	_, oy := v.Origin()
+	item := mv.fresh[entryName][oy+cy]
+	description := item.Description
+	err = nounsTable.Insert(description)
+	if err != nil {
+		// TODO would be good to use a specific error type
+		if strings.HasPrefix(err.Error(), "Row already exists") {
+			for i := 1; i < 100; i++ {
+				description = fmt.Sprintf("%s (%02d)", item.Description, i)
+				err = nounsTable.Insert(description)
+				if err == nil {
+					break
+				} else if strings.HasPrefix(err.Error(), "Row already exists") {
+					continue
+				} else {
+					return err
+				}
+			}
+		} else {
+			return fmt.Errorf("Failed to add entry: %s", err)
+		}
+	}
+
+	// TODO now that we support insert with fields we probably don't need separate updates here
+	err = nounsTable.Update(description, FieldLink, item.Link)
+	if err != nil {
+		return fmt.Errorf("Failed to update link for entry: %s", err)
+	}
+
+	err = nounsTable.Update(description, FieldParent, entryName)
+	if err != nil {
+		return fmt.Errorf("Failed to update resource for entry: %s", err)
+	}
+	mv.fresh[entryName] = append(mv.fresh[entryName][:oy+cy], mv.fresh[entryName][oy+cy+1:]...)
+	return mv.refreshView(g)
 }
 
 // Edit handles keyboard inputs while in table mode
@@ -192,7 +246,7 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 
 func (mv *MainView) Layout(g *gocui.Gui) error {
 	maxX, maxY := g.Size()
-	satisfied, err := g.SetView(StatusSatisfied, maxX/4+1, 0, maxX-1, maxY/4)
+	active, err := g.SetView(StatusActive, maxX/4+1, 0, maxX-1, maxY/4)
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	}
@@ -200,11 +254,11 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	}
-	someday, err := g.SetView(StatusSomeday, maxX/4+1, maxY/2+1, maxX-1, (3*maxY)/4)
+	unprocessed, err := g.SetView(StatusUnprocessed, maxX/4+1, maxY/2+1, maxX-1, (3*maxY)/4)
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	}
-	unprocessed, err := g.SetView(StateUnprocessed, maxX/4+1, (3*maxY)/4+1, maxX-1, maxY-1)
+	fresh, err := g.SetView(FreshView, maxX/4+1, (3*maxY)/4+1, maxX-1, maxY-1)
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	}
@@ -218,7 +272,7 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 		return err
 	}
 	resources.Clear()
-	for _, view := range []*gocui.View{satisfied, pending, someday, unprocessed, resources} {
+	for _, view := range []*gocui.View{active, pending, unprocessed, fresh, resources} {
 		view.SelBgColor = gocui.ColorWhite
 		view.SelFgColor = gocui.ColorBlack
 		view.Highlight = view == g.CurrentView()
@@ -231,7 +285,7 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 	for status, items := range mv.breakdown {
 		for _, item := range items {
 			switch status {
-			case StatusSatisfied, StatusPending, StatusSomeday, StateUnprocessed:
+			case FreshView, StatusActive, StatusPending, StatusUnprocessed:
 				view, err := g.View(status)
 				if err != nil {
 					return err
@@ -253,16 +307,24 @@ func (mv *MainView) saveContents(g *gocui.Gui, v *gocui.View) error {
 	if err != nil {
 		return err
 	}
+	serialized, err := json.MarshalIndent(mv.ignored, "", "    ")
+	if err != nil {
+		return err
+	}
+	err = os.WriteFile(mv.ignoredPath, serialized, 0600)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
 func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 	nextMap := map[string]string{
-		ResourcesView:    StateUnprocessed,
-		StateUnprocessed: StatusSomeday,
-		StatusSomeday:    StatusPending,
-		StatusPending:    StatusSatisfied,
-		StatusSatisfied:  ResourcesView,
+		ResourcesView:     FreshView,
+		FreshView:         StatusUnprocessed,
+		StatusUnprocessed: StatusPending,
+		StatusPending:     StatusActive,
+		StatusActive:      ResourcesView,
 	}
 	for current, next := range nextMap {
 		err := g.SetKeybinding(current, 'f', gocui.ModNone, mv.fetchNewItems)
@@ -325,16 +387,30 @@ func (mv *MainView) moveDown(g *gocui.Gui, v *gocui.View) error {
 		return nil
 	}
 	_, cy := v.Cursor()
-	pk := mv.breakdown[name][cy].Description
+	_, oy := v.Origin()
 	nounsTable, ok := mv.DB.Tables[TableNouns]
 	if !ok {
 		return fmt.Errorf("Expected to find nouns table")
 	}
-	new, err := nounsTable.Entries[pk][nounsTable.IndexOfField(FieldStatus)].Add(-1)
-	if err != nil {
-		return err
+	pk := mv.breakdown[name][oy+cy].Description
+	if name == FreshView {
+		resources, err := g.View(ResourcesView)
+		if err != nil {
+			return err
+		}
+		_, roy := resources.Origin()
+		_, rcy := resources.Cursor()
+		entry := mv.resources[roy+rcy]
+		entryName := entry[nounsTable.IndexOfField(FieldDescription)].Format("")
+		mv.ignored[entryName][pk] = true
+		mv.fresh[entryName] = append(mv.fresh[entryName][:oy+cy], mv.fresh[entryName][oy+cy+1:]...)
+	} else {
+		new, err := nounsTable.Entries[pk][nounsTable.IndexOfField(FieldStatus)].Add(-1)
+		if err != nil {
+			return err
+		}
+		nounsTable.Entries[pk][nounsTable.IndexOfField(FieldStatus)] = new
 	}
-	nounsTable.Entries[pk][nounsTable.IndexOfField(FieldStatus)] = new
 	return mv.refreshView(g)
 }
 
@@ -346,8 +422,12 @@ func (mv *MainView) moveUp(g *gocui.Gui, v *gocui.View) error {
 	if name == ResourcesView {
 		return nil
 	}
+	if name == FreshView {
+		return mv.addFreshItem(g, v)
+	}
 	_, cy := v.Cursor()
-	pk := mv.breakdown[name][cy].Description
+	_, oy := v.Origin()
+	pk := mv.breakdown[name][oy+cy].Description
 	nounsTable, ok := mv.DB.Tables[TableNouns]
 	if !ok {
 		return fmt.Errorf("Expected to find items table")
@@ -412,22 +492,24 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 	if !ok {
 		return fmt.Errorf("expected nouns table to exist")
 	}
-	var cy int
+	var cy, oy int
 	view, err := g.View(ResourcesView)
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	} else if err == nil {
 		_, cy = view.Cursor()
+		_, oy = view.Origin()
 	}
 
-	entry := mv.resources[cy]
+	entry := mv.resources[oy+cy]
+	entryName := entry[nounsTable.IndexOfField(FieldDescription)].Format("")
 
 	rawItems, err := nounsTable.Query(types.QueryParams{
 		Filters: []types.Filter{
 			&ui.EqualFilter{
 				Field:     FieldParent,
 				Col:       nounsTable.IndexOfField(FieldParent),
-				Formatted: entry[nounsTable.IndexOfField(FieldDescription)].Format(""),
+				Formatted: entryName,
 			},
 		},
 	})
@@ -451,5 +533,7 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 			return items[i].Description < items[j].Description
 		})
 	}
+
+	mv.breakdown[FreshView] = mv.fresh[entryName]
 	return nil
 }
