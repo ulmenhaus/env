@@ -1,6 +1,7 @@
 import json
 import os
 import subprocess
+import sys
 import tempfile
 
 
@@ -47,6 +48,51 @@ class ProjectManager(object):
             "Project": self.project,
         }
         self._save_cache()
+
+    def clear_bookmarks(self):
+        keys = list(self._cache["bookmarks"].keys())
+        for key in keys:
+            if self._cache["bookmarks"][key]['Project'] == self.project:
+                del self._cache["bookmarks"][key]
+        self._save_cache()
+
+    def export_bookmarks(self):
+        base_url = self._get_proj_base_url()
+        for key, bookmark in self._cache["bookmarks"].items():
+            if bookmark['Project'] != self.project:
+                continue
+            # NOTE this URL will go to the correct file path, but the location within it
+            # is a character whereas github expects lines so won't be correct
+            print(
+                f"* [{bookmark['Description']}](https://{base_url}/blob/master/{key})"
+            )
+
+    def import_bookmarks(self):
+        all_bookmarks = sys.stdin.read().split("\n")
+        for bookmark in all_bookmarks:
+            # NOTE this export/import is kinda lossy -- we assume we'll never have a description
+            # with square braces or "/blob/master"
+            if not bookmark.startswith("* ["):
+                continue
+            description, rest = bookmark[len("* ["):].split("](", maxsplit=1)
+            key = rest.split("/blob/master/", maxsplit=1)[1][:-1]
+            self._cache["bookmarks"][key] = {
+                'Description': description,
+                'Project': self.project,
+            }
+        self._save_cache()
+
+    def _get_proj_base_url(self):
+        proj_wd = self._cache["projects"][self.project]["Workdir"]
+        raw_url = subprocess.check_output(
+            "git config --get remote.origin.url",
+            cwd=os.path.expanduser(proj_wd),
+            shell=True,
+        ).decode("utf-8").strip()
+        if "@" not in raw_url or not raw_url.endswith(".git"):
+            raise NotImplementedError(
+                f"Exports not supported for http based origin url: {raw_url}")
+        return raw_url.split("@")[1].replace(":", "/")[:-len(".git")]
 
     def add_jump(self, source_path, source_point, target_path, target_point):
         all_jumps = self._cache["jumps"]

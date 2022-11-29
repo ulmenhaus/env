@@ -26,13 +26,13 @@ def main():
     def jump_group():
         pass
 
-    pm = ProjectManager(project=os.environ["TMUX_WINDOW_NAME"])
-
     @click.argument('workdir', type=click.STRING)
     def new(workdir):
+        pm = ProjectManager(project=os.environ["TMUX_WINDOW_NAME"])
         return pm.new_project(workdir)
 
     def ls():
+        pm = ProjectManager(project=os.environ["TMUX_WINDOW_NAME"])
         return pm.list_projects()
 
     project_group.command()(new)
@@ -41,21 +41,42 @@ def main():
     @click.argument('path', type=click.STRING)
     @click.argument('point', type=click.STRING)
     def add(path, point):
+        pm = ProjectManager(project=os.environ["TMUX_WINDOW_NAME"])
         return pm.add_bookmark(path, point)
 
     @click.argument('path', type=click.STRING)
     @click.argument('point', type=click.STRING)
     def rm(path, point):
+        pm = ProjectManager(project=os.environ["TMUX_WINDOW_NAME"])
         return pm.remove_bookmark(path, point)
+
+    @click.argument('proj', type=click.STRING)
+    def clear(proj):
+        pm = ProjectManager(project=proj)
+        return pm.clear_bookmarks()
+
+    @click.argument('proj', type=click.STRING)
+    def export(proj):
+        pm = ProjectManager(project=proj)
+        return pm.export_bookmarks()
+
+    @click.argument('proj', type=click.STRING)
+    def mport(proj):
+        pm = ProjectManager(project=proj)
+        return pm.import_bookmarks()
 
     bookmark_group.command()(add)
     bookmark_group.command()(rm)
+    bookmark_group.command()(clear)
+    bookmark_group.command()(export)
+    bookmark_group.command()(mport)
 
     @click.argument('source_path', type=click.STRING)
     @click.argument('source_point', type=click.STRING)
     @click.argument('target_path', type=click.STRING)
     @click.argument('target_point', type=click.STRING)
     def add(source_path, source_point, target_path, target_point):
+        pm = ProjectManager(project=os.environ["TMUX_WINDOW_NAME"])
         return pm.add_jump(source_path, source_point, target_path, target_point)
 
     jump_group.command()(add)
