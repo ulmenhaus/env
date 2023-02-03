@@ -16,6 +16,7 @@ def pk_terms_for_task(task, parent):
     elif action in (
             "Ideate",
             "Deliberate",
+            "Muse",
     ):
         preposition = " on "
     elif action in ("Upload", ):
@@ -30,6 +31,9 @@ def pk_terms_for_task(task, parent):
     elif action in ("Jam", ):
         if task['Direct']:
             prepreposition = " at "
+    elif action == "Liase":
+        prepreposition = " with "
+        preposition = " on "
     direct_clause, indirect_clause = "", ""
     mandate = [action, prepreposition, task['Direct'], preposition, task['Indirect']]
     if task["Parameters"]:
