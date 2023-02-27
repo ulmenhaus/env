@@ -449,19 +449,28 @@ func (mv *MainView) todayBreakdown() []DayItem {
 	if mv.Mode != MainViewModeListCycles {
 		return mv.today
 	}
-	/*
-		taskTable := mv.DB.Tables[TableTasks]
-		today := []DayItem{}
-		for _, item := range mv.today {
-			meta, ok := mv.today2item[item.Description]
-			if !ok {
-				return nil
+	taskTable := mv.DB.Tables[TableTasks]
+	today := []DayItem{}
+	for _, item := range mv.today {
+		// Fall back to using the item's description as its attention
+		// cycle if this is a one-off or we can't find its primary for some
+		// reason
+		brk := item.Description
+		meta, ok := mv.today2item[item.Description]
+		if ok {
+			task, err := mv.retrieveAttentionCycle(taskTable, taskTable.Entries[meta.TaskPK])
+			if err == nil {
+				brk = task[taskTable.Primary()].Format("")
 			}
-			task, err = mv.retrieveAttentionCycle(taskTable, task)
-
 		}
-	*/
-	return nil
+		today = append(today, DayItem{
+			Break:       brk,
+			Description: item.Description,
+			PK:          item.PK,
+		})
+
+	}
+	return today
 }
 
 func (mv *MainView) todayTasks() []string {
