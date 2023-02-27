@@ -26,12 +26,18 @@ type MainViewMode int
 
 const (
 	MainViewModeListBar MainViewMode = iota
-	MainViewModeListCycles
 	MainViewModeSwitchingToJQL
 	MainViewModeGoingToJQLEntry
 	MainViewModeGoingToToday
 	MainViewModeQueryingForTask
 	MainViewModeQueryingForNewPlan
+)
+
+type TaskViewMode int
+
+const (
+	TaskViewModeListBar TaskViewMode = iota
+	TaskViewModeListCycles
 )
 
 // A MainView is the overall view including a project list
@@ -40,7 +46,8 @@ type MainView struct {
 	OSM *osm.ObjectStoreMapper
 	DB  *types.Database
 
-	Mode MainViewMode
+	MainViewMode MainViewMode
+	TaskViewMode TaskViewMode
 
 	// maps span to tasks of that span
 	tasks map[string]([][]types.Entry)
@@ -108,17 +115,17 @@ func (mv *MainView) load(g *gocui.Gui) error {
 	}
 	mv.OSM = mapper
 	mv.DB = db
-	mv.Mode = MainViewModeListBar
+	mv.MainViewMode = MainViewModeListBar
 	mv.tasks = map[string]([][]types.Entry){}
 	mv.span = Today
 	return mv.refreshView(g)
 }
 
 func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifier) {
-	if mv.Mode == MainViewModeQueryingForTask {
+	if mv.MainViewMode == MainViewModeQueryingForTask {
 		mv.editSearch(v, key, ch, mod)
 		return
-	} else if mv.Mode == MainViewModeQueryingForNewPlan {
+	} else if mv.MainViewMode == MainViewModeQueryingForNewPlan {
 		mv.editNewPlan(v, key, ch, mod)
 		return
 	}
@@ -163,7 +170,7 @@ func (mv *MainView) selectQueryItem(g *gocui.Gui, v *gocui.View) error {
 		return err
 	}
 	mv.topicQ = ""
-	mv.Mode = MainViewModeListBar
+	mv.MainViewMode = MainViewModeListBar
 	return mv.queryCallback(selected)
 }
 
@@ -178,9 +185,9 @@ func (mv *MainView) setTopics() error {
 }
 
 func (mv *MainView) Layout(g *gocui.Gui) error {
-	if mv.Mode == MainViewModeQueryingForTask {
+	if mv.MainViewMode == MainViewModeQueryingForTask {
 		return mv.queryForTaskLayout(g)
-	} else if mv.Mode == MainViewModeQueryingForNewPlan {
+	} else if mv.MainViewMode == MainViewModeQueryingForNewPlan {
 		return mv.queryForNewPlanLayout(g)
 	} else {
 		return mv.listTasksLayout(g)
@@ -192,7 +199,7 @@ func (mv *MainView) createNewPlan(g *gocui.Gui, v *gocui.View) error {
 	if err != nil {
 		return err
 	}
-	mv.Mode = MainViewModeListBar
+	mv.MainViewMode = MainViewModeListBar
 	assnTable := mv.DB.Tables[TableAssertions]
 	tasksTable := mv.DB.Tables[TableTasks]
 	newOrder := 0
@@ -369,18 +376,18 @@ func (mv *MainView) listTasksLayout(g *gocui.Gui) error {
 	log.Clear()
 	tasks.SelBgColor = gocui.ColorWhite
 	tasks.SelFgColor = gocui.ColorBlack
-	tasks.Highlight = mv.Mode != MainViewModeSwitchingToJQL && mv.Mode != MainViewModeGoingToJQLEntry && mv.Mode != MainViewModeGoingToToday
+	tasks.Highlight = mv.MainViewMode != MainViewModeSwitchingToJQL && mv.MainViewMode != MainViewModeGoingToJQLEntry && mv.MainViewMode != MainViewModeGoingToToday
 
-	if mv.Mode == MainViewModeSwitchingToJQL || mv.Mode == MainViewModeGoingToJQLEntry || mv.Mode == MainViewModeGoingToToday {
+	if mv.MainViewMode == MainViewModeSwitchingToJQL || mv.MainViewMode == MainViewModeGoingToJQLEntry || mv.MainViewMode == MainViewModeGoingToToday {
 		// HACK give the event loop time to clear highlighting from the tty
 		// so that when we switch to jql we don't have inverted colors
 		go func() {
 			time.Sleep(50 * time.Millisecond)
-			if mv.Mode == MainViewModeSwitchingToJQL {
+			if mv.MainViewMode == MainViewModeSwitchingToJQL {
 				mv.switchToJQL(g, tasks)
-			} else if mv.Mode == MainViewModeGoingToJQLEntry {
+			} else if mv.MainViewMode == MainViewModeGoingToJQLEntry {
 				mv.goToJQLEntry(g, tasks)
-			} else if mv.Mode == MainViewModeGoingToToday {
+			} else if mv.MainViewMode == MainViewModeGoingToToday {
 				mv.goToToday(g, tasks)
 			}
 		}()
@@ -446,7 +453,7 @@ func (mv *MainView) tabulatedTasks(g *gocui.Gui, v *gocui.View) []string {
 }
 
 func (mv *MainView) todayBreakdown() []DayItem {
-	if mv.Mode != MainViewModeListCycles {
+	if mv.TaskViewMode != TaskViewModeListCycles {
 		return mv.today
 	}
 	taskTable := mv.DB.Tables[TableTasks]
@@ -646,7 +653,7 @@ func (mv *MainView) prevSpan(g *gocui.Gui, v *gocui.View) error {
 }
 
 func (mv *MainView) queryForTask(g *gocui.Gui, v *gocui.View, callback func(cycle string) error) error {
-	mv.Mode = MainViewModeQueryingForTask
+	mv.MainViewMode = MainViewModeQueryingForTask
 	mv.queryCallback = callback
 	return nil
 }
@@ -695,7 +702,7 @@ func (mv *MainView) selectAndGoToTask(g *gocui.Gui, v *gocui.View) error {
 }
 
 func (mv *MainView) queryForNewPlan(taskPK string) error {
-	mv.Mode = MainViewModeQueryingForNewPlan
+	mv.MainViewMode = MainViewModeQueryingForNewPlan
 	mv.newPlanTaskPK = taskPK
 	return nil
 }
@@ -869,7 +876,7 @@ func (mv *MainView) cursorUp(g *gocui.Gui, v *gocui.View) error {
 }
 
 func (mv *MainView) triggerSwitchToJQL(g *gocui.Gui, v *gocui.View) error {
-	mv.Mode = MainViewModeSwitchingToJQL
+	mv.MainViewMode = MainViewModeSwitchingToJQL
 	return nil
 }
 
@@ -892,7 +899,7 @@ func (mv *MainView) switchToJQL(g *gocui.Gui, v *gocui.View) error {
 }
 
 func (mv *MainView) triggerGoToToday(g *gocui.Gui, v *gocui.View) error {
-	mv.Mode = MainViewModeGoingToToday
+	mv.MainViewMode = MainViewModeGoingToToday
 	return nil
 }
 
@@ -908,7 +915,7 @@ func (mv *MainView) goToToday(g *gocui.Gui, v *gocui.View) error {
 }
 
 func (mv *MainView) triggerGoToJQLEntry(g *gocui.Gui, v *gocui.View) error {
-	mv.Mode = MainViewModeGoingToJQLEntry
+	mv.MainViewMode = MainViewModeGoingToJQLEntry
 	return nil
 }
 
@@ -974,7 +981,7 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 		if task[statusField].Format("") == "Active" {
 			span = SpanDay
 		}
-		if mv.Mode == MainViewModeListCycles {
+		if mv.TaskViewMode == TaskViewModeListCycles {
 			task, err = mv.retrieveAttentionCycle(taskTable, task)
 			if err != nil {
 				return err
@@ -988,7 +995,7 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 		return err
 	}
 	for _, task := range pending {
-		if mv.Mode == MainViewModeListCycles {
+		if mv.TaskViewMode == TaskViewModeListCycles {
 			task, err = mv.retrieveAttentionCycle(taskTable, task)
 			if err != nil {
 				return err
@@ -1200,11 +1207,11 @@ func (mv *MainView) retrieveAttentionCycle(table *types.Table, task []types.Entr
 }
 
 func (mv *MainView) switchModes(g *gocui.Gui, v *gocui.View) error {
-	switch mv.Mode {
-	case MainViewModeListBar:
-		mv.Mode = MainViewModeListCycles
-	case MainViewModeListCycles:
-		mv.Mode = MainViewModeListBar
+	switch mv.TaskViewMode {
+	case TaskViewModeListBar:
+		mv.TaskViewMode = TaskViewModeListCycles
+	case TaskViewModeListCycles:
+		mv.TaskViewMode = TaskViewModeListBar
 	}
 	return mv.refreshView(g)
 }
