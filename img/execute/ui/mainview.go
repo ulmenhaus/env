@@ -1,10 +1,12 @@
 package ui
 
 import (
+	"encoding/json"
 	"fmt"
 	"math/rand"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -443,11 +445,30 @@ func (mv *MainView) tabulatedTasks(g *gocui.Gui, v *gocui.View) []string {
 	return toret
 }
 
+func (mv *MainView) todayBreakdown() []DayItem {
+	if mv.Mode != MainViewModeListCycles {
+		return mv.today
+	}
+	/*
+		taskTable := mv.DB.Tables[TableTasks]
+		today := []DayItem{}
+		for _, item := range mv.today {
+			meta, ok := mv.today2item[item.Description]
+			if !ok {
+				return nil
+			}
+			task, err = mv.retrieveAttentionCycle(taskTable, task)
+
+		}
+	*/
+	return nil
+}
+
 func (mv *MainView) todayTasks() []string {
 	tasks := []string{}
 	ix2item := map[int]DayItem{}
 	currentBreak := ""
-	for _, item := range mv.today {
+	for _, item := range mv.todayBreakdown() {
 		if item.Break != currentBreak {
 			tasks = append(tasks, item.Break)
 			currentBreak = item.Break
@@ -463,6 +484,10 @@ func (mv *MainView) saveContents(g *gocui.Gui, v *gocui.View) error {
 	return mv.save()
 }
 
+func (mv *MainView) itemStorePath() string {
+	return filepath.Join(filepath.Dir(mv.path), ".item_store."+filepath.Base(mv.path))
+}
+
 func (mv *MainView) save() error {
 	f, err := os.OpenFile(mv.path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
@@ -470,6 +495,25 @@ func (mv *MainView) save() error {
 	}
 	defer f.Close()
 	err = mv.OSM.Dump(mv.DB, f)
+	if err != nil {
+		return err
+	}
+	// Persist the today2item mapping so that we can restore it later to use as
+	// a base. Otherwise the mapping is hard to reconstruct since we only query
+	// for active tasks when we construct it and some tasks might already be done.
+	//
+	// NOTE If this file gets too big I can just purge its entries every time
+	// I create a new 'Plan today' task.
+	itemStoreMarshaled, err := json.Marshal(mv.today2item)
+	if err != nil {
+		return err
+	}
+	itemStore, err := os.OpenFile(mv.itemStorePath(), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	if err != nil {
+		return err
+	}
+	defer itemStore.Close()
+	_, err = itemStore.Write(itemStoreMarshaled)
 	if err != nil {
 		return err
 	}
@@ -978,9 +1022,29 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 	return mv.refreshToday()
 }
 
+func (mv *MainView) loadBaseToday2Item() (map[string]DayItemMeta, error) {
+	// Restore the persisted today2item mapping to use as base. Otherwise the
+	// mapping is hard to reconstruct since we only query
+	// for active tasks when we construct it and some tasks might already be done.
+	today2item := map[string]DayItemMeta{}
+	contents, err := os.ReadFile(mv.itemStorePath())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return today2item, nil
+		}
+		return nil, err
+	}
+	err = json.Unmarshal(contents, &today2item)
+	return today2item, err
+}
+
 func (mv *MainView) refreshToday() error {
 	mv.today = []DayItem{}
-	mv.today2item = map[string]DayItemMeta{}
+	today2item, err := mv.loadBaseToday2Item()
+	if err != nil {
+		return err
+	}
+	mv.today2item = today2item
 
 	today, err := mv.queryDayPlan()
 	if err != nil {
@@ -1516,6 +1580,7 @@ func (mv *MainView) markTask(g *gocui.Gui, v *gocui.View) error {
 		return nil
 	}
 
+	mv.today2item[newVal] = meta // re-map the today-plan to its item so it can still map back to its task PK
 	if meta.AssertionPK != "" {
 		err := assertionsTable.Update(meta.AssertionPK, FieldArg1, newVal)
 		if err != nil {
