@@ -21,7 +21,8 @@ import (
 )
 
 // MainViewMode is the current mode of the MainView.
-// It determines which subviews are displayed
+// It captures the state of the MainView object with
+// respect to actions and state transitions between them.
 type MainViewMode int
 
 const (
@@ -33,6 +34,7 @@ const (
 	MainViewModeQueryingForNewPlan
 )
 
+// TaskViewMode is the way in which tasks are presented
 type TaskViewMode int
 
 const (

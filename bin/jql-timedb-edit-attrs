@@ -14,19 +14,45 @@ import sys
 import tempfile
 import time
 
+from timedb import pks
+
 STANDARD_PROPERTIES = ("Description", "Point")
 TERMINAL_STATUSES = ("Satisfied", "Revisit", "Failed")
 
 
-def convert_assertions_to_markdown(subject, assertions):
+def _fill_default_assertions(by_relation, subject, snapshot):
+    for property in STANDARD_PROPERTIES:
+        by_relation[".{}".format(property)] = {}
+
+    # Automatically fill participants if the indirect object is a
+    # group noun with whom the task is done
+    tasks, assertions = snapshot['tasks'], snapshot['assertions']
+    if subject not in tasks:
+        return
+    task = tasks[subject]
+    parent = tasks[task["Primary Goal"]]
+    terms = pks.pk_terms_for_task(task, parent)
+    if terms[-3] == " with ":
+        group = "nouns " + terms[-2]
+        participants = [
+            assn["Arg1"] for assn in assertions.values()
+            if assn["Arg0"] == group and assn["A Relation"] == ".Member"
+        ]
+        by_relation[".Participant"] = {
+            participant: {
+                "Arg1": participant,
+                "Order": str(i),
+            }
+            for i, participant in enumerate(participants)
+        }
+
+
+def convert_assertions_to_markdown(subject, assertions, snapshot):
     by_relation = collections.defaultdict(dict)
     for pk, value in assertions.items():
         by_relation[value["A Relation"]][pk] = value
     if len(assertions) == 0:
-        by_relation = {
-            ".{}".format(property): {}
-            for property in STANDARD_PROPERTIES
-        }
+        _fill_default_assertions(by_relation, subject, snapshot)
     md = ["# {}".format(subject)]
     for relation in sorted(by_relation):
         md.append("\n## {}\n".format(relation[1:]))
@@ -125,7 +151,7 @@ def _edit_in_file(snapshot, table, pk, tmpdir):
         for key, value in assertions.items()
         if value["A Relation"].startswith(".") and value["Arg0"] == full_id
     }
-    markdown = convert_assertions_to_markdown(pk, old_assertions)
+    markdown = convert_assertions_to_markdown(pk, old_assertions, snapshot)
     if table == "tasks" and len(old_assertions) == 0:
         # provide the assertions of the previous execution of this task as a guide
         # as well as blank values for previously used attrs
@@ -150,13 +176,16 @@ def _edit_in_file(snapshot, table, pk, tmpdir):
             new_markdown = convert_assertions_to_markdown(
                 "{} (previous execution)".format(youngest_pk),
                 previous_assertions,
+                snapshot,
             )
-            prev_keys = set(prev['A Relation'][1:] for prev in previous_assertions.values())
+            prev_keys = set(prev['A Relation'][1:]
+                            for prev in previous_assertions.values())
             markdown += blanks_for_keys(sorted(prev_keys))
             markdown += "\n{}".format(new_markdown)
     # TODO would be good to store these in a .tmp directory in the project
     # root to allow for easy rediscovery and wd changes
-    with tempfile.NamedTemporaryFile(suffix=".tdb", delete=False, dir=tmpdir) as f:
+    with tempfile.NamedTemporaryFile(suffix=".tdb", delete=False,
+                                     dir=tmpdir) as f:
         f.write(markdown.encode("utf-8"))
         fname = f.name
     open_with_emacs_daemon(fname)
