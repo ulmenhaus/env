@@ -49,6 +49,7 @@ const (
 	QueryTasksView string = "query_tasks"
 	QueryView      string = "query"
 	NewPlanView    string = "new_plan"
+	NewPlansView   string = "new_plans"
 
 	Today       string = "Today"
 	SpanDay     string = "Day"

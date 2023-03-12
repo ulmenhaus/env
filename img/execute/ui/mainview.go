@@ -32,6 +32,7 @@ const (
 	MainViewModeGoingToToday
 	MainViewModeQueryingForTask
 	MainViewModeQueryingForNewPlan
+	MainViewModeQueryingForPlansSubset
 )
 
 // TaskViewMode is the way in which tasks are presented
@@ -72,6 +73,9 @@ type MainView struct {
 	// state used for querying for a new plan
 	newPlanTaskPK      string
 	newPlanDescription string
+
+	// state used for querying for a subset of plans
+	planSelections []PlanSelectionItem
 }
 
 type DayItem struct {
@@ -84,6 +88,11 @@ type DayItemMeta struct {
 	Description string
 	TaskPK      string
 	AssertionPK string
+}
+
+type PlanSelectionItem struct {
+	Plan   string
+	Marked bool
 }
 
 // NewMainView returns a MainView initialized with a given Table
@@ -191,21 +200,33 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 		return mv.queryForTaskLayout(g)
 	} else if mv.MainViewMode == MainViewModeQueryingForNewPlan {
 		return mv.queryForNewPlanLayout(g)
+	} else if mv.MainViewMode == MainViewModeQueryingForPlansSubset {
+		return mv.queryForPlanSubsetLayout(g)
 	} else {
 		return mv.listTasksLayout(g)
 	}
 }
 
-func (mv *MainView) createNewPlan(g *gocui.Gui, v *gocui.View) error {
+func (mv *MainView) createNewPlanFromInput(g *gocui.Gui, v *gocui.View) error {
 	err := g.DeleteView(NewPlanView)
 	if err != nil {
 		return err
 	}
 	mv.MainViewMode = MainViewModeListBar
+	err = mv.createNewPlan(g, mv.newPlanTaskPK, mv.newPlanDescription)
+	if err != nil {
+		return err
+	}
+	mv.newPlanTaskPK = ""
+	mv.newPlanDescription = ""
+	return nil
+}
+
+func (mv *MainView) createNewPlan(g *gocui.Gui, taskPK, description string) error {
 	assnTable := mv.DB.Tables[TableAssertions]
 	tasksTable := mv.DB.Tables[TableTasks]
 	newOrder := 0
-	plansResp, err := mv.queryPlans([]string{mv.newPlanTaskPK})
+	plansResp, err := mv.queryPlans([]string{taskPK})
 	if err != nil {
 		return err
 	}
@@ -223,8 +244,8 @@ func (mv *MainView) createNewPlan(g *gocui.Gui, v *gocui.View) error {
 	// pk doesn't really matter here so using a random integer
 	pk := fmt.Sprintf("%d", rand.Int63())
 	fields := map[string]string{
-		FieldArg0:      fmt.Sprintf("tasks %s", mv.newPlanTaskPK),
-		FieldArg1:      fmt.Sprintf("[ ] %s", mv.newPlanDescription),
+		FieldArg0:      fmt.Sprintf("tasks %s", taskPK),
+		FieldArg1:      fmt.Sprintf("[ ] %s", description),
 		FieldARelation: ".Plan",
 		FieldOrder:     fmt.Sprintf("%d", newOrder),
 	}
@@ -285,7 +306,7 @@ func (mv *MainView) createNewPlan(g *gocui.Gui, v *gocui.View) error {
 	}
 	fields = map[string]string{
 		FieldArg0:      dayPlanLink,
-		FieldArg1:      fmt.Sprintf("[ ] %s", mv.newPlanDescription),
+		FieldArg1:      fmt.Sprintf("[ ] %s", description),
 		FieldARelation: ".Do Today",
 		FieldOrder:     fmt.Sprintf("%d", dayOrder+1),
 	}
@@ -295,7 +316,6 @@ func (mv *MainView) createNewPlan(g *gocui.Gui, v *gocui.View) error {
 		return err
 	}
 
-	mv.newPlanDescription = ""
 	err = mv.save()
 	if err != nil {
 		return err
@@ -606,10 +626,26 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 	if err != nil {
 		return err
 	}
+	err = g.SetKeybinding(TasksView, 'S', gocui.ModNone, mv.substituteTask)
+	if err != nil {
+		return err
+	}
 	if err := g.SetKeybinding(QueryTasksView, gocui.KeyEnter, gocui.ModNone, mv.selectQueryItem); err != nil {
 		return err
 	}
-	if err := g.SetKeybinding(NewPlanView, gocui.KeyEnter, gocui.ModNone, mv.createNewPlan); err != nil {
+	if err := g.SetKeybinding(NewPlanView, gocui.KeyEnter, gocui.ModNone, mv.createNewPlanFromInput); err != nil {
+		return err
+	}
+	if err := g.SetKeybinding(NewPlansView, 'j', gocui.ModNone, mv.basicCursorDown); err != nil {
+		return err
+	}
+	if err := g.SetKeybinding(NewPlansView, 'k', gocui.ModNone, mv.basicCursorUp); err != nil {
+		return err
+	}
+	if err := g.SetKeybinding(NewPlansView, gocui.KeySpace, gocui.ModNone, mv.markPlanSelection); err != nil {
+		return err
+	}
+	if err := g.SetKeybinding(NewPlansView, gocui.KeyEnter, gocui.ModNone, mv.substitutePlanSelections); err != nil {
 		return err
 	}
 
@@ -828,6 +864,34 @@ func (mv *MainView) newTime(g *gocui.Gui, pk string, selectedTask []types.Entry,
 		}
 	}
 	return logTable.Update(pk, FieldTask, selectedTask[taskTable.IndexOfField(FieldDescription)].Format(""))
+}
+
+func (mv *MainView) basicCursorDown(g *gocui.Gui, v *gocui.View) error {
+	if v == nil {
+		return nil
+	}
+	cx, cy := v.Cursor()
+	ox, oy := v.Origin()
+	if err := v.SetCursor(cx, cy+1); err != nil {
+		if err := v.SetOrigin(ox, oy+1); err != nil {
+			return err
+		}
+	}
+	return mv.refreshView(g)
+}
+
+func (mv *MainView) basicCursorUp(g *gocui.Gui, v *gocui.View) error {
+	if v == nil {
+		return nil
+	}
+	cx, cy := v.Cursor()
+	ox, oy := v.Origin()
+	if err := v.SetCursor(cx, cy-1); err != nil {
+		if err := v.SetOrigin(ox, oy-1); err != nil {
+			return err
+		}
+	}
+	return mv.refreshView(g)
 }
 
 func (mv *MainView) cursorDown(g *gocui.Gui, v *gocui.View) error {
@@ -1640,5 +1704,130 @@ func (mv *MainView) deleteDayPlan(g *gocui.Gui, v *gocui.View) error {
 	if err != nil {
 		return err
 	}
+	return mv.refreshView(g)
+}
+
+func (mv *MainView) substituteTask(g *gocui.Gui, v *gocui.View) error {
+	if mv.span != Today {
+		return nil
+	}
+	_, oy := v.Origin()
+	_, cy := v.Cursor()
+	ix := oy + cy
+	item := mv.ix2item[ix]
+	meta := mv.today2item[item.Description]
+	isTask := meta.AssertionPK == ""
+	if isTask {
+		return mv.substituteTaskWithPlans(g, meta.TaskPK)
+	} else {
+		return mv.substitutePlanWithImplementation()
+	}
+}
+
+func (mv *MainView) substituteTaskWithPlans(g *gocui.Gui, taskPK string) error {
+	assnTable := mv.DB.Tables[TableAssertions]
+	tasksTable := mv.DB.Tables[TableTasks]
+	direct := tasksTable.Entries[taskPK][tasksTable.IndexOfField(FieldDirect)].Format("")
+	action := tasksTable.Entries[taskPK][tasksTable.IndexOfField(FieldAction)].Format("")
+	procedures, err := assnTable.Query(types.QueryParams{
+		Filters: []types.Filter{
+			&ui.EqualFilter{
+				Field:     FieldArg0,
+				Col:       assnTable.IndexOfField(FieldArg0),
+				Formatted: "nouns " + direct,
+			},
+			&ui.EqualFilter{
+				Field:     FieldARelation,
+				Col:       assnTable.IndexOfField(FieldARelation),
+				Formatted: ".Procedure",
+			},
+		},
+		OrderBy: FieldOrder,
+	})
+	if err != nil {
+		return err
+	}
+	// TODO this probably has a lot in common with logic in the procedure navigator
+	// so should be made into a shared library
+	procedure := ""
+	prefix := fmt.Sprintf("### %s\n", action)
+	for _, proc := range procedures.Entries {
+		procText := proc[assnTable.IndexOfField(FieldArg1)].Format("")
+		if strings.HasPrefix(procText, prefix) {
+			procedure = strings.TrimSpace(procText[len(prefix):])
+			break
+		}
+	}
+	items := []PlanSelectionItem{}
+	for _, item := range strings.Split(procedure, "\n") {
+		if !strings.HasPrefix(item, "- ") {
+			continue
+		}
+		items = append(items, PlanSelectionItem{
+			Plan:   item[2:],
+			Marked: true,
+		})
+	}
+	mv.planSelections = items
+	mv.MainViewMode = MainViewModeQueryingForPlansSubset
+	return mv.refreshView(g)
+}
+
+func (mv *MainView) substitutePlanWithImplementation() error {
+	return nil
+}
+
+func (mv *MainView) queryForPlanSubsetLayout(g *gocui.Gui) error {
+	maxX, _ := g.Size()
+	newPlansView, err := g.SetView(NewPlansView, 4, 5, maxX-4, len(mv.planSelections)+8)
+	if err != nil && err != gocui.ErrUnknownView {
+		return err
+	}
+	newPlansView.Editable = true
+	newPlansView.Highlight = true
+	newPlansView.SelBgColor = gocui.ColorWhite
+	newPlansView.SelFgColor = gocui.ColorBlack
+	newPlansView.Editor = mv
+	g.SetCurrentView(NewPlansView)
+	newPlansView.Clear()
+	newPlansView.Write([]byte("Select your plans\n"))
+	for _, item := range mv.planSelections {
+		if item.Marked {
+			newPlansView.Write([]byte("[x] "))
+		} else {
+			newPlansView.Write([]byte("[ ] "))
+		}
+		newPlansView.Write([]byte(item.Plan + "\n"))
+	}
+	return nil
+}
+
+func (mv *MainView) markPlanSelection(g *gocui.Gui, v *gocui.View) error {
+	_, cy := v.Cursor()
+	_, oy := v.Origin()
+	// HACK we know we have a one-line title bar here
+	mv.planSelections[cy+oy-1].Marked = !(mv.planSelections[cy+oy-1].Marked)
+	return mv.refreshView(g)
+}
+
+func (mv *MainView) substitutePlanSelections(g *gocui.Gui, v *gocui.View) error {
+	_, cy := v.Cursor()
+	_, oy := v.Origin()
+	ix := oy + cy
+	item := mv.ix2item[ix]
+	meta := mv.today2item[item.Description]
+	for _, item := range mv.planSelections {
+		if item.Marked {
+			err := mv.createNewPlan(g, meta.TaskPK, item.Plan)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	err := g.DeleteView(NewPlansView)
+	if err != nil {
+		return err
+	}
+	mv.MainViewMode = MainViewModeListBar
 	return mv.refreshView(g)
 }
