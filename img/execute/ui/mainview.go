@@ -1679,8 +1679,12 @@ func (mv *MainView) markTask(g *gocui.Gui, v *gocui.View) error {
 	if mv.span != Today {
 		return nil
 	}
-	_, oy := v.Origin()
-	_, cy := v.Cursor()
+	tasksView, err := g.View(TasksView)
+	if err != nil {
+		return err
+	}
+	_, oy := tasksView.Origin()
+	_, cy := tasksView.Cursor()
 
 	ix := oy + cy
 	if ix >= len(mv.cachedTodayTasks) {
@@ -1727,7 +1731,7 @@ func (mv *MainView) markTask(g *gocui.Gui, v *gocui.View) error {
 	}
 	// Sadly no support for unmarking a task because by this point we've lost the context
 	// on where the task came from. You have to manually unmark it.
-	err := mv.save()
+	err = mv.save()
 	if err != nil {
 		return err
 	}
@@ -1742,12 +1746,16 @@ func (mv *MainView) deleteDayPlan(g *gocui.Gui, v *gocui.View) error {
 	if mv.span != Today {
 		return nil
 	}
-	_, oy := v.Origin()
-	_, cy := v.Cursor()
+	tasksView, err := g.View(TasksView)
+	if err != nil {
+		return err
+	}
+	_, oy := tasksView.Origin()
+	_, cy := tasksView.Cursor()
 	ix := oy + cy
 	item := mv.ix2item[ix]
 	assnTable := mv.DB.Tables[TableAssertions]
-	err := assnTable.Delete(item.PK)
+	err = assnTable.Delete(item.PK)
 	if err != nil {
 		return err
 	}
@@ -1919,11 +1927,13 @@ func (mv *MainView) substitutePlanSelectionsForPlan(g *gocui.Gui, v *gocui.View)
 		return err
 	}
 	mv.MainViewMode = MainViewModeListBar
+	inserted := false
 	tasksTable := mv.DB.Tables[TableTasks]
 	for _, item := range mv.planSelections {
 		if !item.Marked {
 			continue
 		}
+		inserted = true
 		taskPK := item.Plan
 		err = tasksTable.Update(taskPK, FieldSpan, "Day")
 		if err != nil {
@@ -1939,11 +1949,21 @@ func (mv *MainView) substitutePlanSelectionsForPlan(g *gocui.Gui, v *gocui.View)
 		}
 		mv.insertDayPlan(g, item.Plan)
 	}
-	err = mv.save()
+	// If the user didn't mark any selections then don't actually change anything
+	if !inserted {
+		return nil
+	}
+	// NOTE we rely on markTask to also save our changes
+	err = mv.markTask(g, v)
 	if err != nil {
 		return err
 	}
 	err = mv.refreshPKs(g)
+	if err != nil {
+		return err
+	}
+	// NOTE we rely on deleteDayPlan to also save our changes
+	err = mv.deleteDayPlan(g, v)
 	if err != nil {
 		return err
 	}
