@@ -12,57 +12,6 @@ import sys
 from timedb import pks
 
 
-class TimeDB(object):
-    def __init__(self, db):
-        self.db = db
-
-    def update_files_pk(self, old, new):
-        files = self.db["files"]
-        f = files[old]
-        del files[old]
-        files[new] = f
-
-    def update_task_pk(self, old, new):
-        if old == new:
-            return
-        if new in self.db["tasks"]:
-            raise ValueError("key already exists")
-        task = self.db["tasks"][old]
-        del self.db["tasks"][old]
-        self.db["tasks"][new] = task
-        self.update_task_in_log(old, new)
-        self.update_arg_in_assertions("tasks", old, new)
-        for task in self.db["tasks"].values():
-            if task["Primary Goal"] == old:
-                task["Primary Goal"] = new
-
-    def update_task_in_log(self, old, new):
-        # TODO should hash this
-        for pk, log in self.db["log"].items():
-            if log["A Task"] == old:
-                log["A Task"] = new
-            # NOTE not changing PKs here as they require context on
-            # other entries and it's not really needed
-
-    def update_arg_in_assertions(self, table, old, new):
-        full_id = "tasks {}".format(old)
-        new_full_id = "tasks {}".format(new)
-        # Take a snapshot of assertions to not modify while iterating
-        for pk, assn in list(self.db["assertions"].items()):
-            if assn["Arg1"] == full_id:
-                assn["Arg1"] = new_full_id
-            if assn["Arg0"] == full_id:
-                assn["Arg0"] = new_full_id
-                new_pk = pk_for_assertion(assn)
-                del self.db["assertions"][pk]
-                self.db["assertions"][new_pk] = assn
-
-
-def pk_for_assertion(assn):
-    key = (assn["A Relation"], assn["Arg0"], assn["Order"])
-    return str(key)
-
-
 def pk_for_file(f):
     if f['A Type'] == "blob":
         return "/".join([f['A Type'] + "s", f['Xtended Name']])
@@ -75,12 +24,13 @@ def main():
     current_view = iface["current_view"]
     selected_table = current_view["table"]
     pk = current_view["primary_selection"]
-    tdb = TimeDB(snapshot)
+    tdb = pks.TimeDB(snapshot)
     if selected_table == "tasks":
         task = snapshot["tasks"][pk]
         tdb.update_task_pk(
             pk,
-            pks.pk_for_task(task, snapshot["tasks"].get(task["Primary Goal"], {})))
+            pks.pk_for_task(task,
+                            snapshot["tasks"].get(task["Primary Goal"], {})))
     elif selected_table == "files":
         tdb.update_files_pk(pk, pk_for_file(snapshot['files'][pk]))
     else:

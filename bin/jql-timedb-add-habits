@@ -34,12 +34,13 @@ def _parse_table(raw):
     return header, rows
 
 
-def _parse_habits_table(snapshot, full_pk):
+def _parse_habits_table(snapshot, full_pk, continuous):
     assertions = snapshot['assertions']
+    prefix = "### Continuous" if continuous else "### Active"
     relevant = [
         assn for pk, assn in assertions.items()
         if assn['A Relation'] == '.Habit' and assn['Arg0'] == full_pk
-        and assn['Arg1'].startswith("### Active")
+        and assn['Arg1'].startswith(prefix)
     ]
     if len(relevant) == 0:
         raise ValueError("No habits found within this entry")
@@ -59,14 +60,15 @@ def _parse_possible_timedb_ref(val):
     return val.split(":")[1] if val.startswith("@timedb:") else val
 
 
-def _add_habit(snapshot, habit, cm):
+def _add_habit(snapshot, habit, cm, continuous):
+    indirect = "continuity" if continuous else "regularity"
     action, direct, parameters, parent = map(_parse_possible_timedb_ref, habit)
     parent_pk = cm.add_cycle_for(parent)
     parent = snapshot['tasks'][parent_pk]
     new_task = {
         "Action": action,
         "Direct": direct,
-        "Indirect": "regularity",
+        "Indirect": indirect,
         "Parameters": parameters,
         "Param~Span": parent['Param~Span'],
         "Param~Start": parent['Param~Start'],
@@ -87,9 +89,12 @@ def main():
     if selected_table != "nouns":
         raise ValueError("must select noun to add an attention cycle")
     full_pk = f"nouns {pk}"
-    habits = _parse_habits_table(snapshot, full_pk)
+    habits = _parse_habits_table(snapshot, full_pk, False)
     for habit in habits:
-        _add_habit(snapshot, habit, cm)
+        _add_habit(snapshot, habit, cm, False)
+    habits = _parse_habits_table(snapshot, full_pk, True)
+    for habit in habits:
+        _add_habit(snapshot, habit, cm, True)
     iface["snapshot"] = json.dumps(snapshot)
     json.dump(iface, sys.stdout)
 

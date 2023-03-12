@@ -75,7 +75,8 @@ type MainView struct {
 	newPlanDescription string
 
 	// state used for querying for a subset of plans
-	planSelections []PlanSelectionItem
+	planSelections   []PlanSelectionItem
+	substitutingPlan bool
 }
 
 type DayItem struct {
@@ -224,7 +225,6 @@ func (mv *MainView) createNewPlanFromInput(g *gocui.Gui, v *gocui.View) error {
 
 func (mv *MainView) createNewPlan(g *gocui.Gui, taskPK, description string) error {
 	assnTable := mv.DB.Tables[TableAssertions]
-	tasksTable := mv.DB.Tables[TableTasks]
 	newOrder := 0
 	plansResp, err := mv.queryPlans([]string{taskPK})
 	if err != nil {
@@ -253,7 +253,20 @@ func (mv *MainView) createNewPlan(g *gocui.Gui, taskPK, description string) erro
 	if err != nil {
 		return err
 	}
+	err = mv.insertDayPlan(g, description)
+	if err != nil {
+		return err
+	}
+	err = mv.save()
+	if err != nil {
+		return err
+	}
+	return mv.refreshView(g)
+}
 
+func (mv *MainView) insertDayPlan(g *gocui.Gui, description string) error {
+	assnTable := mv.DB.Tables[TableAssertions]
+	tasksTable := mv.DB.Tables[TableTasks]
 	tasksView, err := g.View(TasksView)
 	if err != nil {
 		return err
@@ -304,23 +317,18 @@ func (mv *MainView) createNewPlan(g *gocui.Gui, taskPK, description string) erro
 			}
 		}
 	}
-	fields = map[string]string{
+	fields := map[string]string{
 		FieldArg0:      dayPlanLink,
 		FieldArg1:      fmt.Sprintf("[ ] %s", description),
 		FieldARelation: ".Do Today",
 		FieldOrder:     fmt.Sprintf("%d", dayOrder+1),
 	}
-	pk = fmt.Sprintf("%d", rand.Int63())
+	pk := fmt.Sprintf("%d", rand.Int63())
 	err = assnTable.InsertWithFields(pk, fields)
 	if err != nil {
 		return err
 	}
-
-	err = mv.save()
-	if err != nil {
-		return err
-	}
-	return mv.refreshView(g)
+	return nil
 }
 
 func (mv *MainView) queryForNewPlanLayout(g *gocui.Gui) error {
@@ -1598,6 +1606,18 @@ func (mv *MainView) insertNewTasks() error {
 	return mv.save()
 }
 
+func (mv *MainView) refreshPKs(g *gocui.Gui) error {
+	err := exec.Command("jql-timedb-set-all-pks").Run()
+	if err != nil {
+		return err
+	}
+	err = mv.load(g)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (mv *MainView) refreshTasks(g *gocui.Gui, v *gocui.View) error {
 	// TODO(rabrams) this whole sequence is pretty inefficient. It involves multiple redundant
 	// O(n) operations plus loading and re-loading the data.
@@ -1720,11 +1740,13 @@ func (mv *MainView) substituteTask(g *gocui.Gui, v *gocui.View) error {
 	if isTask {
 		return mv.substituteTaskWithPlans(g, meta.TaskPK)
 	} else {
-		return mv.substitutePlanWithImplementation()
+		// TODO(rabrams) bit of a hack to strip the plan of its prefix
+		return mv.substitutePlanWithImplementation(g, meta.Description[len("[ ] "):])
 	}
 }
 
 func (mv *MainView) substituteTaskWithPlans(g *gocui.Gui, taskPK string) error {
+	mv.substitutingPlan = false
 	assnTable := mv.DB.Tables[TableAssertions]
 	tasksTable := mv.DB.Tables[TableTasks]
 	direct := tasksTable.Entries[taskPK][tasksTable.IndexOfField(FieldDirect)].Format("")
@@ -1773,8 +1795,50 @@ func (mv *MainView) substituteTaskWithPlans(g *gocui.Gui, taskPK string) error {
 	return mv.refreshView(g)
 }
 
-func (mv *MainView) substitutePlanWithImplementation() error {
-	return nil
+func (mv *MainView) substitutePlanWithImplementation(g *gocui.Gui, plan string) error {
+	mv.substitutingPlan = true
+	tasksTable := mv.DB.Tables[TableTasks]
+	assnTable := mv.DB.Tables[TableAssertions]
+	candidates, err := mv.queryAllTasks(StatusActive, StatusHabitual, StatusPlanned, StatusPending)
+	if err != nil {
+		return err
+	}
+	candidatePKs := map[string]bool{}
+	for _, candidate := range candidates {
+		candidatePKs[candidate[tasksTable.Primary()].Format("")] = true
+	}
+	implementations, err := assnTable.Query(types.QueryParams{
+		Filters: []types.Filter{
+			&ui.EqualFilter{
+				Field:     FieldArg1,
+				Col:       assnTable.IndexOfField(FieldArg1),
+				Formatted: plan,
+			},
+			&ui.EqualFilter{
+				Field:     FieldARelation,
+				Col:       assnTable.IndexOfField(FieldARelation),
+				Formatted: ".Implements",
+			},
+		},
+		OrderBy: FieldOrder,
+	})
+	if err != nil {
+		return err
+	}
+	items := []PlanSelectionItem{}
+	for _, entry := range implementations.Entries {
+		pk := entry[assnTable.IndexOfField(FieldArg0)].Format("")[len("tasks "):]
+		if !candidatePKs[pk] {
+			continue
+		}
+		items = append(items, PlanSelectionItem{
+			Plan:   pk,
+			Marked: false,
+		})
+	}
+	mv.planSelections = items
+	mv.MainViewMode = MainViewModeQueryingForPlansSubset
+	return mv.refreshView(g)
 }
 
 func (mv *MainView) queryForPlanSubsetLayout(g *gocui.Gui) error {
@@ -1811,12 +1875,63 @@ func (mv *MainView) markPlanSelection(g *gocui.Gui, v *gocui.View) error {
 }
 
 func (mv *MainView) substitutePlanSelections(g *gocui.Gui, v *gocui.View) error {
-	_, cy := v.Cursor()
-	_, oy := v.Origin()
+	if mv.substitutingPlan {
+		return mv.substitutePlanSelectionsForPlan(g, v)
+	} else {
+		return mv.substitutePlanSelectionsForTask(g, v)
+	}
+}
+
+func (mv *MainView) substitutePlanSelectionsForPlan(g *gocui.Gui, v *gocui.View) error {
+	err := g.DeleteView(NewPlansView)
+	if err != nil {
+		return err
+	}
+	mv.MainViewMode = MainViewModeListBar
+	tasksTable := mv.DB.Tables[TableTasks]
+	for _, item := range mv.planSelections {
+		if !item.Marked {
+			continue
+		}
+		taskPK := item.Plan
+		err = tasksTable.Update(taskPK, FieldSpan, "Day")
+		if err != nil {
+			return err
+		}
+		err = tasksTable.Update(taskPK, FieldStart, "")
+		if err != nil {
+			return err
+		}
+		err = tasksTable.Update(taskPK, FieldStatus, "Active")
+		if err != nil {
+			return err
+		}
+		mv.insertDayPlan(g, item.Plan)
+	}
+	err = mv.save()
+	if err != nil {
+		return err
+	}
+	err = mv.refreshPKs(g)
+	if err != nil {
+		return err
+	}
+	return mv.refreshView(g)
+}
+
+func (mv *MainView) substitutePlanSelectionsForTask(g *gocui.Gui, v *gocui.View) error {
+	tasksView, err := g.View(TasksView)
+	if err != nil {
+		return err
+	}
+	_, oy := tasksView.Origin()
+	_, cy := tasksView.Cursor()
 	ix := oy + cy
 	item := mv.ix2item[ix]
 	meta := mv.today2item[item.Description]
-	for _, item := range mv.planSelections {
+	// insert in reverse order since insertion is to the beginning
+	for i := len(mv.planSelections) - 1; i >= 0; i-- {
+		item := mv.planSelections[i]
 		if item.Marked {
 			err := mv.createNewPlan(g, meta.TaskPK, item.Plan)
 			if err != nil {
@@ -1824,7 +1939,7 @@ func (mv *MainView) substitutePlanSelections(g *gocui.Gui, v *gocui.View) error 
 			}
 		}
 	}
-	err := g.DeleteView(NewPlansView)
+	err = g.DeleteView(NewPlansView)
 	if err != nil {
 		return err
 	}

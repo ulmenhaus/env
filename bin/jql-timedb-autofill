@@ -24,37 +24,43 @@ class HabitModes(object):
         action = self.task_data['Action']
         direct = self.task_data['Direct']
         original_span = self.task_data["Param~Span"]
-        original_date = datetime.datetime(1969, 12, 31) + datetime.timedelta(
+        original_date = datetime.datetime(1970, 1, 1) + datetime.timedelta(
             days=int(self.task_data["Param~Start"]))
         original_stamp = original_date.strftime("%d %b %Y")
-        parts = [
+        parts = sorted([
             item_pk for item_pk, item_data in self.data['nouns'].items()
             if item_data['Parent'] == direct
             and item_data['Relation'] != 'Feature'
+        ])
+        already_done = [
+            task['Direct'] for task in self.data["tasks"].values()
+            if task["Primary Goal"] == self.task_pk
+            and task["Status"] == "Satisfied" and task["Action"] == action
         ]
-        ordered = sorted(parts)
-        added = 0
-        while (cap is None or added < cap) and ordered:
-            direct_pk = ordered.pop(0)
-            # Use the original stamp as an identifier for the task of this project
-            # so that we don't get duplicates if we fill in on a different day
-            new_pk = "{} {} ({} of {})".format(action, direct_pk,
-                                               original_span, original_stamp)
-            if new_pk in self.data["tasks"]:
-                if self.data["tasks"][new_pk]["Status"] in ("Pending",
-                                                            "Planned",
-                                                            "Active"):
-                    added += 1
-                continue
-            added += 1
-            self.data["tasks"][new_pk] = self._new_task(
+        start_point = 0
+        for pk in already_done:
+            if pk in parts:
+                start_point = max(start_point, already_done.index(pk) + 1)
+
+        cap = cap or len(parts)
+        to_add = parts[start_point:start_point + cap]
+        already_added = [
+            task['Direct'] for task in self.data["tasks"].values()
+            if task["Primary Goal"] == self.task_pk and task["Status"] in (
+                "Pending", "Planned", "Active") and task["Action"] == action
+        ]
+        delta = set(to_add) - set(already_added)
+        for direct in delta:
+            new_task = self._new_task(
                 action=action,
-                direct=direct_pk,
+                direct=direct,
                 param_date=self.task_data["Param~Start"],
                 param_time=original_span,
                 primary_goal=self.task_pk,
                 status="Planned",
             )
+            new_pk = pk_for_task(new_task, self.task_data)
+            self.data["tasks"][new_pk] = new_task
 
     def regularity(self, freq=1, span='Day', sched=None, indirect=''):
         today = datetime.date.today()
@@ -88,15 +94,44 @@ class HabitModes(object):
                 action=action,
                 direct=direct,
                 indirect=indirect,
-                param_date=(datep - datetime.date(1969, 12, 31)).days,
+                param_date=(datep - datetime.date(1970, 1, 1)).days,
                 param_time=span,
                 params=params,
                 primary_goal=primary_goal,
-                status = 'Active' if span == 'Day' else 'Planned',
+                status='Active' if span == 'Day' else 'Planned',
             )
             pk = pk_for_task(task, self.task_data)
             if pk not in self.data["tasks"]:
                 self.data["tasks"][pk] = task
+
+    def continuity(self, implements='', indirect=''):
+        action = self.task_data["Action"]
+        direct = self.task_data["Direct"]
+        primary_goal = self.task_pk
+
+        task = self._new_task(
+            action=action,
+            direct=direct,
+            indirect=indirect,
+            param_date=self.task_data["Param~Start"],
+            param_time=self.task_data["Param~Span"],
+            primary_goal=primary_goal,
+            status='Pending',
+        )
+        pk = pk_for_task(task, self.task_data)
+        if pk in self.data["tasks"]:
+            return
+        self.data["tasks"][pk] = task
+        if not implements:
+            return
+        new_assertion = {
+            'A Relation': ".Implements",
+            "Arg0": f"tasks {pk}",
+            "Arg1": implements,
+            "Order": 0,
+        }
+        pk = str((".Implements", f"tasks {pk}", implements, 0))
+        self.data["assertions"][pk] = new_assertion
 
     def incrementality(self,
                        start=0,
@@ -109,7 +144,7 @@ class HabitModes(object):
         today = datetime.date.today()
         if sched is not None and today.strftime("%a") not in sched:
             return
-        param_date = (datetime.date.today() - datetime.date(1969, 12, 31)).days
+        param_date = (datetime.date.today() - datetime.date(1970, 1, 1)).days
         previous_tasks = [(task_pk, task_data)
                           for task_pk, task_data in self.data["tasks"].items()
                           if task_data["Primary Goal"] == self.task_pk]
@@ -179,6 +214,7 @@ class HabitModes(object):
             'breakdown': self.breakdown,
             'regularity': self.regularity,
             'incrementality': self.incrementality,
+            'continuity': self.continuity,
         }
 
     def globals(self):
