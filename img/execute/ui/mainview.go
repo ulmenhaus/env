@@ -77,6 +77,9 @@ type MainView struct {
 	// state used for querying for a subset of plans
 	planSelections   []PlanSelectionItem
 	substitutingPlan bool
+
+	// state used for focus mode
+	focusing bool
 }
 
 type DayItem struct {
@@ -494,8 +497,9 @@ func (mv *MainView) todayBreakdown() []DayItem {
 		// reason
 		brk := item.Description
 		meta, ok := mv.today2item[item.Description]
-		if ok {
-			task, err := mv.retrieveAttentionCycle(taskTable, taskTable.Entries[meta.TaskPK])
+		task := taskTable.Entries[meta.TaskPK]
+		if ok && task != nil {
+			task, err := mv.retrieveAttentionCycle(taskTable, task)
 			if err == nil {
 				brk = task[taskTable.Primary()].Format("")
 			}
@@ -513,14 +517,37 @@ func (mv *MainView) todayBreakdown() []DayItem {
 func (mv *MainView) todayTasks() []string {
 	tasks := []string{}
 	ix2item := map[int]DayItem{}
-	currentBreak := ""
+	type brk struct {
+		description string
+		items       []DayItem
+		done        int
+	}
+	brks := []*brk{}
+	currentBreak := &brk{}
 	for _, item := range mv.todayBreakdown() {
-		if item.Break != currentBreak {
-			tasks = append(tasks, item.Break)
-			currentBreak = item.Break
+		if item.Break != currentBreak.description {
+			currentBreak = &brk{
+				description: item.Break,
+			}
+			brks = append(brks, currentBreak)
 		}
-		ix2item[len(tasks)] = item
-		tasks = append(tasks, " "+item.Description)
+		currentBreak.items = append(currentBreak.items, item)
+		if strings.HasPrefix(item.Description, "[x]") {
+			currentBreak.done += 1
+		}
+	}
+	passedFirstWithUnfinished := false
+	for _, brk := range brks {
+		if mv.focusing && (passedFirstWithUnfinished || brk.done == len(brk.items)){
+			tasks = append(tasks, fmt.Sprintf("[%d/%d] %s", brk.done, len(brk.items), brk.description))
+		} else {
+			tasks = append(tasks, brk.description)
+			for _, item := range brk.items {
+				ix2item[len(tasks)] = item
+				tasks = append(tasks, " " + item.Description)
+			}
+			passedFirstWithUnfinished = brk.done != len(brk.items)
+		}
 	}
 	mv.ix2item = ix2item
 	return tasks
@@ -615,6 +642,10 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 		return err
 	}
 	err = g.SetKeybinding(TasksView, 'a', gocui.ModNone, mv.switchModes)
+	if err != nil {
+		return err
+	}
+	err = g.SetKeybinding(TasksView, 'f', gocui.ModNone, mv.toggleFocus)
 	if err != nil {
 		return err
 	}
@@ -1944,5 +1975,10 @@ func (mv *MainView) substitutePlanSelectionsForTask(g *gocui.Gui, v *gocui.View)
 		return err
 	}
 	mv.MainViewMode = MainViewModeListBar
+	return mv.refreshView(g)
+}
+
+func (mv *MainView) toggleFocus(g *gocui.Gui, v *gocui.View) error {
+	mv.focusing = !mv.focusing
 	return mv.refreshView(g)
 }
