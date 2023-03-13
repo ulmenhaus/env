@@ -13,7 +13,7 @@ class HabitModes(object):
         self.task_pk = None
         self.task_data = None
 
-    def breakdown(self, level=1, depth=1, cap=None, order=None):
+    def breakdown(self, level=1, depth=1, cap=None, order=None, implements=''):
         if level > 1:
             raise ValueError(
                 "starting level greater than one not yet supported")
@@ -61,6 +61,16 @@ class HabitModes(object):
             )
             new_pk = pk_for_task(new_task, self.task_data)
             self.data["tasks"][new_pk] = new_task
+            if not implements:
+                continue
+            new_assertion = {
+                'A Relation': ".Implements",
+                "Arg0": f"tasks {new_pk}",
+                "Arg1": implements,
+                "Order": 0,
+            }
+            assn_pk = str((".Implements", f"tasks {pk}", implements, 0))
+            self.data["assertions"][assn_pk] = new_assertion
 
     def regularity(self, freq=1, span='Day', sched=None, indirect=''):
         today = datetime.date.today()

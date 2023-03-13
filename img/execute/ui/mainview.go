@@ -80,6 +80,7 @@ type MainView struct {
 
 	// state used for focus mode
 	focusing bool
+	justSwitchedGrouping bool
 }
 
 type DayItem struct {
@@ -452,7 +453,8 @@ func (mv *MainView) tabulatedTasks(g *gocui.Gui, v *gocui.View) []string {
 	if mv.span == Today {
 		wasNil := mv.cachedTodayTasks == nil
 		mv.cachedTodayTasks = mv.todayTasks()
-		if wasNil {
+		if wasNil || mv.justSwitchedGrouping {
+			mv.justSwitchedGrouping = false
 			mv.selectNextFreeTask(g, v)
 		}
 		return mv.cachedTodayTasks
@@ -1312,6 +1314,7 @@ func (mv *MainView) retrieveAttentionCycle(table *types.Table, task []types.Entr
 }
 
 func (mv *MainView) switchModes(g *gocui.Gui, v *gocui.View) error {
+	mv.justSwitchedGrouping = true
 	switch mv.TaskViewMode {
 	case TaskViewModeListBar:
 		mv.TaskViewMode = TaskViewModeListCycles
@@ -2000,5 +2003,6 @@ func (mv *MainView) substitutePlanSelectionsForTask(g *gocui.Gui, v *gocui.View)
 
 func (mv *MainView) toggleFocus(g *gocui.Gui, v *gocui.View) error {
 	mv.focusing = !mv.focusing
+	mv.justSwitchedGrouping = true
 	return mv.refreshView(g)
 }
