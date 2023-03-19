@@ -80,7 +80,11 @@ def pluralize(word):
                               or word.endswith("h")) else f"{word}es"
 
 
-def tabulate_entries(snapshot, full_page_pk, full_pks, key2rel2orobs, maybe_discard=()):
+def tabulate_entries(snapshot,
+                     full_page_pk,
+                     full_pks,
+                     key2rel2orobs,
+                     maybe_discard=()):
     all_relations = sorted(
         {rel
          for pk in full_pks for rel in key2rel2orobs[pk]})
@@ -98,7 +102,8 @@ def tabulate_entries(snapshot, full_page_pk, full_pks, key2rel2orobs, maybe_disc
         tab, pk = full_pk.split(" ", 1)
         display_name = pk
         if page_tab == "tasks" and tab == "tasks":
-            display_name = format_related_tasks(grandparent, parent, snapshot[tab][pk])
+            display_name = format_related_tasks(grandparent, parent,
+                                                snapshot[tab][pk])
         row = [_render_link(display_name, "/" + full_pk)]
         table.append(row)
         for rel in all_relations:
@@ -142,7 +147,43 @@ def gather_classes(assertions):
     return src2cls
 
 
+def generate_ideas_markdown(snapshot):
+    markdown = "# Ideas\n"
+    table = [["Noun", "Ideas"]]
+    noun2ideas = collections.defaultdict(int)
+    for assn in snapshot['assertions'].values():
+        if assn['A Relation'] == '.Idea':
+            noun2ideas[assn['Arg0']] += 1
+    for noun in sorted(noun2ideas):
+        if not noun.startswith("nouns "):
+            continue
+        col = "@timedb:" + noun[len("nouns "):] + ":"
+        table.append([col, str(noun2ideas[noun])])
+    markdown += f"{sum(noun2ideas.values())} ideas in {len(noun2ideas)} entries\n"
+    markdown += resolve_jql_links(markdown_table(table))
+    return markdown
+
+def generate_memos_markdown(snapshot):
+    markdown = "# Memos\n"
+    table = [["Item", "Memos"]]
+    item2ideas = collections.defaultdict(int)
+    for assn in snapshot['assertions'].values():
+        if assn['A Relation'] == '.Memo':
+            item2ideas[assn['Arg0']] += 1
+    for item in sorted(item2ideas):
+        col = item
+        table.append([item, str(item2ideas[item])])
+    markdown += f"{sum(item2ideas.values())} memos in {len(item2ideas)} entries\n"
+    markdown += resolve_jql_links(markdown_table(table))
+    return markdown
+
+
 def generate_markdown(snapshot, table, pk):
+    if table == "meta":
+        if pk == "ideas":
+            return generate_ideas_markdown(snapshot)
+        if pk == "memos":
+            return generate_memos_markdown(snapshot)
     # TODO a lot of these mappings are invariant and can be cached
     full_pk = "{} {}".format(table, pk)
     get_candidate_parents = lambda row: set(
@@ -167,6 +208,7 @@ def generate_markdown(snapshot, table, pk):
         "Command",
         "Conclusion",
         "Habit",
+        "Idea",
         "Memo",
         "Plan",
         "Point",
@@ -520,7 +562,7 @@ class MemosHandler(BaseHTTPRequestHandler):
             if "\n" in memo['question']:
                 markdown = memo['question']
             else:
-                markdown = "## {}".format(memo['question'])
+                markdown = "## {} ({} left)".format(memo['question'], len(memos))
 
             if ("\n" in memo['answer']) or ("$" in memo['answer']):
                 if show:

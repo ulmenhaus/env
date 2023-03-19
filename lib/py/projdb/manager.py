@@ -89,10 +89,12 @@ class ProjectManager(object):
             cwd=os.path.expanduser(proj_wd),
             shell=True,
         ).decode("utf-8").strip()
-        if "@" not in raw_url or not raw_url.endswith(".git"):
+        if "@" not in raw_url:
             raise NotImplementedError(
                 f"Exports not supported for http based origin url: {raw_url}")
-        return raw_url.split("@")[1].replace(":", "/")[:-len(".git")]
+        if raw_url.endswith(".git"):
+            raw_url = raw_url[:-len(".git")]
+        return raw_url.split("@")[1].replace(":", "/")
 
     def add_jump(self, source_path, source_point, target_path, target_point):
         all_jumps = self._cache["jumps"]

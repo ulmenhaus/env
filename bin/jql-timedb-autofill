@@ -57,7 +57,7 @@ class HabitModes(object):
                 param_date=self.task_data["Param~Start"],
                 param_time=original_span,
                 primary_goal=self.task_pk,
-                status="Planned",
+                status="Pending" if implements else "Planned",
             )
             new_pk = pk_for_task(new_task, self.task_data)
             self.data["tasks"][new_pk] = new_task
