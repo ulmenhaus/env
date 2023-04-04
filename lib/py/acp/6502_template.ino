@@ -33,6 +33,10 @@ void onClock() {
 			data = 0x00;
 		} else if (address == 0xfffd) {
 			data = 0x80;
+		} else if (address == 0xfffe) {
+			data = 0x10;
+		} else if (address == 0xffff) {
+			data = 0x80;
 		} else if (offset < ROMLEN) {
 			data = MEMORY[offset];
 		} else {
