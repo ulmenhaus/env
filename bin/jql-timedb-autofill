@@ -69,7 +69,7 @@ class HabitModes(object):
                 "Arg1": implements,
                 "Order": 0,
             }
-            assn_pk = str((".Implements", f"tasks {pk}", implements, 0))
+            assn_pk = str((".Implements", f"tasks {new_pk}", implements, 0))
             self.data["assertions"][assn_pk] = new_assertion
 
     def regularity(self, freq=1, span='Day', sched=None, indirect=''):

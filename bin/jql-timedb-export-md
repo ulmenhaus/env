@@ -500,7 +500,7 @@ class MarkdownHandler(BaseHTTPRequestHandler):
         markdown = inject_externals(project, markdown)
         contents = MarkdownHandler.template.replace(
             "{md-contents}",
-            html.escape(markdown)).replace("{md-postfix}", "")
+            html.escape(markdown)).replace("{md-postfix}", "").replace("{md-prefix}", "")
         s.wfile.write(contents.encode("utf-8"))
 
 
@@ -553,6 +553,7 @@ class MemosHandler(BaseHTTPRequestHandler):
         s.send_header("Content-type", "text/html")
         s.end_headers()
         markdown = "All done for today"
+        prefix = ""
         postfix = ""
         if memos:
             key, memo = random.choice(list(memos.items()))
@@ -564,25 +565,26 @@ class MemosHandler(BaseHTTPRequestHandler):
             else:
                 markdown = "## {} ({} left)".format(memo['question'], len(memos))
 
+            # color buttons come first so that they have consistent vimium bindings
+            prefix += '<div align="center" style="padding-top: 20px; font-size: 20pt">'
+            for selection in selections:
+                color, choice = selection
+                prefix += '<span style="padding: 10px"><a href="?sel={sel}&key={key}" style="color: {color}">{choice}</a></span>'.format(
+                    color=color, choice=choice, sel=choice, key=key)
+            prefix += '</div>'
             if ("\n" in memo['answer']) or ("$" in memo['answer']):
                 if show:
                     markdown += "\n" + memo['answer']
                 else:
-                    postfix = '<div align="center" id="answer" style="font-size: 20pt"><a href="?show=1&key={key}">Show Answer</a></div>'.format(
+                    postfix += '<div align="center" id="answer" style="font-size: 20pt"><a href="?show=1&key={key}">Show Answer</a></div>'.format(
                         key=key)
             else:
-                postfix = '''<div align="center" id="answer" style="font-size: 20pt"><a href="#" onclick="document.getElementById('answer').innerHTML = '{}'">Show Answer</a></div>'''.format(
+                postfix += '''<div align="center" id="answer" style="font-size: 20pt"><a href="#" onclick="document.getElementById('answer').innerHTML = '{}'">Show Answer</a></div>'''.format(
                     memo['answer'].replace("'", r"\'"))
-            postfix += '<div align="center" style="padding-top: 20px; font-size: 20pt">'
-            for selection in selections:
-                color, choice = selection
-                postfix += '<span style="padding: 10px"><a href="?sel={sel}&key={key}" style="color: {color}">{choice}</a></span>'.format(
-                    color=color, choice=choice, sel=choice, key=key)
-            postfix += '</div>'
         markdown = inject_externals("notes", markdown)
         contents = MarkdownHandler.template.replace(
             "{md-contents}",
-            html.escape(markdown)).replace("{md-postfix}", postfix)
+            html.escape(markdown)).replace("{md-postfix}", postfix).replace("{md-prefix}", prefix)
         s.wfile.write(contents.encode("utf-8"))
 
     def get_memos(full_pk, recursive=True):
