@@ -102,7 +102,10 @@ func (c *Collector) CollectNodes() {
 			for _, decl := range f.Decls {
 				switch typed := decl.(type) {
 				case *ast.FuncDecl:
-					c.graph.Nodes = append(c.graph.Nodes, NodeFromFunc(pkg, f, typed))
+					node := NodeFromFunc(pkg, f, typed)
+					if node != nil {
+						c.graph.Nodes = append(c.graph.Nodes, *node)
+					}
 				case *ast.GenDecl:
 					switch typed.Tok {
 					case token.CONST, token.VAR:

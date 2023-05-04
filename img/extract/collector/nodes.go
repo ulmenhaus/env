@@ -20,7 +20,7 @@ func pos2loc(path string, pos token.Pos, base uint, node ast.Node, lines uint) m
 	}
 }
 
-func NodeFromFunc(pkg *packages.Package, af *ast.File, f *ast.FuncDecl) models.EncodedNode {
+func NodeFromFunc(pkg *packages.Package, af *ast.File, f *ast.FuncDecl) *models.EncodedNode {
 	pf := pkg.Fset.File(af.Pos())
 
 	doc := ""
@@ -37,7 +37,8 @@ func NodeFromFunc(pkg *packages.Package, af *ast.File, f *ast.FuncDecl) models.E
 		}
 		id, ok := typeX.(*ast.Ident)
 		if !ok {
-			panic(fmt.Errorf("Unknown type for typeX: %#v", typeX))
+			fmt.Printf("Unknown type for typeX -- skipping: %#v\n", typeX)
+			return nil
 		}
 		recv := id.Name
 		kind = KindMethod
@@ -53,7 +54,7 @@ func NodeFromFunc(pkg *packages.Package, af *ast.File, f *ast.FuncDecl) models.E
 		lines += uint((f.Body.Rbrace - f.Body.Lbrace) / 27)
 	}
 
-	return models.EncodedNode{
+	return &models.EncodedNode{
 		Component: models.Component{
 			UID:         fmt.Sprintf("%s.%s", pkg.PkgPath, name),
 			DisplayName: fmt.Sprintf("%s.%s", pkg.Name, name),
