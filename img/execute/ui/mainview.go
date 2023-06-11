@@ -79,7 +79,7 @@ type MainView struct {
 	substitutingPlan bool
 
 	// state used for focus mode
-	focusing bool
+	focusing             bool
 	justSwitchedGrouping bool
 }
 
@@ -540,13 +540,13 @@ func (mv *MainView) todayTasks() []string {
 	}
 	passedFirstWithUnfinished := false
 	for _, brk := range brks {
-		if mv.focusing && (passedFirstWithUnfinished || brk.done == len(brk.items)){
+		if mv.focusing && (passedFirstWithUnfinished || brk.done == len(brk.items)) {
 			tasks = append(tasks, fmt.Sprintf("[%d/%d] %s", brk.done, len(brk.items), brk.description))
 		} else {
 			tasks = append(tasks, brk.description)
 			for _, item := range brk.items {
 				ix2item[len(tasks)] = item
-				tasks = append(tasks, " " + item.Description)
+				tasks = append(tasks, " "+item.Description)
 			}
 			passedFirstWithUnfinished = brk.done != len(brk.items)
 		}
@@ -1097,7 +1097,7 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 		mv.tasks[span] = append(mv.tasks[span], task)
 	}
 
-	pending, err := mv.queryAllTasks(StatusPending)
+	pending, err := mv.queryPendingNoImplements()
 	if err != nil {
 		return err
 	}
@@ -2005,4 +2005,56 @@ func (mv *MainView) toggleFocus(g *gocui.Gui, v *gocui.View) error {
 	mv.focusing = !mv.focusing
 	mv.justSwitchedGrouping = true
 	return mv.refreshView(g)
+}
+
+// queryPendingNoImplements will query for pending tasks that don't have an
+// Implements attribute. Tasks which implement other tasks are noisy so
+// shouldn't be shown in an overview pane and will get picked up otherwise
+// anyway.
+func (mv *MainView) queryPendingNoImplements() ([][]types.Entry, error) {
+	assnTable := mv.DB.Tables[TableAssertions]
+	tasksTable := mv.DB.Tables[TableTasks]
+	pending, err := mv.queryAllTasks(StatusPending)
+	if err != nil {
+		return nil, err
+	}
+	pk2task := map[string]([]types.Entry){}
+	for _, task := range pending {
+		pk2task[task[tasksTable.Primary()].Format("")] = task
+	}
+	implementations, err := assnTable.Query(types.QueryParams{
+		Filters: []types.Filter{
+			&ui.EqualFilter{
+				Field:     FieldARelation,
+				Col:       assnTable.IndexOfField(FieldARelation),
+				Formatted: ".Implements",
+			},
+		},
+		OrderBy: FieldOrder,
+	})
+	if err != nil {
+		return nil, err
+	}
+	for _, assn := range implementations.Entries {
+		obj := assn[assnTable.IndexOfField(FieldArg0)]
+		if !strings.HasPrefix(obj.Format(""), "tasks ") {
+			continue
+		}
+		pk := obj.Format("")[len("tasks "):]
+		delete(pk2task, pk)
+	}
+
+	sorted := make([]string, 0, len(pk2task))
+	for pk := range pk2task {
+		sorted = append(sorted, pk)
+	}
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i] < sorted[j]
+	})
+	entries := make([][]types.Entry, 0, len(sorted))
+
+	for _, pk := range sorted {
+		entries = append(entries, pk2task[pk])
+	}
+	return entries, nil
 }
