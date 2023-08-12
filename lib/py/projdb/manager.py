@@ -30,6 +30,17 @@ class ProjectManager(object):
         ] for name, project in self._cache["projects"].items()]
         print(tabulate.tabulate(table))
 
+    def open_runner(self, timedb_path, bin_path):
+        """
+        Opens the jql timedb runner with the project's desired
+        """
+        proj = self._cache["projects"].get(self.project)
+        # HACK hard-coding localtion of runner
+        args = ["/usr/local/bin/runner", timedb_path, bin_path]
+        if proj and proj["Default Resource Filter"]:
+            args.append(proj["Default Resource Filter"])
+        os.execvp("/usr/local/bin/runner", args)
+
     def _prompt_for_description(self):
         with tempfile.NamedTemporaryFile() as tmp:
             # HACK hard-coding the location of prompt
@@ -136,6 +147,39 @@ class ProjectManager(object):
             filter(lambda jump: jump["Project"] == self.project,
                    all_jumps.values()))
         return sorted(filtered_jumps, key=lambda jump: jump["Order"])
+
+    def run_test(self, timedb_path, debug, focus):
+        commands = self._get_project_commands(timedb_path)
+        command = commands['Run project tests']
+        if debug:
+            command = commands['Debug project tests']
+        if focus and focus != "-":
+            command = commands["Run focused test"].format(focus=focus)
+            if debug:
+                command = commands["Debug focused test"].format(focus=focus)
+        subprocess.check_call(
+            ["tmux", "send", "-t", "right", command, "ENTER"])
+
+    def _get_project_commands(self, timedb_path):
+        proj = self._cache["projects"].get(self.project)
+        resource = proj["Default Resource Filter"]
+        with open(timedb_path) as f:
+            timedb = json.load(f)
+        commands = {}
+        for assn in timedb['assertions'].values():
+            if assn['A Relation'] != ".Command" or assn[
+                    'Arg0'] != f"nouns {resource}":
+                continue
+            for line in assn['Arg1'].split("\n"):
+                parts = line.split("|", 2)
+                if len(parts) != 3:
+                    continue
+                _, desc, command = [part.strip() for part in parts]
+                if not command.startswith("`"):
+                    continue
+                command = command.split("`")[1]
+                commands[desc] = command
+        return commands
 
     def _point_to_string(self, path, point):
         project = self._cache["projects"][self.project]

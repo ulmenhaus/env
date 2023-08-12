@@ -69,7 +69,7 @@ type MainView struct {
 }
 
 // NewMainView returns a MainView initialized with a given Table
-func NewMainView(path string, g *gocui.Gui, jqlBinDir string) (*MainView, error) {
+func NewMainView(path string, g *gocui.Gui, jqlBinDir, defaultResourceFilter string) (*MainView, error) {
 	var store storage.Store
 	if strings.HasSuffix(path, ".json") {
 		store = &storage.JSONStore{}
@@ -89,10 +89,14 @@ func NewMainView(path string, g *gocui.Gui, jqlBinDir string) (*MainView, error)
 	if err != nil {
 		return nil, err
 	}
+	rootTopic := RootTopic
+	if defaultResourceFilter != "" {
+		rootTopic = defaultResourceFilter
+	}
 	mv := &MainView{
 		OSM:       mapper,
 		DB:        db,
-		topic:     RootTopic,
+		topic:     rootTopic,
 		TypeIX:    1,
 		recursive: true,
 		jqlBinDir: jqlBinDir,

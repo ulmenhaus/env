@@ -26,6 +26,10 @@ def main():
     def jump_group():
         pass
 
+    @cli.group(name='test')
+    def test_group():
+        pass
+
     @click.argument('workdir', type=click.STRING)
     def new(workdir):
         pm = ProjectManager(project=os.environ["TMUX_WINDOW_NAME"])
@@ -35,8 +39,15 @@ def main():
         pm = ProjectManager(project=os.environ["TMUX_WINDOW_NAME"])
         return pm.list_projects()
 
+    @click.argument('timedb_path', type=click.STRING)
+    @click.argument('bin_path', type=click.STRING)
+    def runner(timedb_path, bin_path):
+        pm = ProjectManager(project=os.environ["TMUX_WINDOW_NAME"])
+        return pm.open_runner(timedb_path, bin_path)
+
     project_group.command()(new)
     project_group.command()(ls)
+    project_group.command()(runner)
 
     @click.argument('path', type=click.STRING)
     @click.argument('point', type=click.STRING)
@@ -80,6 +91,15 @@ def main():
         return pm.add_jump(source_path, source_point, target_path, target_point)
 
     jump_group.command()(add)
+
+    @click.argument('timedb_path', type=click.STRING)
+    @click.argument('debug', type=click.BOOL)
+    @click.argument('focus', type=click.STRING)
+    def run(timedb_path, debug, focus):
+        pm = ProjectManager(project=os.environ["TMUX_WINDOW_NAME"])
+        return pm.run_test(timedb_path, debug, focus)
+
+    test_group.command()(run)
 
     cli(obj={})
 

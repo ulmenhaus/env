@@ -11,6 +11,10 @@ func main() {
 	// TODO use a cli library
 	dbPath := os.Args[1]
 	jqlBinDir := os.Args[2]
+	var defaultResourceFilter string
+	if len(os.Args) > 3 {
+		defaultResourceFilter = os.Args[3]
+	}
 	g, err := gocui.NewGui(gocui.OutputNormal)
 	if err != nil {
 		panic(err)
@@ -18,7 +22,7 @@ func main() {
 
 	// TODO decent amount of common set-up logic here to maybe break into a common subroutine
 	defer g.Close()
-	mv, err := ui.NewMainView(dbPath, g, jqlBinDir)
+	mv, err := ui.NewMainView(dbPath, g, jqlBinDir, defaultResourceFilter)
 	if err != nil {
 		panic(err)
 	}
