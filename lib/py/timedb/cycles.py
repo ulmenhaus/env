@@ -36,7 +36,7 @@ class CycleManager(object):
         new_task['Indirect'] = pk
         new_task['Status'] = 'Habitual'
         new_task['Primary Goal'] = parent_task_pk
-        new_task_pk = pks.pk_for_task(new_task, tasks[parent_task_pk])
+        new_task_pk = pks.pk_for_task(new_task, self.db['actions'])
         tasks[new_task_pk] = new_task
 
         children = [

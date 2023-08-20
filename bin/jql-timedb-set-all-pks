@@ -10,7 +10,7 @@ def main():
         snapshot = json.load(f)
     db = pks.TimeDB(snapshot)
     for current_pk, task in list(snapshot['tasks'].items()):
-        correct_pk = pks.pk_for_task(task, None)
+        correct_pk = pks.pk_for_task(task, snapshot['actions'])
         if current_pk != correct_pk:
             db.update_task_pk(current_pk, correct_pk)
     with open("schema2.json", 'w') as f:

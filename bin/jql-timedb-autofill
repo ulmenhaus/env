@@ -59,7 +59,7 @@ class HabitModes(object):
                 primary_goal=self.task_pk,
                 status="Pending" if implements else "Planned",
             )
-            new_pk = pk_for_task(new_task, self.task_data)
+            new_pk = pk_for_task(new_task, self.data['actions'])
             self.data["tasks"][new_pk] = new_task
             if not implements:
                 continue
@@ -110,7 +110,7 @@ class HabitModes(object):
                 primary_goal=primary_goal,
                 status='Active' if span == 'Day' else 'Planned',
             )
-            pk = pk_for_task(task, self.task_data)
+            pk = pk_for_task(task, self.data['actions'])
             if pk not in self.data["tasks"]:
                 self.data["tasks"][pk] = task
 
@@ -128,7 +128,7 @@ class HabitModes(object):
             primary_goal=primary_goal,
             status='Pending',
         )
-        pk = pk_for_task(task, self.task_data)
+        pk = pk_for_task(task, self.data['actions'])
         if pk in self.data["tasks"]:
             return
         self.data["tasks"][pk] = task
@@ -195,7 +195,7 @@ class HabitModes(object):
             params=params,
             primary_goal=self.task_pk,
         )
-        pk = pk_for_task(task, self.task_data)
+        pk = pk_for_task(task, self.data['actions'])
         if pk not in self.data["tasks"]:
             self.data["tasks"][pk] = task
 

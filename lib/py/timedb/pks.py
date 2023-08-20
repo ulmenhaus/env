@@ -1,45 +1,37 @@
 import datetime
 
 
-def pk_terms_for_task(task, parent):
-    action = task['Action']
-    preposition = " with " if task['Indirect'] else ""
-    prepreposition = " " if task['Direct'] else ""
-    if action == "Attend" and not task['Direct']:
-        preposition = " to "
-    if action in ("Migrate", "Transfer", "Travel"):
-        preposition = " to "
-    elif action in ("Present", ):
-        preposition = " on "
-    elif action in ("Buy", ):
-        preposition = " for "
-    elif action in (
-            "Ideate",
-            "Deliberate",
-            "Muse",
-    ):
-        preposition = " on "
-    elif action in ("Upload", ):
-        preposition = " from "
-    elif action in ("Vacation", ):
-        prepreposition = " in "
-    elif action in ("Lunch", "Dine", "Shop", "Tennis", "Coffee"):
-        if task['Direct']:
-            prepreposition = " at "
-    elif action in ("Tend", ):
-        prepreposition = " to "
-    elif action in ("Jam", ):
-        if task['Direct']:
-            prepreposition = " at "
-    elif action == "Liase":
-        prepreposition = " with "
-        preposition = " on "
+def class_for_task(action, task):
+    return action['Class']
+
+
+def pk_terms_for_task(task, actions):
+    action_name, direct, indirect = task['Action'], task['Direct'], task[
+        'Indirect']
+    if action_name not in actions:
+        # Legacy behavior for actions that don't yet exist in the actions table
+        # TODO we can get rid of this legacy behavior once we migrate
+        # all actions to use the new actions table
+        prepreposition = ""
+        preposition = " with " if indirect else ""
+    else:
+        action = actions[action_name]
+        prepreposition, preposition = "", ""
+        direct_parts = action['Direct'].split(" ")
+        indirect_parts = action['Indirect'].split(" ")
+        if direct and len(direct_parts) > 1:
+            prepreposition = f" {direct_parts[0]} "
+        if indirect and len(indirect_parts) > 1:
+            preposition = f" {indirect_parts[0]} "
+
     direct_clause, indirect_clause = "", ""
     mandate = [
-        action, prepreposition, task['Direct'], preposition, task['Indirect']
+        action_name, prepreposition, task['Direct'], preposition,
+        task['Indirect']
     ]
     if task["Parameters"]:
-        marker = " at" if action in ("Extend", "Improve", "Sustain") else ","
+        marker = " at" if action_name in ("Extend", "Improve",
+                                          "Sustain") else ","
         mandate.append("{} {}".format(marker, task['Parameters']))
     planned_start, planned_span = task["Param~Start"], task["Param~Span"]
     distinguisher = (
@@ -51,10 +43,8 @@ def pk_terms_for_task(task, parent):
     return mandate
 
 
-def pk_for_task(task, parent):
-    # TODO(rabrams) this function no longer needs a provided parent
-    # so let's get rid of it as an input
-    return "".join(pk_terms_for_task(task, parent))
+def pk_for_task(task, actions):
+    return "".join(pk_terms_for_task(task, actions))
 
 
 class TimeDB(object):
@@ -102,11 +92,12 @@ class TimeDB(object):
                 new_pk = pk_for_assertion(assn)
                 del self.db["assertions"][pk]
                 self.db["assertions"][new_pk] = assn
-            if assn["A Relation"] == ".Do Today" and assn["Arg1"] == f"[ ] {old}":
+            if assn["A Relation"] == ".Do Today" and assn[
+                    "Arg1"] == f"[ ] {old}":
                 assn["Arg1"] = f"[ ] {new}"
-            if assn["A Relation"] == ".Do Today" and assn["Arg1"] == f"[x] {old}":
+            if assn["A Relation"] == ".Do Today" and assn[
+                    "Arg1"] == f"[x] {old}":
                 assn["Arg1"] = f"[x] {new}"
-
 
 
 def pk_for_assertion(assn):

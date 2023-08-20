@@ -29,8 +29,7 @@ def main():
         task = snapshot["tasks"][pk]
         tdb.update_task_pk(
             pk,
-            pks.pk_for_task(task,
-                            snapshot["tasks"].get(task["Primary Goal"], {})))
+            pks.pk_for_task(task, snapshot['actions']))
     elif selected_table == "files":
         tdb.update_files_pk(pk, pk_for_file(snapshot['files'][pk]))
     else:

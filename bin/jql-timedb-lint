@@ -51,7 +51,7 @@ def _pk_mismatches(d):
     tasks = d['tasks']
     detected = False
     for pk, task in tasks.items():
-        expected = pks.pk_for_task(task, tasks.get(task['Primary Goal'], {}))
+        expected = pks.pk_for_task(task, d['actions'])
         if expected != pk:
             detected = True
             print(f"PK mismatch for task: '{pk}' should be '{expected}'")

@@ -75,7 +75,7 @@ def _add_habit(snapshot, habit, cm, continuous):
         "Primary Goal": parent_pk,
         "Status": "Habitual",
     }
-    pk = pk_for_task(new_task, parent)
+    pk = pk_for_task(new_task, snapshot['actions'])
     snapshot['tasks'][pk] = new_task
 
 

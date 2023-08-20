@@ -38,10 +38,10 @@ def main():
         tables = json.load(f)
     for pk, task in tables['tasks'].items():
         parent = tables["tasks"].get(task["Primary Goal"], {})
-        if pk != pk_for_task(task, parent):
+        if pk != pk_for_task(task, tabels['actions']):
             print("+ '{}' should be \n  '{}'".format(pk,
                                                      pk_for_task(task,
-                                                                 parent)))
+                                                                 tables['actions'])))
     # TODO would be good to audit foreign key references to make sure they exist
     # here
 

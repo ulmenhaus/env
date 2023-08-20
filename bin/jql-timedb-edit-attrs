@@ -20,6 +20,7 @@ STANDARD_PROPERTIES = ("Description", "Point")
 TERMINAL_STATUSES = ("Satisfied", "Revisit", "Failed")
 
 
+
 def _fill_default_assertions(by_relation, subject, snapshot):
     for property in STANDARD_PROPERTIES:
         by_relation[".{}".format(property)] = {}
@@ -30,20 +31,43 @@ def _fill_default_assertions(by_relation, subject, snapshot):
     if subject not in tasks:
         return
     task = tasks[subject]
-    parent = tasks[task["Primary Goal"]]
-    terms = pks.pk_terms_for_task(task, parent)
-    if terms[-3] == " with ":
-        group = "nouns " + terms[-2]
-        participants = [
-            assn["Arg1"] for assn in assertions.values()
-            if assn["Arg0"] == group and assn["A Relation"] == ".Member"
-        ]
-        by_relation[".Participant"] = {
-            participant: {
-                "Arg1": participant,
+    if task['Action'] not in snapshot['actions']:
+        return
+    action = snapshot['actions'][task['Action']]
+    cls = pks.class_for_task(action, task)
+    by_relation['.Class'] = {
+        cls: {
+            "Arg1": f"@timedb:{cls}:",
+            "Order": "0",
+        },
+    }
+    direct, indirect = task['Direct'], task['Indirect']
+    direct_attr = action['Direct'].split(" ")[-1]
+    indirect_attr = action['Indirect'].split(" ")[-1]
+    # If the indirect noun is a group noun we populate its
+    # individual members instead
+    group = "nouns " + indirect
+    members = [
+        assn["Arg1"] for assn in assertions.values()
+        if assn["Arg0"] == group and assn["A Relation"] == ".Member"
+    ]
+    # Attention cycles don't do group expansion
+    all_indirect = members if members and task['Action'] != 'Attend'  else [f"@timedb:{indirect}:"]
+
+    if direct:
+        by_relation[f".{direct_attr}"] = {
+            direct_attr: {
+                "Arg1": f"@timedb:{direct}:",
+                "Order": "0",
+            },
+        }
+    if indirect:
+        by_relation[f".{indirect_attr}"] = {
+            obj: {
+                "Arg1": obj,
                 "Order": str(i),
             }
-            for i, participant in enumerate(participants)
+            for i, obj in enumerate(all_indirect)
         }
 
 
@@ -54,7 +78,13 @@ def convert_assertions_to_markdown(subject, assertions, snapshot):
     if len(assertions) == 0:
         _fill_default_assertions(by_relation, subject, snapshot)
     md = ["# {}".format(subject)]
-    for relation in sorted(by_relation):
+    sorted_rels = list(sorted(by_relation))
+    # Put some meta relations at the end for easy editing
+    for meta_rel in [".Description", ".Thought", ".Point"]:
+        if meta_rel in sorted_rels:
+            sorted_rels.remove(meta_rel)
+            sorted_rels.append(meta_rel)
+    for relation in sorted_rels:
         md.append("\n## {}\n".format(relation[1:]))
         if len(by_relation[relation]) == 1:
             md.append(list(by_relation[relation].values())[0]["Arg1"])

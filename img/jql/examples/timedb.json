@@ -1,5 +1,18 @@
 {
     "_schemata": {
+        "actions.Action": {
+            "primary": true,
+            "type": "string"
+        },
+        "actions.Class": {
+            "type": "string"
+        },
+        "actions.Direct": {
+            "type": "string"
+        },
+        "actions.Indirect": {
+            "type": "string"
+        },
         "assertions.A Relation": {
             "type": "string"
         },
