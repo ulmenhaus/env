@@ -98,13 +98,11 @@ def tabulate_entries(snapshot,
     table = [[""] + sorted(all_relations)]
     page_tab, page_pk = full_page_pk.split(" ", 1)
     parent = snapshot[page_tab][page_pk]
-    grandparent_rel = "Parent" if page_tab == "nouns" else "Primary Goal"
-    grandparent = snapshot[page_tab][parent[grandparent_rel]]
     for full_pk in full_pks:
         tab, pk = full_pk.split(" ", 1)
         display_name = pk
         if page_tab == "tasks" and tab == "tasks":
-            display_name = format_related_tasks(grandparent, parent,
+            display_name = format_related_tasks(parent, snapshot['tasks'][pk],
                                                 snapshot['actions'])
         if tab == "tasks" and concise_display:
             # For well schematized tables we don't get much benefit from the full pk so
@@ -119,8 +117,10 @@ def tabulate_entries(snapshot,
             if rel == "Meta":
                 counts = collections.Counter(
                     [orig_rel for orig_rel, _ in orobs])
-                row.append("\n".join(f"{v} {pluralize(k)}"
-                                     for k, v in counts.items()))
+                row.append("\n".join(f"{v} {pluralize(k) if v != 1 else k}"
+                                     for k, v in counts.items()
+                                     if k != "Class" or v != 1 # Classes are only interesting if there is more than one of them
+                                     ))
             elif len(orobs) == 0:
                 row.append("")
             elif len(orobs) == 1:
@@ -228,7 +228,9 @@ def generate_markdown(snapshot, table, pk):
         if not value["A Relation"].startswith("."):
             continue
         rel = value["A Relation"][1:]
-        if rel in meta_rels and rel_pk != full_pk:
+        # Classes don't have much value as a separate column when tabulated
+        # so we make a special case and fold them into the Meta column
+        if (rel in meta_rels or rel == "Class") and rel_pk != full_pk:
             l = len(key2rel2orobs[rel_pk]["Meta"])
             key2rel2orobs[rel_pk]["Meta"].append((rel, value["Arg1"]))
         else:
@@ -309,13 +311,6 @@ def generate_markdown(snapshot, table, pk):
                 cls_name = "Child tasks"
             cls2children[cls_name][child_full_pk] = v
 
-    markdown += "\n## Related"
-    for cls_name, children in cls2children.items():
-        markdown += f"\n### {cls_name} ({len(children)})\n"
-        markdown += markdown_table(
-            tabulate_entries(snapshot, full_pk, sort_related(children),
-                             key2rel2orobs, ["Description", "Meta"]))
-
     cls2rel2subj = collections.defaultdict(
         lambda: collections.defaultdict(list))
 
@@ -337,12 +332,28 @@ def generate_markdown(snapshot, table, pk):
         cls = src2cls.get(src, "Noun")
         cls2rel2subj[cls][rel[1:]].append(src)
 
+    markdown += "\n## Related"
+    shown_with_attribute = set()
     for cls, rel2subj in cls2rel2subj.items():
         for rel, subjects in rel2subj.items():
             markdown += f"\n### {pluralize(cls)} with this {rel} ({len(subjects)})\n"
             table = tabulate_entries(snapshot, full_pk, sort_related(subjects),
                                      key2rel2orobs, ["Class", rel], concise_display=True)
             markdown += markdown_table(table)
+            shown_with_attribute.update(subjects)
+
+    for cls_name, children in cls2children.items():
+        # no need to show an item again as a child if it's already related via attribute
+        children = set(children) - shown_with_attribute
+        if not children:
+            continue
+        markdown += f"\n### {cls_name} ({len(children)})\n"
+        markdown += markdown_table(
+            tabulate_entries(snapshot, full_pk, sort_related(children),
+                             key2rel2orobs, ["Description", "Meta"],
+                             concise_display=cls_name != "Child tasks", # These children are orgnized by class so can be shown concisely
+                             ))
+
     return markdown
 
 

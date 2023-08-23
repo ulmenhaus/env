@@ -20,7 +20,6 @@ STANDARD_PROPERTIES = ("Description", "Point")
 TERMINAL_STATUSES = ("Satisfied", "Revisit", "Failed")
 
 
-
 def _fill_default_assertions(by_relation, subject, snapshot):
     for property in STANDARD_PROPERTIES:
         by_relation[".{}".format(property)] = {}
@@ -43,7 +42,7 @@ def _fill_default_assertions(by_relation, subject, snapshot):
     }
     direct, indirect = task['Direct'], task['Indirect']
     direct_attr = action['Direct'].split(" ")[-1]
-    indirect_attr = action['Indirect'].split(" ")[-1]
+    indirect_attr = action['Indirect'].split(" ")[-1] if indirect not in pks.HABIT_MODES else "Habit-Mode"
     # If the indirect noun is a group noun we populate its
     # individual members instead
     group = "nouns " + indirect

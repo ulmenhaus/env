@@ -1,5 +1,8 @@
 import datetime
 
+HABIT_MODES = ("breakdown", "consistency", "continuity", "habituality",
+               "incrementality", "regularity")
+
 
 def class_for_task(action, task):
     return action['Class']
@@ -8,15 +11,13 @@ def class_for_task(action, task):
 def pk_terms_for_task(task, actions):
     action_name, direct, indirect = task['Action'], task['Direct'], task[
         'Indirect']
-    if action_name not in actions:
-        # Legacy behavior for actions that don't yet exist in the actions table
-        # TODO we can get rid of this legacy behavior once we migrate
-        # all actions to use the new actions table
-        prepreposition = ""
-        preposition = " with " if indirect else ""
-    else:
+    # Legacy behavior for actions that don't yet exist in the actions table
+    # TODO we can get rid of this legacy behavior once we migrate
+    # all actions to use the new actions table
+    prepreposition = " " if direct else ""
+    preposition = " with " if indirect else ""
+    if action_name in actions:
         action = actions[action_name]
-        prepreposition, preposition = "", ""
         direct_parts = action['Direct'].split(" ")
         indirect_parts = action['Indirect'].split(" ")
         if direct and len(direct_parts) > 1:
@@ -24,7 +25,8 @@ def pk_terms_for_task(task, actions):
         if indirect and len(indirect_parts) > 1:
             preposition = f" {indirect_parts[0]} "
 
-    direct_clause, indirect_clause = "", ""
+    if indirect in HABIT_MODES:
+        preposition = " with "
     mandate = [
         action_name, prepreposition, task['Direct'], preposition,
         task['Indirect']
