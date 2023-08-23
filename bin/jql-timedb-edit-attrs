@@ -74,7 +74,8 @@ def convert_assertions_to_markdown(subject, assertions, snapshot):
     by_relation = collections.defaultdict(dict)
     for pk, value in assertions.items():
         by_relation[value["A Relation"]][pk] = value
-    if len(assertions) == 0:
+    relations = set(by_relation)
+    if len(assertions) == 0 or relations == {".Implements"}:
         _fill_default_assertions(by_relation, subject, snapshot)
     md = ["# {}".format(subject)]
     sorted_rels = list(sorted(by_relation))
@@ -180,8 +181,9 @@ def _edit_in_file(snapshot, table, pk, tmpdir):
         for key, value in assertions.items()
         if value["A Relation"].startswith(".") and value["Arg0"] == full_id
     }
+    old_relations = set(assn['A Relation'] for assn in old_assertions.values())
     markdown = convert_assertions_to_markdown(pk, old_assertions, snapshot)
-    if table == "tasks" and len(old_assertions) == 0:
+    if table == "tasks" and (len(old_assertions) == 0 or old_relations == {".Implements"}):
         # provide the assertions of the previous execution of this task as a guide
         # as well as blank values for previously used attrs
         current = snapshot[table][pk]

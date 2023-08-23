@@ -73,6 +73,8 @@ def _render_link(description, target, new_window=False):
 
 
 def pluralize(word):
+    if word.lower() in ["implements"]:
+        return word
     # HACK a few rules for pluralization
     if word.endswith("y") and len(word) > 2 and word[-2] not in "aeou":
         return word[:-1] + "ies"
@@ -222,6 +224,7 @@ def generate_markdown(snapshot, table, pk):
         "Quote",
         "Resource",
         "Thought",
+        "Implements",
     ]
     for key, value in assertions.items():
         rel_pk = value["Arg0"]
