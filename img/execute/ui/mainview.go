@@ -655,6 +655,10 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 	if err != nil {
 		return err
 	}
+	err = g.SetKeybinding(NewPlansView, 'x', gocui.ModNone, mv.toggleAllPlans)
+	if err != nil {
+		return err
+	}
 	err = g.SetKeybinding(TasksView, 'x', gocui.ModNone, mv.markTask)
 	if err != nil {
 		return err
@@ -1829,7 +1833,7 @@ func (mv *MainView) substituteTaskWithPlans(g *gocui.Gui, taskPK string) error {
 		}
 		items = append(items, PlanSelectionItem{
 			Plan:   item[2:],
-			Marked: true,
+			Marked: false,
 		})
 	}
 	mv.planSelections = items
@@ -1906,6 +1910,19 @@ func (mv *MainView) queryForPlanSubsetLayout(g *gocui.Gui) error {
 		newPlansView.Write([]byte(item.Plan + "\n"))
 	}
 	return nil
+}
+
+func (mv *MainView) toggleAllPlans(g *gocui.Gui, v *gocui.View) error {
+	// if any are unmarked we want to mark everything, otherwise we mark nothing
+	allMarked := true
+	for _, sel := range mv.planSelections {
+		allMarked = allMarked && sel.Marked
+	}
+
+	for i := range mv.planSelections {
+		mv.planSelections[i].Marked = !allMarked
+	}
+	return mv.refreshView(g)
 }
 
 func (mv *MainView) markPlanSelection(g *gocui.Gui, v *gocui.View) error {
