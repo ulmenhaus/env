@@ -82,13 +82,14 @@ def pluralize(word):
                               or word.endswith("h")) else f"{word}es"
 
 
-def tabulate_entries(snapshot,
-                     full_page_pk,
-                     full_pks,
-                     key2rel2orobs,
-                     maybe_discard=(),
-                     concise_display=False,
-                     ):
+def tabulate_entries(
+        snapshot,
+        full_page_pk,
+        full_pks,
+        key2rel2orobs,
+        maybe_discard=(),
+        concise_display=False,
+):
     all_relations = sorted(
         {rel
          for pk in full_pks for rel in key2rel2orobs[pk]})
@@ -109,7 +110,12 @@ def tabulate_entries(snapshot,
         if tab == "tasks" and concise_display:
             # For well schematized tables we don't get much benefit from the full pk so
             # just show the last token
-            display_name = pks.pk_terms_for_task(snapshot['tasks'][pk], snapshot['actions'])[-1]
+            task = snapshot['tasks'][pk]
+            terms = pks.pk_terms_for_task(task, snapshot['actions'])
+            display_name = terms[-1]
+            if task['Indirect'] in pks.HABIT_MODES:
+                display_name = f"{task['Action']} {task['Direct']}"
+
         row = [_render_link(display_name, "/" + full_pk)]
         table.append(row)
         for rel in all_relations:
@@ -119,10 +125,11 @@ def tabulate_entries(snapshot,
             if rel == "Meta":
                 counts = collections.Counter(
                     [orig_rel for orig_rel, _ in orobs])
-                row.append("\n".join(f"{v} {pluralize(k) if v != 1 else k}"
-                                     for k, v in counts.items()
-                                     if k != "Class" or v != 1 # Classes are only interesting if there is more than one of them
-                                     ))
+                row.append("\n".join(
+                    f"{v} {pluralize(k) if v != 1 else k}"
+                    for k, v in counts.items() if k != "Class" or v !=
+                    1  # Classes are only interesting if there is more than one of them
+                ))
             elif len(orobs) == 0:
                 row.append("")
             elif len(orobs) == 1:
@@ -141,7 +148,7 @@ def _comment_prefix(filename):
     return types[ftype]
 
 
-def gather_classes(assertions):
+def gather_classes(assertions, tasks):
     src2cls = {}
     for key, value in assertions.items():
         src, rel, tgt = map(value.get, ["Arg0", "A Relation", "Arg1"])
@@ -152,7 +159,17 @@ def gather_classes(assertions):
         if ":" in tgt_pk:
             continue
         src2cls[src] = tgt_pk
+    for pk, task in tasks.items():
+        if task['Indirect'] in pks.HABIT_MODES:
+            src2cls[f"tasks {pk}"] = "Habit"
     return src2cls
+
+
+def gather_child_tasks(tasks):
+    parent2children = collections.defaultdict(list)
+    for pk, task in tasks.items():
+        parent2children[task['Primary Goal']].append(pk)
+    return parent2children
 
 
 def generate_ideas_markdown(snapshot):
@@ -170,6 +187,7 @@ def generate_ideas_markdown(snapshot):
     markdown += f"{sum(noun2ideas.values())} ideas in {len(noun2ideas)} entries\n"
     markdown += resolve_jql_links(markdown_table(table))
     return markdown
+
 
 def generate_memos_markdown(snapshot):
     markdown = "# Memos\n"
@@ -255,8 +273,7 @@ def generate_markdown(snapshot, table, pk):
     title, subtitle = pk, ""
     if table == "tasks":
         task = snapshot[table][pk]
-        pk_terms = pks.pk_terms_for_task(
-            task, snapshot['actions'])
+        pk_terms = pks.pk_terms_for_task(task, snapshot['actions'])
         noun_ixes = [2, 4]
         for nix in noun_ixes:
             noun = pk_terms[nix]
@@ -299,8 +316,9 @@ def generate_markdown(snapshot, table, pk):
             return point
 
         markdown += "\n".join(map(format_orob, sorted_multitons))
-    src2cls = gather_classes(assertions)
+    src2cls = gather_classes(assertions, snapshot['tasks'])
     cls2children = collections.defaultdict(dict)
+    parent2children = gather_child_tasks(snapshot['tasks'])
     for tab in search_tables:
         # TODO should check if the table matches as well
         for k, v in snapshot[tab].items():
@@ -335,13 +353,26 @@ def generate_markdown(snapshot, table, pk):
         cls = src2cls.get(src, "Noun")
         cls2rel2subj[cls][rel[1:]].append(src)
 
+    # Construct the child habits table
+    for habit_full_pk in cls2children['Child Habits']:
+        habit_children = parent2children[habit_full_pk[len("tasks "):]]
+        statuses = collections.Counter(
+            [snapshot['tasks'][child]['Status'] for child in habit_children])
+        key2rel2orobs[habit_full_pk].pop("Habit-Mode", None)
+        key2rel2orobs[habit_full_pk].pop("Subject", None)
+        for status, count in statuses.items():
+            key2rel2orobs[habit_full_pk][status].append((status, str(count)))
+
     markdown += "\n## Related"
     shown_with_attribute = set()
     for cls, rel2subj in cls2rel2subj.items():
         for rel, subjects in rel2subj.items():
             markdown += f"\n### {pluralize(cls)} with this {rel} ({len(subjects)})\n"
-            table = tabulate_entries(snapshot, full_pk, sort_related(subjects),
-                                     key2rel2orobs, ["Class", rel], concise_display=True)
+            table = tabulate_entries(snapshot,
+                                     full_pk,
+                                     sort_related(subjects),
+                                     key2rel2orobs, ["Class", rel],
+                                     concise_display=True)
             markdown += markdown_table(table)
             shown_with_attribute.update(subjects)
 
@@ -352,10 +383,15 @@ def generate_markdown(snapshot, table, pk):
             continue
         markdown += f"\n### {cls_name} ({len(children)})\n"
         markdown += markdown_table(
-            tabulate_entries(snapshot, full_pk, sort_related(children),
-                             key2rel2orobs, ["Description", "Meta"],
-                             concise_display=cls_name != "Child tasks", # These children are orgnized by class so can be shown concisely
-                             ))
+            tabulate_entries(
+                snapshot,
+                full_pk,
+                sort_related(children),
+                key2rel2orobs,
+                ["Description", "Meta"],
+                concise_display=cls_name !=
+                "Child tasks",  # These children are orgnized by class so can be shown concisely
+            ))
 
     return markdown
 
@@ -520,7 +556,8 @@ class MarkdownHandler(BaseHTTPRequestHandler):
         markdown = inject_externals(project, markdown)
         contents = MarkdownHandler.template.replace(
             "{md-contents}",
-            html.escape(markdown)).replace("{md-postfix}", "").replace("{md-prefix}", "")
+            html.escape(markdown)).replace("{md-postfix}",
+                                           "").replace("{md-prefix}", "")
         s.wfile.write(contents.encode("utf-8"))
 
 
@@ -583,7 +620,8 @@ class MemosHandler(BaseHTTPRequestHandler):
             if "\n" in memo['question']:
                 markdown = memo['question']
             else:
-                markdown = "## {} ({} left)".format(memo['question'], len(memos))
+                markdown = "## {} ({} left)".format(memo['question'],
+                                                    len(memos))
 
             # color buttons come first so that they have consistent vimium bindings
             prefix += '<div align="center" style="padding-top: 20px; font-size: 20pt">'
@@ -603,8 +641,8 @@ class MemosHandler(BaseHTTPRequestHandler):
                     memo['answer'].replace("'", r"\'"))
         markdown = inject_externals("notes", markdown)
         contents = MarkdownHandler.template.replace(
-            "{md-contents}",
-            html.escape(markdown)).replace("{md-postfix}", postfix).replace("{md-prefix}", prefix)
+            "{md-contents}", html.escape(markdown)).replace(
+                "{md-postfix}", postfix).replace("{md-prefix}", prefix)
         s.wfile.write(contents.encode("utf-8"))
 
     def get_memos(full_pk, recursive=True):
