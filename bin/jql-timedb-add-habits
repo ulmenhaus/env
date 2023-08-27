@@ -35,9 +35,9 @@ def _parse_table(raw):
     return header, rows
 
 
-def _parse_habits_table(snapshot, full_pk, continuous):
+def _parse_habits_table(snapshot, full_pk, section_title):
     assertions = snapshot['assertions']
-    prefix = "### Continuous" if continuous else "### Active"
+    prefix = f"### {section_title}"
     relevant = [
         assn for pk, assn in assertions.items()
         if assn['A Relation'] == '.Habit' and assn['Arg0'] == full_pk
@@ -61,20 +61,21 @@ def _parse_possible_timedb_ref(val):
     return val.split(":")[1] if val.startswith("@timedb:") else val
 
 
-def _add_habit(snapshot, habit, cm, continuous, group2members):
-    indirect = "continuity" if continuous else "regularity"
+def _add_habit(snapshot, habit, cm, group2members, habit_mode):
     direct_items = [habit[1]]
     if habit[1].endswith(" (list)"):
-        direct_items = group2members[_parse_possible_timedb_ref(habit[1][:-len(" (list)")])]
+        direct_items = group2members[_parse_possible_timedb_ref(
+            habit[1][:-len(" (list)")])]
     for direct_item in direct_items:
         habit[1] = direct_item
-        action, direct, parameters, parent = map(_parse_possible_timedb_ref, habit)
+        action, direct, parameters, parent = map(_parse_possible_timedb_ref,
+                                                 habit)
         parent_pk = cm.add_cycle_for(parent)
         parent = snapshot['tasks'][parent_pk]
         new_task = {
             "Action": action,
             "Direct": direct,
-            "Indirect": indirect,
+            "Indirect": habit_mode,
             "Parameters": parameters,
             "Param~Span": parent['Param~Span'],
             "Param~Start": parent['Param~Start'],
@@ -96,15 +97,18 @@ def main():
         raise ValueError("must select noun to add an attention cycle")
     group2members = collections.defaultdict(list)
     for assn in snapshot['assertions'].values():
-        if assn['A Relation'] == '.Member' and assn['Arg0'].startswith("nouns "):
+        if assn['A Relation'] == '.Member' and assn['Arg0'].startswith(
+                "nouns "):
             group2members[assn['Arg0'][len("nouns "):]].append(assn['Arg1'])
     full_pk = f"nouns {pk}"
-    habits = _parse_habits_table(snapshot, full_pk, False)
-    for habit in habits:
-        _add_habit(snapshot, habit, cm, False, group2members)
-    habits = _parse_habits_table(snapshot, full_pk, True)
-    for habit in habits:
-        _add_habit(snapshot, habit, cm, True, group2members)
+    sections = {
+        "Active": "regularity",
+        "Continuous": "continuity",
+        "Breakdown": "breakdown",
+        }
+    for section_title, habit_mode in sections.items():
+        for habit in _parse_habits_table(snapshot, full_pk, section_title):
+            _add_habit(snapshot, habit, cm, group2members, habit_mode)
     iface["snapshot"] = json.dumps(snapshot)
     json.dump(iface, sys.stdout)
 

@@ -13,7 +13,13 @@ class HabitModes(object):
         self.task_pk = None
         self.task_data = None
 
-    def breakdown(self, level=1, depth=1, cap=None, order=None, implements=''):
+    def breakdown(self,
+                  level=1,
+                  depth=1,
+                  cap=None,
+                  order='lexical',
+                  implements='',
+                  cls=''):
         if level > 1:
             raise ValueError(
                 "starting level greater than one not yet supported")
@@ -23,14 +29,26 @@ class HabitModes(object):
             raise ValueError("ordering other than lexical not yet supported")
         action = self.task_data['Action']
         direct = self.task_data['Direct']
+        sources = [direct]
+        if cls != '':
+            # Instead of getting the breakdown from the object itself we get it from
+            # any object matching the provided class
+            sources = [
+                assertion["Arg0"][len("nouns "):]
+                for assertion in self.data['assertions'].values()
+                if assertion["A Relation"] == '.Class'
+                and assertion['Arg1'] == f"@timedb:{cls}:"
+            ]
+
         original_span = self.task_data["Param~Span"]
         original_date = datetime.datetime(1970, 1, 1) + datetime.timedelta(
             days=int(self.task_data["Param~Start"]))
         original_stamp = original_date.strftime("%d %b %Y")
         parts = sorted([
             item_pk for item_pk, item_data in self.data['nouns'].items()
-            if item_data['Parent'] == direct
+            if item_data['Parent'] in sources
             and item_data['Relation'] != 'Feature'
+            and (item_data['Status'] == 'Active' or cls == '') # for class-based sources we only want to get curated (active) items
         ])
         already_done = [
             task['Direct'] for task in self.data["tasks"].values()
