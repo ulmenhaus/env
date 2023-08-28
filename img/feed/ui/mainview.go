@@ -126,7 +126,8 @@ func (mv *MainView) fetchResources() error {
 	*/
 	mv.resources = [][]types.Entry{}
 	for _, entry := range resp.Entries {
-		if !strings.Contains(entry[nounsTable.IndexOfField(FieldFeed)].Format(""), "://") {
+		feed := entry[nounsTable.IndexOfField(FieldFeed)].Format("")
+		if (!strings.Contains(feed, "://")) && feed != "manual" {
 			continue
 		}
 		mv.resources = append(mv.resources, entry)
@@ -169,6 +170,9 @@ func (mv *MainView) fetchNewItems(g *gocui.Gui, v *gocui.View) error {
 		}
 
 		feedURL := entry[nounsTable.IndexOfField(FieldFeed)].Format("")
+		if (!strings.Contains(feedURL, "://")) {
+			continue
+		}
 		feed, err := NewFeed(feedURL)
 		if err != nil {
 			return err
