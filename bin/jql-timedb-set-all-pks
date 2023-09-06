@@ -9,10 +9,10 @@ def main():
     with open("schema2.json") as f:
         snapshot = json.load(f)
     db = pks.TimeDB(snapshot)
-    for current_pk, task in list(snapshot['tasks'].items()):
-        correct_pk = pks.pk_for_task(task, snapshot['actions'])
-        if current_pk != correct_pk:
-            db.update_task_pk(current_pk, correct_pk)
+    for pk in list(snapshot['nouns']):
+        db.update_noun(pk)
+    for pk in list(snapshot['tasks']):
+        db.update_task(pk)
     with open("schema2.json", 'w') as f:
         json.dump(snapshot, f, sort_keys=True, indent=4, separators=(",", ": "))
 

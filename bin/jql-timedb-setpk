@@ -32,6 +32,8 @@ def main():
             pks.pk_for_task(task, snapshot['actions']))
     elif selected_table == "files":
         tdb.update_files_pk(pk, pk_for_file(snapshot['files'][pk]))
+    elif selected_table == "nouns":
+        tdb.update_noun(pk)
     else:
         raise ValueError("PK not implemented for table", selected_table)
     iface["snapshot"] = json.dumps(snapshot)

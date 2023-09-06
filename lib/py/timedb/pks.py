@@ -48,17 +48,53 @@ def pk_terms_for_task(task, actions):
 def pk_for_task(task, actions):
     return "".join(pk_terms_for_task(task, actions))
 
+def pk_for_noun(noun):
+    idn = noun['Description']
+    ctx, cnl = noun['Context'], noun['Coordinal']
+    # we only consider the coordinal of a noun as part of its identity once we are committed to it
+    if cnl != "" and noun['Relation'] == "Item" and noun['Status'] not in ['Idea', 'Pending', 'Someday']:
+        idn = f"[{ctx}][{cnl}] {idn}" if ctx else f"[{cnl}] {idn}"
+    elif ctx != "":
+        idn = f"[{ctx}] {idn}"
+    return idn
 
 class TimeDB(object):
-
     def __init__(self, db):
         self.db = db
+        self.noun_to_context = {attrs['Parent']: code for code, attrs in self.db['contexts'].items()}
 
     def update_files_pk(self, old, new):
         files = self.db["files"]
         f = files[old]
         del files[old]
         files[new] = f
+
+    def update_noun(self, old):
+        noun = self.db['nouns'][old]
+        noun['Context'] = self.noun_to_context.get(noun['Parent'], "")
+        new = pk_for_noun(noun)
+        if old == new:
+            return
+        if new in self.db['nouns']:
+            raise ValueError("key already exists", new)
+        del self.db['nouns'][old]
+        self.db["nouns"][new] = noun
+        for noun in self.db['nouns'].values():
+            if noun['Parent'] == old:
+                noun['Parent'] = new
+        self.update_arg_in_assertions("nouns", old, new)
+        affected = [task_pk for task_pk, task in self.db['tasks'].items() if old in [task['Direct'], task['Indirect']]]
+        for task_pk in affected:
+            task = self.db['tasks'][task_pk]
+            if task['Direct'] == old:
+                task['Direct'] = new
+            if task['Indirect'] == old:
+                task['Indirect'] = new
+            self.update_task(task_pk)
+
+    def update_task(self, pk):
+        task = self.db['tasks'][pk]
+        return self.update_task_pk(pk, pk_for_task(task, self.db['actions']))
 
     def update_task_pk(self, old, new):
         if old == new:
@@ -83,11 +119,12 @@ class TimeDB(object):
             # other entries and it's not really needed
 
     def update_arg_in_assertions(self, table, old, new):
-        full_id = "tasks {}".format(old)
-        new_full_id = "tasks {}".format(new)
+        full_id = "{} {}".format(table, old)
+        new_full_id = "{} {}".format(table, new)
         # Take a snapshot of assertions to not modify while iterating
         for pk, assn in list(self.db["assertions"].items()):
             if assn["Arg1"] == full_id:
+                # TODO update @timedb assertions
                 assn["Arg1"] = new_full_id
             if assn["Arg0"] == full_id:
                 assn["Arg0"] = new_full_id
