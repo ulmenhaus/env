@@ -185,8 +185,12 @@ func (mv *MainView) searchTopicsLayout(g *gocui.Gui) error {
 	topics.Clear()
 	g.SetCurrentView(TopicsView)
 	for _, topic := range mv.topics {
+		var buffer string
 		spaces := maxX - len(topic)
-		topics.Write([]byte(topic + strings.Repeat(" ", spaces) + "\n"))
+		if spaces > 0 {
+			buffer = strings.Repeat(" ", spaces)
+		}
+		topics.Write([]byte(topic + buffer + "\n"))
 	}
 	query, err := g.SetView(TopicsQueryView, 4, maxY-7, maxX-4, maxY-5)
 	if err != nil && err != gocui.ErrUnknownView {

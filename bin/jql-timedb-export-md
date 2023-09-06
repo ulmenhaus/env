@@ -231,10 +231,12 @@ def generate_markdown(snapshot, table, pk):
     key2rel2orobs = collections.defaultdict(
         lambda: collections.defaultdict(list))
     meta_rels = [
+        "Bookmark",
         "Command",
         "Conclusion",
         "Habit",
         "Idea",
+        "Implements",
         "Memo",
         "Plan",
         "Point",
@@ -242,7 +244,6 @@ def generate_markdown(snapshot, table, pk):
         "Quote",
         "Resource",
         "Thought",
-        "Implements",
     ]
     for key, value in assertions.items():
         rel_pk = value["Arg0"]

@@ -102,13 +102,13 @@
         },
         "nouns.Relation": {
             "features": {
-                "values": ", Elem, Item, Vertex, Part, Feature, Possession"
+              "values": "Elem, Item, Vertex, Part, Feature, Possession, Activity"
             },
             "type": "enum"
         },
         "nouns.Status": {
             "features": {
-                "values": "Unprocessed, Pending, Active, Satisfied, Revisit, Habitual, Abandoned, Someday"
+              "values": "Idea, Pending, Active, Satisfied, Revisit, Habitual, Abandoned, Someday"
             },
             "type": "enum"
         },

@@ -3,6 +3,7 @@ package types
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/ulmenhaus/env/img/jql/storage"
 )
@@ -44,11 +45,24 @@ func (s String) Compare(i interface{}) bool {
 
 // Add concatonates the provided string with the String
 func (s String) Add(i interface{}) (Entry, error) {
-	addend, ok := i.(string)
-	if !ok {
-		return nil, fmt.Errorf("Strings can only be concatonated with strings")
+	switch typed := i.(type) {
+	case string:
+		return String(string(s) + typed), nil
+	case int:
+		if string(s) == "" {
+			return String("000"), nil
+		}
+		converted, err := strconv.Atoi(string(s))
+		if err != nil {
+			return nil, fmt.Errorf("Cannot add int to non-int string: %s", s)
+		}
+		sum := strconv.Itoa(converted + typed)
+		if len(sum) >= len(s) {
+			return String(sum), nil
+		}
+		return String(strings.Repeat("0", len(s) - len(sum)) + sum), nil
 	}
-	return String(string(s) + addend), nil
+	return nil, fmt.Errorf("Unsupported addition - string + %T", i)
 }
 
 // Encoded returns the String encoded as a string
@@ -108,4 +122,3 @@ func (d Integer) Add(i interface{}) (Entry, error) {
 func (s Integer) Encoded() storage.Primitive {
 	return int(s)
 }
-
