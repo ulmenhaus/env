@@ -57,10 +57,10 @@ func (s String) Add(i interface{}) (Entry, error) {
 			return nil, fmt.Errorf("Cannot add int to non-int string: %s", s)
 		}
 		sum := strconv.Itoa(converted + typed)
-		if len(sum) >= len(s) {
+		if len(sum) >= len(s) || (converted + typed) < 0 {
 			return String(sum), nil
 		}
-		return String(strings.Repeat("0", len(s) - len(sum)) + sum), nil
+		return String(strings.Repeat("0", len(s)-len(sum)) + sum), nil
 	}
 	return nil, fmt.Errorf("Unsupported addition - string + %T", i)
 }

@@ -629,7 +629,7 @@ func (mv *MainView) gatherFilteredNouns(recursive bool) (map[string]bool, error)
 	if err != nil {
 		return nil, err
 	}
-	descCol := nouns.IndexOfField(FieldNounDescription)
+	descCol := nouns.IndexOfField(FieldNounIdentifier)
 	parCol := nouns.IndexOfField(FieldParent)
 	for _, row := range resp.Entries {
 		desc := row[descCol].Format("")
@@ -644,7 +644,7 @@ func (mv *MainView) gatherFilteredNouns(recursive bool) (map[string]bool, error)
 		node := queue[0]
 		queue = queue[1:]
 		if filtered[node] {
-			return nil, errors.New("cycle detected")
+			return nil, errors.New(fmt.Sprintf("cycle detected from: %s", node))
 		}
 		filtered[node] = true
 		queue = append(queue, node2children[node]...)

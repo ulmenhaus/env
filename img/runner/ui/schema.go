@@ -28,6 +28,7 @@ const (
 	FieldStatus          string = "Status"
 	FieldTask            string = "A Task"
 	FieldNounDescription string = "Description"
+	FieldNounIdentifier  string = "_Identifier"
 
 	PrefixNouns     string = "nouns "
 	TableAssertions string = "assertions"

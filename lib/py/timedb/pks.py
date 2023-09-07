@@ -79,10 +79,12 @@ class TimeDB(object):
             raise ValueError("key already exists", new)
         del self.db['nouns'][old]
         self.db["nouns"][new] = noun
+        self.update_arg_in_assertions("nouns", old, new)
+        if old == '':
+            return
         for noun in self.db['nouns'].values():
             if noun['Parent'] == old:
                 noun['Parent'] = new
-        self.update_arg_in_assertions("nouns", old, new)
         affected = [task_pk for task_pk, task in self.db['tasks'].items() if old in [task['Direct'], task['Indirect']]]
         for task_pk in affected:
             task = self.db['tasks'][task_pk]
@@ -106,6 +108,8 @@ class TimeDB(object):
         self.db["tasks"][new] = task
         self.update_task_in_log(old, new)
         self.update_arg_in_assertions("tasks", old, new)
+        if old == '':
+            return
         for task in self.db["tasks"].values():
             if task["Primary Goal"] == old:
                 task["Primary Goal"] = new

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -40,9 +41,9 @@ type MainView struct {
 
 	path string
 
-	breakdown map[string][]Item // for the currently selected feed, maps status to items
+	breakdown map[string][]*Item // for the currently selected feed, maps status to items
 
-	fresh map[string][]Item // stores new items from the feed that the user then manually discards or adds to the table
+	fresh map[string][]*Item // stores new items from the feed that the user then manually discards or adds to the table
 
 	ignored     map[string](map[string]bool) // stores a map from feed name to a set of ignored entries
 	ignoredPath string
@@ -83,7 +84,7 @@ func NewMainView(path string, g *gocui.Gui) (*MainView, error) {
 
 		path: path,
 
-		fresh: map[string][]Item{},
+		fresh: map[string][]*Item{},
 	}
 	mv.ignoredPath = path + ".ignored"
 	_, err = os.Stat(mv.ignoredPath)
@@ -163,7 +164,7 @@ func (mv *MainView) fetchResources() error {
 				Not:       true,
 			},
 		},
-		OrderBy: FieldDescription,
+		OrderBy: FieldIdentifier,
 	})
 	if err != nil {
 		return err
@@ -183,7 +184,7 @@ func (mv *MainView) fetchResources() error {
 		if (!strings.Contains(feed, "://")) && feed != "manual" {
 			continue
 		}
-		entryName := entry[nounsTable.IndexOfField(FieldDescription)].Format("")
+		entryName := entry[nounsTable.IndexOfField(FieldIdentifier)].Format("")
 		domainName := noun2domain[entryName]
 		if domainName == "" {
 			domainName = "Attention Domains"
@@ -218,9 +219,9 @@ func (mv *MainView) fetchNewItems(g *gocui.Gui, v *gocui.View) error {
 
 	for _, domain := range mv.domains {
 		for _, entry := range domain.channels {
-			byDescription := map[string]Item{}
-			entryName := entry[nounsTable.IndexOfField(FieldDescription)].Format("")
-			mv.fresh[entryName] = []Item{}
+			byIdentifier := map[string]Item{}
+			entryName := entry[nounsTable.IndexOfField(FieldIdentifier)].Format("")
+			mv.fresh[entryName] = []*Item{}
 			allItems, err := nounsTable.Query(types.QueryParams{
 				Filters: []types.Filter{
 					&ui.EqualFilter{
@@ -234,8 +235,10 @@ func (mv *MainView) fetchNewItems(g *gocui.Gui, v *gocui.View) error {
 				return err
 			}
 			for _, rawItem := range allItems.Entries {
-				byDescription[rawItem[nounsTable.IndexOfField(FieldDescription)].Format("")] = Item{
+				byIdentifier[rawItem[nounsTable.IndexOfField(FieldIdentifier)].Format("")] = Item{
+					Identifier:  rawItem[nounsTable.IndexOfField(FieldIdentifier)].Format(""),
 					Description: rawItem[nounsTable.IndexOfField(FieldDescription)].Format(""),
+					Coordinal:   rawItem[nounsTable.IndexOfField(FieldCoordinal)].Format(""),
 					Link:        rawItem[nounsTable.IndexOfField(FieldLink)].Format(""),
 				}
 			}
@@ -250,14 +253,14 @@ func (mv *MainView) fetchNewItems(g *gocui.Gui, v *gocui.View) error {
 			}
 			latest, err := feed.FetchNew()
 			if err != nil {
-				return fmt.Errorf("Failed to fetch feed for %s: %s", entry[nounsTable.IndexOfField(FieldDescription)].Format(""), err)
+				return fmt.Errorf("Failed to fetch feed for %s: %s", entry[nounsTable.IndexOfField(FieldIdentifier)].Format(""), err)
 			}
 			for _, item := range latest {
-				if _, ok := byDescription[item.Description]; ok {
+				if _, ok := byIdentifier[item.Identifier]; ok {
 					continue
 				}
-				if !mv.ignored[entryName][item.Description] {
-					mv.fresh[entryName] = append(mv.fresh[entryName], item)
+				if !mv.ignored[entryName][item.Identifier] {
+					mv.fresh[entryName] = append(mv.fresh[entryName], &item)
 				}
 			}
 		}
@@ -276,18 +279,18 @@ func (mv *MainView) addFreshItem(g *gocui.Gui, v *gocui.View) error {
 		return fmt.Errorf("expected resources table to exist")
 	}
 	feed := mv.domains[mv.selectedDomain].channels[selectedResource]
-	entryName := feed[nounsTable.IndexOfField(FieldDescription)].Format("")
+	entryName := feed[nounsTable.IndexOfField(FieldIdentifier)].Format("")
 	_, cy := v.Cursor()
 	_, oy := v.Origin()
 	item := mv.fresh[entryName][oy+cy]
-	description := item.Description
-	err = nounsTable.Insert(description)
+	identifier := item.Identifier
+	err = nounsTable.Insert(identifier)
 	if err != nil {
 		// TODO would be good to use a specific error type
 		if strings.HasPrefix(err.Error(), "Row already exists") {
 			for i := 1; i < 100; i++ {
-				description = fmt.Sprintf("%s (%02d)", item.Description, i)
-				err = nounsTable.Insert(description)
+				identifier = fmt.Sprintf("%s (%02d)", item.Identifier, i)
+				err = nounsTable.Insert(identifier)
 				if err == nil {
 					break
 				} else if strings.HasPrefix(err.Error(), "Row already exists") {
@@ -302,12 +305,12 @@ func (mv *MainView) addFreshItem(g *gocui.Gui, v *gocui.View) error {
 	}
 
 	// TODO now that we support insert with fields we probably don't need separate updates here
-	err = nounsTable.Update(description, FieldLink, item.Link)
+	err = nounsTable.Update(identifier, FieldLink, item.Link)
 	if err != nil {
 		return fmt.Errorf("Failed to update link for entry: %s", err)
 	}
 
-	err = nounsTable.Update(description, FieldParent, entryName)
+	err = nounsTable.Update(identifier, FieldParent, entryName)
 	if err != nil {
 		return fmt.Errorf("Failed to update resource for entry: %s", err)
 	}
@@ -345,6 +348,10 @@ func (mv *MainView) layoutDomains(g *gocui.Gui, domainHeight int) error {
 }
 
 func (mv *MainView) Layout(g *gocui.Gui) error {
+	nounsTable, ok := mv.DB.Tables[TableNouns]
+	if !ok {
+		return fmt.Errorf("expected nouns table to exist")
+	}
 	maxX, maxY := g.Size()
 	domainHeight := 2
 	if err := mv.layoutDomains(g, domainHeight); err != nil {
@@ -389,7 +396,7 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 	}
 
 	for _, entry := range mv.domains[mv.selectedDomain].channels {
-		fmt.Fprintf(resources, "  %s\n", entry[0].Format(""))
+		fmt.Fprintf(resources, "  %s\n", entry[nounsTable.IndexOfField(FieldDescription)].Format(""))
 	}
 	for status, items := range mv.breakdown {
 		for _, item := range items {
@@ -399,7 +406,11 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 				if err != nil {
 					return err
 				}
-				fmt.Fprintf(view, "  %s\n", item.Description)
+				padding := item.Coordinal
+				if padding == "" {
+					padding = "   "
+				}
+				fmt.Fprintf(view, "  %s\t%s\n", padding, item.Description)
 			}
 		}
 	}
@@ -475,11 +486,19 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 		if current == ResourcesView {
 			continue
 		}
-		err = g.SetKeybinding(current, 'J', gocui.ModNone, mv.moveDown)
+		err = g.SetKeybinding(current, 'I', gocui.ModNone, mv.moveDown)
 		if err != nil {
 			return err
 		}
-		err = g.SetKeybinding(current, 'K', gocui.ModNone, mv.moveUp)
+		err = g.SetKeybinding(current, 'i', gocui.ModNone, mv.moveUp)
+		if err != nil {
+			return err
+		}
+		err = g.SetKeybinding(current, 'J', gocui.ModNone, mv.moveDownInPipe)
+		if err != nil {
+			return err
+		}
+		err = g.SetKeybinding(current, 'K', gocui.ModNone, mv.moveUpInPipe)
 		if err != nil {
 			return err
 		}
@@ -492,6 +511,68 @@ func (mv *MainView) switcherTo(name string) func(g *gocui.Gui, v *gocui.View) er
 		_, err := g.SetCurrentView(name)
 		return err
 	}
+}
+
+func (mv *MainView) moveDownInPipe(g *gocui.Gui, v *gocui.View) error {
+	if v == nil {
+		return nil
+	}
+	name := v.Name()
+	if name == ResourcesView || name == FreshView {
+		return nil
+	}
+	_, cy := v.Cursor()
+	_, oy := v.Origin()
+	nounsTable, ok := mv.DB.Tables[TableNouns]
+	if !ok {
+		return fmt.Errorf("Expected to find nouns table")
+	}
+	pk := mv.breakdown[name][oy+cy].Identifier
+	new, err := nounsTable.Entries[pk][nounsTable.IndexOfField(FieldCoordinal)].Add(1)
+	if err != nil {
+		return err
+	}
+	nounsTable.Entries[pk][nounsTable.IndexOfField(FieldCoordinal)] = new
+	if oy+cy+1 < len(mv.breakdown[name]) {
+		successor := mv.breakdown[name][oy+cy+1].Identifier
+		new, err := nounsTable.Entries[successor][nounsTable.IndexOfField(FieldCoordinal)].Add(-1)
+		if err != nil {
+			return err
+		}
+		nounsTable.Entries[successor][nounsTable.IndexOfField(FieldCoordinal)] = new
+	}
+	return mv.cursorDown(g, v)
+}
+
+func (mv *MainView) moveUpInPipe(g *gocui.Gui, v *gocui.View) error {
+	if v == nil {
+		return nil
+	}
+	name := v.Name()
+	if name == ResourcesView || name == FreshView {
+		return nil
+	}
+	_, cy := v.Cursor()
+	_, oy := v.Origin()
+	nounsTable, ok := mv.DB.Tables[TableNouns]
+	if !ok {
+		return fmt.Errorf("Expected to find nouns table")
+	}
+	pk := mv.breakdown[name][oy+cy].Identifier
+	new, err := nounsTable.Entries[pk][nounsTable.IndexOfField(FieldCoordinal)].Add(-1)
+	if err != nil {
+		return err
+	}
+	nounsTable.Entries[pk][nounsTable.IndexOfField(FieldCoordinal)] = new
+	if oy+cy-1 >= 0 {
+		predecessor := mv.breakdown[name][oy+cy-1].Identifier
+		new, err := nounsTable.Entries[predecessor][nounsTable.IndexOfField(FieldCoordinal)].Add(1)
+		if err != nil {
+			return err
+		}
+		nounsTable.Entries[predecessor][nounsTable.IndexOfField(FieldCoordinal)] = new
+	}
+	return mv.cursorUp(g, v)
 }
 
 func (mv *MainView) moveDown(g *gocui.Gui, v *gocui.View) error {
@@ -508,7 +589,7 @@ func (mv *MainView) moveDown(g *gocui.Gui, v *gocui.View) error {
 	if !ok {
 		return fmt.Errorf("Expected to find nouns table")
 	}
-	pk := mv.breakdown[name][oy+cy].Description
+	pk := mv.breakdown[name][oy+cy].Identifier
 	if name == FreshView {
 		resources, err := g.View(ResourcesView)
 		if err != nil {
@@ -517,7 +598,7 @@ func (mv *MainView) moveDown(g *gocui.Gui, v *gocui.View) error {
 		_, roy := resources.Origin()
 		_, rcy := resources.Cursor()
 		entry := mv.domains[mv.selectedDomain].channels[roy+rcy]
-		entryName := entry[nounsTable.IndexOfField(FieldDescription)].Format("")
+		entryName := entry[nounsTable.IndexOfField(FieldIdentifier)].Format("")
 		mv.ignored[entryName][pk] = true
 		mv.fresh[entryName] = append(mv.fresh[entryName][:oy+cy], mv.fresh[entryName][oy+cy+1:]...)
 	} else {
@@ -553,7 +634,7 @@ func (mv *MainView) moveUp(g *gocui.Gui, v *gocui.View) error {
 	}
 	_, cy := v.Cursor()
 	_, oy := v.Origin()
-	pk := mv.breakdown[name][oy+cy].Description
+	pk := mv.breakdown[name][oy+cy].Identifier
 	nounsTable, ok := mv.DB.Tables[TableNouns]
 	if !ok {
 		return fmt.Errorf("Expected to find items table")
@@ -627,13 +708,13 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 		_, oy = view.Origin()
 	}
 
-	mv.breakdown = map[string][]Item{}
-	if oy + cy >= len(mv.domains[mv.selectedDomain].channels) {
+	mv.breakdown = map[string][]*Item{}
+	if oy+cy >= len(mv.domains[mv.selectedDomain].channels) {
 		return nil
 	}
-	
+
 	entry := mv.domains[mv.selectedDomain].channels[oy+cy]
-	entryName := entry[nounsTable.IndexOfField(FieldDescription)].Format("")
+	entryName := entry[nounsTable.IndexOfField(FieldIdentifier)].Format("")
 
 	rawItems, err := nounsTable.Query(types.QueryParams{
 		Filters: []types.Filter{
@@ -651,17 +732,32 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 	for _, rawItem := range rawItems.Entries {
 		status := rawItem[nounsTable.IndexOfField(FieldStatus)].Format("")
 		if mv.breakdown[status] == nil {
-			mv.breakdown[status] = []Item{}
+			mv.breakdown[status] = []*Item{}
 		}
-		mv.breakdown[status] = append(mv.breakdown[status], Item{
+		mv.breakdown[status] = append(mv.breakdown[status], &Item{
+			Identifier:  rawItem[nounsTable.IndexOfField(FieldIdentifier)].Format(""),
 			Description: rawItem[nounsTable.IndexOfField(FieldDescription)].Format(""),
+			Coordinal:   rawItem[nounsTable.IndexOfField(FieldCoordinal)].Format(""),
 			Link:        rawItem[nounsTable.IndexOfField(FieldLink)].Format(""),
 		})
 	}
 	for _, items := range mv.breakdown {
 		sort.Slice(items, func(i, j int) bool {
-			return items[i].Description < items[j].Description
+			iCdn, jCdn := items[i].Coordinal, items[j].Coordinal
+			// We want to items lacking a coordinal to come last
+			return (iCdn < jCdn && iCdn != "") || jCdn == ""
 		})
+		// fill in missing coordinals
+		for i, item := range items {
+			if item.Coordinal == "" {
+				padded := strconv.Itoa(i)
+				if len(padded) < 3 {
+					padded = strings.Repeat("0", 3-len(padded)) + padded
+				}
+				item.Coordinal = padded
+				nounsTable.Entries[item.Identifier][nounsTable.IndexOfField(FieldCoordinal)] = types.String(padded)
+			}
+		}
 	}
 
 	mv.breakdown[FreshView] = mv.fresh[entryName]

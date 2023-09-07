@@ -15,14 +15,16 @@ const (
 	FreshView     string = "Fresh"
 	DomainView    string = "Domains"
 
+	FieldIdentifier  string = "_Identifier"
 	FieldDescription string = "Description"
+	FieldCoordinal   string = "Coordinal"
 	FieldFeed        string = "Feed"
 	FieldLink        string = "Link"
 	FieldParent      string = "Parent"
 	FieldStatus      string = "Status"
 	FieldRelation    string = "A Relation"
-	FieldArg0 string = "Arg0"
-	FieldArg1 string = "Arg1"
+	FieldArg0        string = "Arg0"
+	FieldArg1        string = "Arg1"
 
 	TableNouns      string = "nouns"
 	TableAssertions string = "assertions"

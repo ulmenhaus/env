@@ -22,6 +22,8 @@ const (
 type Item struct {
 	Link        string // A URL for the item
 	Description string // A description for the item
+	Identifier  string // Identifier for the item
+	Coordinal   string // Coordinal for the item
 }
 
 // A Feed is a source of items that can be automatically fetched
