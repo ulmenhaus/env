@@ -747,16 +747,14 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 			// We want to items lacking a coordinal to come last
 			return (iCdn < jCdn && iCdn != "") || jCdn == ""
 		})
-		// fill in missing coordinals
+		// reset coordinals
 		for i, item := range items {
-			if item.Coordinal == "" {
-				padded := strconv.Itoa(i)
-				if len(padded) < 3 {
-					padded = strings.Repeat("0", 3-len(padded)) + padded
-				}
-				item.Coordinal = padded
-				nounsTable.Entries[item.Identifier][nounsTable.IndexOfField(FieldCoordinal)] = types.String(padded)
+			padded := strconv.Itoa(i)
+			if len(padded) < 3 {
+				padded = strings.Repeat("0", 3-len(padded)) + padded
 			}
+			item.Coordinal = padded
+			nounsTable.Entries[item.Identifier][nounsTable.IndexOfField(FieldCoordinal)] = types.String(padded)
 		}
 	}
 
