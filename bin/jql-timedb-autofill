@@ -51,11 +51,11 @@ class HabitModes(object):
             and (item_data['Status'] == 'Active' or cls == '') # for class-based sources we only want to get curated (active) items
         ])
         if cls != '':
-            # Mark these nouns as satisfied here so they don't pop up in a future
-            # class-consuming habit. If you want to explicitly revisit the item
-            # after you can
+            # Mark these nouns as revisit here so they don't pop up in a future
+            # class-consuming habit. Ideally at the end of each cycle you can
+            # look through tasks marked revisit and decide if satisfied or not
             for part in parts:
-                self.data["nouns"][part]['Status'] = 'Satisfied'
+                self.data["nouns"][part]['Status'] = 'Revisit'
         already_done = [
             task['Direct'] for task in self.data["tasks"].values()
             if task["Primary Goal"] == self.task_pk

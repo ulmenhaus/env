@@ -29,17 +29,23 @@ def find_pending_root_cycle(snapshot):
 def main():
     iface = json.load(sys.stdin)
     snapshot = json.loads(iface["snapshot"])
+    field = "Primary Goal"
+    table = "tasks"
     if "--pending" in sys.argv:
-        root_cycle = find_pending_root_cycle(snapshot)
+        formatted = find_pending_root_cycle(snapshot)
+    elif "--sources" in sys.argv:
+        table = "nouns"
+        field = "Relation"
+        formatted = "Source"
     elif "--for" in sys.argv:
         raise NotImplementedError("--for flag not yet implemented")
     else:
-        root_cycle = find_active_root_cycle(snapshot)
+        formatted = find_active_root_cycle(snapshot)
     current_view = iface["current_view"]
-    current_view['table'] = "tasks"
+    current_view['table'] = table
     current_view['filter'] = {
-        "field": "Primary Goal",
-        "formatted": root_cycle,
+        "field": field,
+        "formatted": formatted,
     }
     json.dump(iface, sys.stdout)
 

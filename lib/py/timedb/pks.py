@@ -72,6 +72,8 @@ class TimeDB(object):
     def update_noun(self, old):
         noun = self.db['nouns'][old]
         noun['Context'] = self.noun_to_context.get(noun['Parent'], "")
+        if not noun['Description']:
+            noun['Description'] = old
         new = pk_for_noun(noun)
         if old == new:
             return
