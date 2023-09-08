@@ -17,7 +17,9 @@ const (
 
 	FieldIdentifier  string = "_Identifier"
 	FieldDescription string = "Description"
+	FieldContext     string = "Context"
 	FieldCoordinal   string = "Coordinal"
+	FieldCode        string = "Code"
 	FieldFeed        string = "Feed"
 	FieldLink        string = "Link"
 	FieldParent      string = "Parent"
@@ -28,6 +30,7 @@ const (
 
 	TableNouns      string = "nouns"
 	TableAssertions string = "assertions"
+	TableContexts   string = "contexts"
 
 	JQLName string = "jql"
 )

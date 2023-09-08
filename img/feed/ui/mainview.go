@@ -216,6 +216,19 @@ func (mv *MainView) fetchNewItems(g *gocui.Gui, v *gocui.View) error {
 	if !ok {
 		return fmt.Errorf("expected nouns table to exist")
 	}
+	contextTable, ok := mv.DB.Tables[TableContexts]
+	if !ok {
+		return fmt.Errorf("expected context table to exist")
+	}
+
+	allContexts, err := contextTable.Query(types.QueryParams{})
+	if err != nil {
+		return err
+	}
+	parent2context := map[string]string{}
+	for _, entry := range allContexts.Entries {
+		parent2context[entry[contextTable.IndexOfField(FieldParent)].Format("")] = entry[contextTable.IndexOfField(FieldCode)].Format("")
+	}
 
 	for _, domain := range mv.domains {
 		for _, entry := range domain.channels {
@@ -247,7 +260,7 @@ func (mv *MainView) fetchNewItems(g *gocui.Gui, v *gocui.View) error {
 			if !strings.Contains(feedURL, "://") {
 				continue
 			}
-			feed, err := NewFeed(feedURL)
+			feed, err := NewFeed(feedURL, parent2context[entryName])
 			if err != nil {
 				return err
 			}
@@ -260,7 +273,7 @@ func (mv *MainView) fetchNewItems(g *gocui.Gui, v *gocui.View) error {
 					continue
 				}
 				if !mv.ignored[entryName][item.Identifier] {
-					mv.fresh[entryName] = append(mv.fresh[entryName], &item)
+					mv.fresh[entryName] = append(mv.fresh[entryName], item)
 				}
 			}
 		}
@@ -313,6 +326,14 @@ func (mv *MainView) addFreshItem(g *gocui.Gui, v *gocui.View) error {
 	err = nounsTable.Update(identifier, FieldParent, entryName)
 	if err != nil {
 		return fmt.Errorf("Failed to update resource for entry: %s", err)
+	}
+	err = nounsTable.Update(identifier, FieldDescription, item.Description)
+	if err != nil {
+		return fmt.Errorf("Failed to update description for entry: %s", err)
+	}
+	err = nounsTable.Update(identifier, FieldContext, item.Context)
+	if err != nil {
+		return fmt.Errorf("Failed to update context for entry: %s", err)
 	}
 	mv.fresh[entryName] = append(mv.fresh[entryName][:oy+cy], mv.fresh[entryName][oy+cy+1:]...)
 	return mv.refreshView(g)

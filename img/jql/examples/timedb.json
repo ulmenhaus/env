@@ -29,6 +29,13 @@
             "primary": true,
             "type": "string"
         },
+        "contexts.Code": {
+            "primary": true,
+            "type": "string"
+        },
+        "contexts.Parent": {
+            "type": "foreign.nouns"
+        },
         "files.A Type": {
             "features": {
                 "values": "blob, snippet, writeup"
@@ -87,8 +94,13 @@
             },
             "type": "enum"
         },
+        "nouns.Context": {
+            "type": "foreign.contexts"
+        },
+        "nouns.Coordinal": {
+            "type": "string"
+        },
         "nouns.Description": {
-            "primary": true,
             "type": "string"
         },
         "nouns.Feed": {
@@ -102,18 +114,22 @@
         },
         "nouns.Relation": {
             "features": {
-              "values": "Elem, Item, Vertex, Part, Feature, Possession, Activity"
+                "values": ", Elem, Item, Vertex, Part, Feature, Possession, Activity, Source"
             },
             "type": "enum"
         },
         "nouns.Status": {
             "features": {
-              "values": "Idea, Pending, Active, Satisfied, Revisit, Habitual, Abandoned, Someday"
+                "values": "Idea, Pending, Active, Satisfied, Revisit, Habitual, Abandoned, Someday"
             },
             "type": "enum"
         },
-        "tasks.Action": {
+        "nouns._Identifier": {
+            "primary": true,
             "type": "string"
+        },
+        "tasks.Action": {
+            "type": "foreign.actions"
         },
         "tasks.Direct": {
             "type": "foreign.nouns"
@@ -138,7 +154,7 @@
         },
         "tasks.Status": {
             "features": {
-              "values": "Pending, Planned, Active, Satisfied, Revisit, Failed, Habitual, Abandoned, Someday"
+                "values": "Pending, Planned, Active, Satisfied, Revisit, Failed, Habitual, Abandoned, Someday"
             },
             "type": "enum"
         },
@@ -152,5 +168,6 @@
     "log": {},
     "macros": {},
     "nouns": {},
-    "tasks": {}
+  "tasks": {},
+	"contexts": {}
 }
