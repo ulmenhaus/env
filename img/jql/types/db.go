@@ -238,6 +238,23 @@ func (t *Table) Delete(pk string) error {
 // provided table or -1 if there is no such column
 func (t *Table) HasForeign(table string) int {
 	// FIXME leaky abstraction, inefficient, and not guaranteed to be correct
+
+	// Take a first pass and try to return a column that has entries. This means
+	// that a table that has multiple foreign keys to the same table will prefer
+	// a column that's used
+	for name, features := range t.featuresByColumn {
+		if foreign, ok := features["table"]; ok && table == foreign {
+			col := t.columnsByName[name]
+			// FIXME this is super inefficent. Would be nice to keep an index mapping
+			// col value to entries
+			for _, entry := range t.Entries {
+				if entry[col].Format("") != "" {
+					return col
+				}
+			}
+		}
+	}
+	// Fall back to using any column
 	for name, features := range t.featuresByColumn {
 		if foreign, ok := features["table"]; ok && table == foreign {
 			return t.columnsByName[name]
