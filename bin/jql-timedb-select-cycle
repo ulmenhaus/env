@@ -47,9 +47,9 @@ def create_ideation_task(snapshot, idea_pk):
         if noun in active_cycles:
             parent = active_cycles[noun]
             break
-        noun = noun['Parent']
+        noun = nouns[noun]['Parent']
     task = {
-        "Action": "Ideate",
+        "Action": "Ideate" if nouns[idea_pk]['Status'] == 'Idea' else 'Plan',
         'Direct': '',
         "Indirect": idea_pk,
         'Parameters': '',

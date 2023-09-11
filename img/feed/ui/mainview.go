@@ -439,6 +439,10 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 }
 
 func (mv *MainView) saveContents(g *gocui.Gui, v *gocui.View) error {
+	return mv.save()
+}
+
+func (mv *MainView) save() error {
 	f, err := os.OpenFile(mv.path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
 		return err
@@ -480,6 +484,10 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 		if err != nil {
 			return err
 		}
+		err = g.SetKeybinding(current, 'g', gocui.ModNone, mv.goToPK)
+		if err != nil {
+			return err
+		}
 		err = g.SetKeybinding(next, 'N', gocui.ModNone, mv.switcherTo(current))
 		if err != nil {
 			return err
@@ -507,11 +515,11 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 		if current == ResourcesView {
 			continue
 		}
-		err = g.SetKeybinding(current, 'I', gocui.ModNone, mv.moveDown)
+		err = g.SetKeybinding(current, 'i', gocui.ModNone, mv.moveUp)
 		if err != nil {
 			return err
 		}
-		err = g.SetKeybinding(current, 'i', gocui.ModNone, mv.moveUp)
+		err = g.SetKeybinding(current, 'I', gocui.ModNone, mv.moveDown)
 		if err != nil {
 			return err
 		}
@@ -696,8 +704,8 @@ func (mv *MainView) cursorUp(g *gocui.Gui, v *gocui.View) error {
 	return mv.refreshView(g)
 }
 
-func (mv *MainView) switchToJQL(g *gocui.Gui, v *gocui.View) error {
-	err := mv.saveContents(g, v)
+func (mv *MainView) goToJQL(extraArgs ...string) error {
+	err := mv.save()
 	if err != nil {
 		return err
 	}
@@ -706,12 +714,33 @@ func (mv *MainView) switchToJQL(g *gocui.Gui, v *gocui.View) error {
 		return err
 	}
 
-	args := []string{JQLName, mv.path, TableNouns}
+	args := []string{JQLName, mv.path}
+	args = append(args, extraArgs...)
 
 	env := os.Environ()
 
 	err = syscall.Exec(binary, args, env)
 	return err
+}
+
+func (mv *MainView) goToPK(g *gocui.Gui, v *gocui.View) error {
+	_, cy := v.Cursor()
+	_, oy := v.Origin()
+	var pk string
+	if v.Name() == ResourcesView {
+		nounsTable, ok := mv.DB.Tables[TableNouns]
+		if !ok {
+			return fmt.Errorf("expected nouns table to exist")
+		}
+		pk = mv.domains[mv.selectedDomain].channels[oy+cy][nounsTable.IndexOfField(FieldIdentifier)].Format("")
+	} else {
+		pk = mv.breakdown[v.Name()][oy+cy].Identifier
+	}
+	return mv.goToJQL(TableNouns, pk)
+}
+
+func (mv *MainView) switchToJQL(g *gocui.Gui, v *gocui.View) error {
+	return mv.goToJQL(TableNouns)
 }
 
 func (mv *MainView) refreshView(g *gocui.Gui) error {
