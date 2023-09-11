@@ -33,6 +33,8 @@ type MacroCurrentView struct {
 	PKs              []string            `json:"pks"`
 	PrimarySelection string              `json:"primary_selection"`
 	Filter           MacroResponseFilter `json:"filter"`
+	OrderBy          string              `json:"order_by"`
+	OrderDec         bool                `json:"order_dec"`
 }
 
 type MacroInterface struct {
@@ -1227,6 +1229,11 @@ func (mv *MainView) runMacro(ch rune) error {
 				Formatted: output.CurrentView.Filter.Formatted,
 			},
 		}
+	}
+	orderBy := output.CurrentView.OrderBy
+	if orderBy != "" {
+		mv.Params.OrderBy = orderBy
+		mv.Params.Dec = output.CurrentView.OrderDec
 	}
 	err = mv.updateTableViewContents()
 	if err != nil {

@@ -8,8 +8,11 @@ Macro will auto-jump your view to a given attention cycle
 * adding --for <noun> will go to the cycle for a given noun (not implemented)
 """
 
+import datetime
 import json
 import sys
+
+from timedb import pks
 
 
 def find_active_root_cycle(snapshot):
@@ -26,17 +29,63 @@ def find_pending_root_cycle(snapshot):
             return pk
 
 
+def create_ideation_task(snapshot, idea_pk):
+    # find the nearest ancestor which has an attention cycle
+    visited = set()
+    nouns, tasks = snapshot['nouns'], snapshot['tasks']
+    noun = nouns[idea_pk]['Parent']
+    active_cycles = {
+        task['Indirect']: task_pk
+        for task_pk, task in snapshot['tasks'].items()
+        if task['Status'] == 'Habitual' and task['Action'] == 'Attend'
+    }
+    parent = ""
+    while True:
+        if noun in visited:
+            raise ValueError("cycle detected")
+        visited.add(noun)
+        if noun in active_cycles:
+            parent = active_cycles[noun]
+            break
+        noun = noun['Parent']
+    task = {
+        "Action": "Ideate",
+        'Direct': '',
+        "Indirect": idea_pk,
+        'Parameters': '',
+        "Param~Span": "Day",
+        "Param~Start":
+        (datetime.date.today() - datetime.date(1970, 1, 1)).days,
+        "Primary Goal": parent,
+        "Status": "Active",
+    }
+    pk = pks.pk_for_task(task, snapshot['actions'])
+    tasks[pk] = task
+    return pk
+
+
 def main():
     iface = json.load(sys.stdin)
     snapshot = json.loads(iface["snapshot"])
     field = "Primary Goal"
     table = "tasks"
+    changed = False
+    order_by = ""
+    order_dec = False
     if "--pending" in sys.argv:
         formatted = find_pending_root_cycle(snapshot)
     elif "--sources" in sys.argv:
         table = "nouns"
         field = "Relation"
         formatted = "Source"
+    elif "--ideate":
+        formatted = iface['current_view']['primary_selection']
+        create_ideation_task(snapshot, formatted)
+        table = "tasks"
+        field = "Indirect"
+        changed = True
+        order_by = "Param~Start"
+        order_dec = True
     elif "--for" in sys.argv:
         raise NotImplementedError("--for flag not yet implemented")
     else:
@@ -47,6 +96,10 @@ def main():
         "field": field,
         "formatted": formatted,
     }
+    current_view['order_by'] = order_by
+    current_view['order_dec'] = order_dec
+    if changed:
+        iface['snapshot'] = json.dumps(snapshot)
     json.dump(iface, sys.stdout)
 
 
