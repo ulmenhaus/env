@@ -864,7 +864,7 @@ func (mv *MainView) goFromSelectedValue(tables map[string]*types.Table) error {
 	row, _ := mv.SelectedEntry()
 	selected := mv.response.Entries[row][mv.Table.Primary()]
 	for name, table := range tables {
-		col := table.HasForeign(mv.tableName)
+		col := table.HasForeign(mv.tableName, selected.Format(""))
 		if col == -1 {
 			continue
 		}

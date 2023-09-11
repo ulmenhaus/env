@@ -236,7 +236,7 @@ func (t *Table) Delete(pk string) error {
 
 // HasForeign returns the index of the column that is a foriegn key to the
 // provided table or -1 if there is no such column
-func (t *Table) HasForeign(table string) int {
+func (t *Table) HasForeign(table, formatted string) int {
 	// FIXME leaky abstraction, inefficient, and not guaranteed to be correct
 
 	// Take a first pass and try to return a column that has entries. This means
@@ -248,7 +248,7 @@ func (t *Table) HasForeign(table string) int {
 			// FIXME this is super inefficent. Would be nice to keep an index mapping
 			// col value to entries
 			for _, entry := range t.Entries {
-				if entry[col].Format("") != "" {
+				if entry[col].Format("") == formatted {
 					return col
 				}
 			}
