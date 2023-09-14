@@ -43,8 +43,6 @@ type MainView struct {
 
 	breakdown map[string][]*Item // for the currently selected feed, maps status to items
 
-	fresh map[string][]*Item // stores new items from the feed that the user then manually discards or adds to the table
-
 	ignored     map[string](map[string]bool) // stores a map from feed name to a set of ignored entries
 	ignoredPath string
 
@@ -59,7 +57,8 @@ type domain struct {
 }
 
 type channel struct {
-	row []types.Entry
+	row   []types.Entry
+	fresh []*Item
 }
 
 // NewMainView returns a MainView initialized with a given Table
@@ -89,7 +88,6 @@ func NewMainView(path string, g *gocui.Gui) (*MainView, error) {
 
 		path: path,
 
-		fresh:        map[string][]*Item{},
 		name2channel: map[string]*channel{},
 	}
 	mv.ignoredPath = path + ".ignored"
@@ -245,7 +243,7 @@ func (mv *MainView) fetchNewItems(g *gocui.Gui, v *gocui.View) error {
 			entry := mv.name2channel[name]
 			byIdentifier := map[string]Item{}
 			entryName := entry.row[nounsTable.IndexOfField(FieldIdentifier)].Format("")
-			mv.fresh[entryName] = []*Item{}
+			channel := mv.name2channel[entryName]
 			allItems, err := nounsTable.Query(types.QueryParams{
 				Filters: []types.Filter{
 					&ui.EqualFilter{
@@ -284,7 +282,7 @@ func (mv *MainView) fetchNewItems(g *gocui.Gui, v *gocui.View) error {
 					continue
 				}
 				if !mv.ignored[entryName][item.Identifier] {
-					mv.fresh[entryName] = append(mv.fresh[entryName], item)
+					channel.fresh = append(channel.fresh, item)
 				}
 			}
 		}
@@ -306,7 +304,7 @@ func (mv *MainView) addFreshItem(g *gocui.Gui, v *gocui.View) error {
 	entryName := feed.row[nounsTable.IndexOfField(FieldIdentifier)].Format("")
 	_, cy := v.Cursor()
 	_, oy := v.Origin()
-	item := mv.fresh[entryName][oy+cy]
+	item := mv.name2channel[entryName].fresh[oy+cy]
 	identifier := item.Identifier
 	err = nounsTable.Insert(identifier)
 	if err != nil {
@@ -346,7 +344,8 @@ func (mv *MainView) addFreshItem(g *gocui.Gui, v *gocui.View) error {
 	if err != nil {
 		return fmt.Errorf("Failed to update context for entry: %s", err)
 	}
-	mv.fresh[entryName] = append(mv.fresh[entryName][:oy+cy], mv.fresh[entryName][oy+cy+1:]...)
+	channel := mv.name2channel[entryName]
+	channel.fresh = append(channel.fresh[:oy+cy], channel.fresh[oy+cy+1:]...)
 	return mv.refreshView(g)
 }
 
@@ -640,7 +639,8 @@ func (mv *MainView) moveDown(g *gocui.Gui, v *gocui.View) error {
 		entry := mv.name2channel[mv.domains[mv.selectedDomain].channels[roy+rcy]].row
 		entryName := entry[nounsTable.IndexOfField(FieldIdentifier)].Format("")
 		mv.ignored[entryName][pk] = true
-		mv.fresh[entryName] = append(mv.fresh[entryName][:oy+cy], mv.fresh[entryName][oy+cy+1:]...)
+		channel := mv.name2channel[entryName]
+		channel.fresh = append(channel.fresh[:oy+cy], channel.fresh[oy+cy+1:]...)
 	} else {
 		new, err := nounsTable.Entries[pk][nounsTable.IndexOfField(FieldStatus)].Add(-1)
 		if err != nil {
@@ -819,6 +819,6 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 		}
 	}
 
-	mv.breakdown[FreshView] = mv.fresh[entryName]
+	mv.breakdown[FreshView] = mv.name2channel[entryName].fresh
 	return nil
 }
