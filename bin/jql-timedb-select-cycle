@@ -53,6 +53,8 @@ def create_ideation_task(snapshot, idea_pk):
         'Direct': '',
         "Indirect": idea_pk,
         'Parameters': '',
+        # NOTE Assuming we want fine-grained timestamps here so selecting today's
+        # date but an alternative would be to inherit the span and start from the parent
         "Param~Span": "Day",
         "Param~Start":
         (datetime.date.today() - datetime.date(1970, 1, 1)).days,
