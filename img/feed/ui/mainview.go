@@ -50,11 +50,16 @@ type MainView struct {
 
 	selectedDomain int
 	domains        []*domain
+	name2channel   map[string]*channel
 }
 
 type domain struct {
 	name     string
-	channels [][]types.Entry
+	channels []string
+}
+
+type channel struct {
+	row []types.Entry
 }
 
 // NewMainView returns a MainView initialized with a given Table
@@ -84,7 +89,8 @@ func NewMainView(path string, g *gocui.Gui) (*MainView, error) {
 
 		path: path,
 
-		fresh: map[string][]*Item{},
+		fresh:        map[string][]*Item{},
+		name2channel: map[string]*channel{},
 	}
 	mv.ignoredPath = path + ".ignored"
 	_, err = os.Stat(mv.ignoredPath)
@@ -193,7 +199,11 @@ func (mv *MainView) fetchResources() error {
 			domains[domainName] = &domain{name: domainName}
 		}
 		domain := domains[domainName]
-		domain.channels = append(domain.channels, entry)
+		name := entry[nounsTable.IndexOfField(FieldIdentifier)].Format("")
+		mv.name2channel[name] = &channel{
+			row: entry,
+		}
+		domain.channels = append(domain.channels, name)
 		if mv.ignored[entryName] == nil {
 			mv.ignored[entryName] = map[string]bool{}
 		}
@@ -231,9 +241,10 @@ func (mv *MainView) fetchNewItems(g *gocui.Gui, v *gocui.View) error {
 	}
 
 	for _, domain := range mv.domains {
-		for _, entry := range domain.channels {
+		for _, name := range domain.channels {
+			entry := mv.name2channel[name]
 			byIdentifier := map[string]Item{}
-			entryName := entry[nounsTable.IndexOfField(FieldIdentifier)].Format("")
+			entryName := entry.row[nounsTable.IndexOfField(FieldIdentifier)].Format("")
 			mv.fresh[entryName] = []*Item{}
 			allItems, err := nounsTable.Query(types.QueryParams{
 				Filters: []types.Filter{
@@ -256,7 +267,7 @@ func (mv *MainView) fetchNewItems(g *gocui.Gui, v *gocui.View) error {
 				}
 			}
 
-			feedURL := entry[nounsTable.IndexOfField(FieldFeed)].Format("")
+			feedURL := entry.row[nounsTable.IndexOfField(FieldFeed)].Format("")
 			if !strings.Contains(feedURL, "://") {
 				continue
 			}
@@ -266,7 +277,7 @@ func (mv *MainView) fetchNewItems(g *gocui.Gui, v *gocui.View) error {
 			}
 			latest, err := feed.FetchNew()
 			if err != nil {
-				return fmt.Errorf("Failed to fetch feed for %s: %s", entry[nounsTable.IndexOfField(FieldIdentifier)].Format(""), err)
+				return fmt.Errorf("Failed to fetch feed for %s: %s", entry.row[nounsTable.IndexOfField(FieldIdentifier)].Format(""), err)
 			}
 			for _, item := range latest {
 				if _, ok := byIdentifier[item.Identifier]; ok {
@@ -291,8 +302,8 @@ func (mv *MainView) addFreshItem(g *gocui.Gui, v *gocui.View) error {
 	if !ok {
 		return fmt.Errorf("expected resources table to exist")
 	}
-	feed := mv.domains[mv.selectedDomain].channels[selectedResource]
-	entryName := feed[nounsTable.IndexOfField(FieldIdentifier)].Format("")
+	feed := mv.name2channel[mv.domains[mv.selectedDomain].channels[selectedResource]]
+	entryName := feed.row[nounsTable.IndexOfField(FieldIdentifier)].Format("")
 	_, cy := v.Cursor()
 	_, oy := v.Origin()
 	item := mv.fresh[entryName][oy+cy]
@@ -416,8 +427,8 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 		view.Clear()
 	}
 
-	for _, entry := range mv.domains[mv.selectedDomain].channels {
-		fmt.Fprintf(resources, "  %s\n", entry[nounsTable.IndexOfField(FieldDescription)].Format(""))
+	for _, name := range mv.domains[mv.selectedDomain].channels {
+		fmt.Fprintf(resources, "  %s\n", mv.name2channel[name].row[nounsTable.IndexOfField(FieldDescription)].Format(""))
 	}
 	for status, items := range mv.breakdown {
 		for _, item := range items {
@@ -626,7 +637,7 @@ func (mv *MainView) moveDown(g *gocui.Gui, v *gocui.View) error {
 		}
 		_, roy := resources.Origin()
 		_, rcy := resources.Cursor()
-		entry := mv.domains[mv.selectedDomain].channels[roy+rcy]
+		entry := mv.name2channel[mv.domains[mv.selectedDomain].channels[roy+rcy]].row
 		entryName := entry[nounsTable.IndexOfField(FieldIdentifier)].Format("")
 		mv.ignored[entryName][pk] = true
 		mv.fresh[entryName] = append(mv.fresh[entryName][:oy+cy], mv.fresh[entryName][oy+cy+1:]...)
@@ -732,7 +743,7 @@ func (mv *MainView) goToPK(g *gocui.Gui, v *gocui.View) error {
 		if !ok {
 			return fmt.Errorf("expected nouns table to exist")
 		}
-		pk = mv.domains[mv.selectedDomain].channels[oy+cy][nounsTable.IndexOfField(FieldIdentifier)].Format("")
+		pk = mv.name2channel[mv.domains[mv.selectedDomain].channels[oy+cy]].row[nounsTable.IndexOfField(FieldIdentifier)].Format("")
 	} else {
 		pk = mv.breakdown[v.Name()][oy+cy].Identifier
 	}
@@ -763,7 +774,7 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 		return nil
 	}
 
-	entry := mv.domains[mv.selectedDomain].channels[oy+cy]
+	entry := mv.name2channel[mv.domains[mv.selectedDomain].channels[oy+cy]].row
 	entryName := entry[nounsTable.IndexOfField(FieldIdentifier)].Format("")
 
 	rawItems, err := nounsTable.Query(types.QueryParams{
