@@ -15,6 +15,7 @@ import (
 	"github.com/ulmenhaus/env/img/jql/storage"
 	"github.com/ulmenhaus/env/img/jql/types"
 	"github.com/ulmenhaus/env/img/jql/ui"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -238,32 +239,21 @@ func (mv *MainView) fetchNewItems(g *gocui.Gui, v *gocui.View) error {
 		parent2context[entry[contextTable.IndexOfField(FieldParent)].Format("")] = entry[contextTable.IndexOfField(FieldCode)].Format("")
 	}
 
+	allItems, err := nounsTable.Query(types.QueryParams{})
+	if err != nil {
+		return err
+	}
+	allIDs := map[string]bool{}
+	for _, rawItem := range allItems.Entries {
+		allIDs[rawItem[nounsTable.IndexOfField(FieldIdentifier)].Format("")] = true
+	}
+	group := new(errgroup.Group)
+	semaphore := make(chan bool, 5) // Limit parallel requests
 	for _, domain := range mv.domains {
 		for _, name := range domain.channels {
 			entry := mv.name2channel[name]
-			byIdentifier := map[string]Item{}
 			entryName := entry.row[nounsTable.IndexOfField(FieldIdentifier)].Format("")
 			channel := mv.name2channel[entryName]
-			allItems, err := nounsTable.Query(types.QueryParams{
-				Filters: []types.Filter{
-					&ui.EqualFilter{
-						Field:     FieldParent,
-						Col:       nounsTable.IndexOfField(FieldParent),
-						Formatted: entryName,
-					},
-				},
-			})
-			if err != nil {
-				return err
-			}
-			for _, rawItem := range allItems.Entries {
-				byIdentifier[rawItem[nounsTable.IndexOfField(FieldIdentifier)].Format("")] = Item{
-					Identifier:  rawItem[nounsTable.IndexOfField(FieldIdentifier)].Format(""),
-					Description: rawItem[nounsTable.IndexOfField(FieldDescription)].Format(""),
-					Coordinal:   rawItem[nounsTable.IndexOfField(FieldCoordinal)].Format(""),
-					Link:        rawItem[nounsTable.IndexOfField(FieldLink)].Format(""),
-				}
-			}
 
 			feedURL := entry.row[nounsTable.IndexOfField(FieldFeed)].Format("")
 			if !strings.Contains(feedURL, "://") {
@@ -273,21 +263,23 @@ func (mv *MainView) fetchNewItems(g *gocui.Gui, v *gocui.View) error {
 			if err != nil {
 				return err
 			}
-			latest, err := feed.FetchNew()
-			if err != nil {
-				return fmt.Errorf("Failed to fetch feed for %s: %s", entry.row[nounsTable.IndexOfField(FieldIdentifier)].Format(""), err)
-			}
-			for _, item := range latest {
-				if _, ok := byIdentifier[item.Identifier]; ok {
-					continue
+			group.Go(func() error {
+				semaphore <- true
+				defer func() { <- semaphore}()
+				latest, err := feed.FetchNew()
+				if err != nil {
+					return fmt.Errorf("Failed to fetch feed for %s: %s", entry.row[nounsTable.IndexOfField(FieldIdentifier)].Format(""), err)
 				}
-				if !mv.ignored[entryName][item.Identifier] {
-					channel.fresh = append(channel.fresh, item)
+				for _, item := range latest {
+					if !(allIDs[item.Identifier] || mv.ignored[entryName][item.Identifier]) {
+						channel.fresh = append(channel.fresh, item)
+					}
 				}
-			}
+				return nil
+			})
 		}
 	}
-	return nil
+	return group.Wait()
 }
 
 func (mv *MainView) addFreshItem(g *gocui.Gui, v *gocui.View) error {
