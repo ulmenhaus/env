@@ -21,6 +21,7 @@ import (
 const (
 	blackTextEscape = "\033[30m"
 	whiteBackEscape = "\033[47m"
+	boldTextEscape  = "\033[1m"
 	resetEscape     = "\033[0m"
 )
 
@@ -265,7 +266,7 @@ func (mv *MainView) fetchNewItems(g *gocui.Gui, v *gocui.View) error {
 			}
 			group.Go(func() error {
 				semaphore <- true
-				defer func() { <- semaphore}()
+				defer func() { <-semaphore }()
 				latest, err := feed.FetchNew()
 				if err != nil {
 					return fmt.Errorf("Failed to fetch feed for %s: %s", entry.row[nounsTable.IndexOfField(FieldIdentifier)].Format(""), err)
@@ -356,8 +357,17 @@ func (mv *MainView) layoutDomains(g *gocui.Gui, domainHeight int) error {
 	domainWidth := maxX / len(mv.domains)
 	for i, domain := range mv.domains {
 		name := "  " + domain.name
-		if len(name) < domainWidth {
-			name += strings.Repeat(" ", domainWidth-len(name))
+		totalFresh := 0
+		for _, channel := range domain.channels {
+			totalFresh += len(mv.name2channel[channel].fresh)
+		}
+		lenCorrection := 0
+		if totalFresh > 0 {
+			name += fmt.Sprintf(" %s(%d)%s", boldTextEscape, totalFresh, resetEscape)
+			lenCorrection = -10
+		}
+		if (len(name) + lenCorrection) < domainWidth {
+			name += strings.Repeat(" ", domainWidth-(len(name) + lenCorrection))
 		}
 		if i == mv.selectedDomain {
 			domains.Write([]byte(blackTextEscape + whiteBackEscape))
@@ -380,7 +390,7 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 	if err := mv.layoutDomains(g, domainHeight); err != nil {
 		return err
 	}
-	resourcesWidth := 30
+	resourcesWidth := 40
 	pipeHeight := maxY / 4
 	pipeOffset := func(i int) int {
 		return domainHeight + 1 + pipeHeight*i
@@ -419,7 +429,12 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 	}
 
 	for _, name := range mv.domains[mv.selectedDomain].channels {
-		fmt.Fprintf(resources, "  %s\n", mv.name2channel[name].row[nounsTable.IndexOfField(FieldDescription)].Format(""))
+		channel := mv.name2channel[name]
+		description := channel.row[nounsTable.IndexOfField(FieldDescription)].Format("")
+		if len(channel.fresh) > 0 {
+			description += fmt.Sprintf(" %s(%d)%s", boldTextEscape, len(channel.fresh), resetEscape)
+		}
+		fmt.Fprintf(resources, "  %s\n", description)
 	}
 	for status, items := range mv.breakdown {
 		for _, item := range items {
