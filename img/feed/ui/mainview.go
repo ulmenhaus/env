@@ -367,7 +367,8 @@ func (mv *MainView) layoutDomains(g *gocui.Gui, domainHeight int) error {
 			lenCorrection = -10
 		}
 		if (len(name) + lenCorrection) < domainWidth {
-			name += strings.Repeat(" ", domainWidth-(len(name) + lenCorrection))
+			buffer := strings.Repeat(" ", (domainWidth-(len(name) + lenCorrection)) / 2)
+			name = buffer + name + buffer
 		}
 		if i == mv.selectedDomain {
 			domains.Write([]byte(blackTextEscape + whiteBackEscape))
