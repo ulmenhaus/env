@@ -35,6 +35,13 @@ const (
 	MainViewModeQueryingForPlansSubset
 )
 
+const (
+	blackTextEscape = "\033[30m"
+	whiteBackEscape = "\033[47m"
+	boldTextEscape  = "\033[1m"
+	resetEscape     = "\033[0m"
+)
+
 // TaskViewMode is the way in which tasks are presented
 type TaskViewMode int
 
@@ -389,11 +396,14 @@ func (mv *MainView) listTasksLayout(g *gocui.Gui) error {
 	for _, span := range Spans {
 		prefix := "  "
 		if span == mv.span {
-			prefix = " *"
+			prefix = blackTextEscape + whiteBackEscape + prefix
 		}
-		suffix := fmt.Sprintf("(%d)", len(mv.tasks[span]))
+		suffix := fmt.Sprintf("%s(%d)  %s", boldTextEscape, len(mv.tasks[span]), resetEscape)
 		if len(mv.tasks[span]) == 0 {
-			suffix = ""
+			suffix = "  "
+		}
+		if span == mv.span {
+			suffix += resetEscape
 		}
 		fmt.Fprintf(counts, "%s%s %s    ", prefix, Span2Title[span], suffix)
 	}
