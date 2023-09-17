@@ -421,6 +421,7 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 		return err
 	}
 	resources.Clear()
+	resourcesSelected := g.CurrentView().Name() == ResourcesView
 	stats, err := g.SetView(StatsView, 0, maxY-9, resourcesWidth, maxY-1)
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
@@ -438,13 +439,20 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 		view.Clear()
 	}
 
-	for _, name := range mv.domains[mv.selectedDomain].channels {
+	for ix, name := range mv.domains[mv.selectedDomain].channels {
 		channel := mv.id2channel[name]
 		description := channel.row[nounsTable.IndexOfField(FieldDescription)].Format("")
 		if len(channel.status2items[FreshView]) > 0 {
 			description += fmt.Sprintf(" %s(%d)%s", boldTextEscape, len(channel.status2items[FreshView]), resetEscape)
 		}
-		fmt.Fprintf(resources, "  %s\n", description)
+		// If resources are not selected we'll bold the selected channel
+		_, cy := resources.Cursor()
+		_, oy := resources.Origin()
+		if !resourcesSelected && ix == (cy + oy){
+			fmt.Fprintf(resources, "  %s%s%s\n", boldTextEscape, description, resetEscape)
+		} else {
+			fmt.Fprintf(resources, "  %s\n", description)
+		}
 	}
 	channel, err := mv.selectedChannel(g)
 	if err != nil {
