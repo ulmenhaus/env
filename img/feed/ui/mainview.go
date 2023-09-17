@@ -43,8 +43,6 @@ type MainView struct {
 
 	path string
 
-	breakdown map[string][]*Item // for the currently selected feed, maps status to items
-
 	ignored     map[string](map[string]bool) // stores a map from feed name to a set of ignored entries
 	ignoredPath string
 
@@ -61,6 +59,7 @@ type domain struct {
 type channel struct {
 	row   []types.Entry
 	fresh []*Item
+	status2items map[string][]*Item
 }
 
 // NewMainView returns a MainView initialized with a given Table
@@ -437,7 +436,11 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 		}
 		fmt.Fprintf(resources, "  %s\n", description)
 	}
-	for status, items := range mv.breakdown {
+	channel, err := mv.selectedChannel(g)
+	if err != nil {
+		return err
+	}
+	for status, items := range channel.status2items {
 		for _, item := range items {
 			switch status {
 			case FreshView, StatusActive, StatusPending, StatusIdea:
@@ -574,14 +577,18 @@ func (mv *MainView) moveDownInPipe(g *gocui.Gui, v *gocui.View) error {
 	if !ok {
 		return fmt.Errorf("Expected to find nouns table")
 	}
-	pk := mv.breakdown[name][oy+cy].Identifier
+	channel, err := mv.selectedChannel(g)
+	if err != nil {
+		return err
+	}
+	pk := channel.status2items[name][oy+cy].Identifier
 	new, err := nounsTable.Entries[pk][nounsTable.IndexOfField(FieldCoordinal)].Add(1)
 	if err != nil {
 		return err
 	}
 	nounsTable.Entries[pk][nounsTable.IndexOfField(FieldCoordinal)] = new
-	if oy+cy+1 < len(mv.breakdown[name]) {
-		successor := mv.breakdown[name][oy+cy+1].Identifier
+	if oy+cy+1 < len(channel.status2items[name]) {
+		successor := channel.status2items[name][oy+cy+1].Identifier
 		new, err := nounsTable.Entries[successor][nounsTable.IndexOfField(FieldCoordinal)].Add(-1)
 		if err != nil {
 			return err
@@ -605,14 +612,18 @@ func (mv *MainView) moveUpInPipe(g *gocui.Gui, v *gocui.View) error {
 	if !ok {
 		return fmt.Errorf("Expected to find nouns table")
 	}
-	pk := mv.breakdown[name][oy+cy].Identifier
+	channel, err := mv.selectedChannel(g)
+	if err != nil {
+		return err
+	}
+	pk := channel.status2items[name][oy+cy].Identifier
 	new, err := nounsTable.Entries[pk][nounsTable.IndexOfField(FieldCoordinal)].Add(-1)
 	if err != nil {
 		return err
 	}
 	nounsTable.Entries[pk][nounsTable.IndexOfField(FieldCoordinal)] = new
 	if oy+cy-1 >= 0 {
-		predecessor := mv.breakdown[name][oy+cy-1].Identifier
+		predecessor := channel.status2items[name][oy+cy-1].Identifier
 		new, err := nounsTable.Entries[predecessor][nounsTable.IndexOfField(FieldCoordinal)].Add(1)
 		if err != nil {
 			return err
@@ -636,7 +647,11 @@ func (mv *MainView) moveDown(g *gocui.Gui, v *gocui.View) error {
 	if !ok {
 		return fmt.Errorf("Expected to find nouns table")
 	}
-	pk := mv.breakdown[name][oy+cy].Identifier
+	channel, err := mv.selectedChannel(g)
+	if err != nil {
+		return err
+	}
+	pk := channel.status2items[name][oy+cy].Identifier
 	if name == FreshView {
 		resources, err := g.View(ResourcesView)
 		if err != nil {
@@ -680,9 +695,13 @@ func (mv *MainView) moveUp(g *gocui.Gui, v *gocui.View) error {
 	if name == FreshView {
 		return mv.addFreshItem(g, v)
 	}
+	channel, err := mv.selectedChannel(g)
+	if err != nil {
+		return err
+	}
 	_, cy := v.Cursor()
 	_, oy := v.Origin()
-	pk := mv.breakdown[name][oy+cy].Identifier
+	pk := channel.status2items[name][oy+cy].Identifier
 	nounsTable, ok := mv.DB.Tables[TableNouns]
 	if !ok {
 		return fmt.Errorf("Expected to find items table")
@@ -753,7 +772,11 @@ func (mv *MainView) goToPK(g *gocui.Gui, v *gocui.View) error {
 		}
 		pk = mv.name2channel[mv.domains[mv.selectedDomain].channels[oy+cy]].row[nounsTable.IndexOfField(FieldIdentifier)].Format("")
 	} else {
-		pk = mv.breakdown[v.Name()][oy+cy].Identifier
+		channel, err := mv.selectedChannel(g)
+		if err != nil {
+			return err
+		}
+		pk = channel.status2items[v.Name()][oy+cy].Identifier
 	}
 	return mv.goToJQL(TableNouns, pk)
 }
@@ -768,23 +791,13 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 	if !ok {
 		return fmt.Errorf("expected nouns table to exist")
 	}
-	var cy, oy int
-	view, err := g.View(ResourcesView)
-	if err != nil && err != gocui.ErrUnknownView {
+	channel, err := mv.selectedChannel(g)
+	if err != nil {
 		return err
-	} else if err == nil {
-		_, cy = view.Cursor()
-		_, oy = view.Origin()
 	}
+	entryName := channel.row[nounsTable.IndexOfField(FieldIdentifier)].Format("")
 
-	mv.breakdown = map[string][]*Item{}
-	if oy+cy >= len(mv.domains[mv.selectedDomain].channels) {
-		return nil
-	}
-
-	entry := mv.name2channel[mv.domains[mv.selectedDomain].channels[oy+cy]].row
-	entryName := entry[nounsTable.IndexOfField(FieldIdentifier)].Format("")
-
+	channel.status2items = map[string][]*Item{}
 	rawItems, err := nounsTable.Query(types.QueryParams{
 		Filters: []types.Filter{
 			&ui.EqualFilter{
@@ -800,17 +813,17 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 
 	for _, rawItem := range rawItems.Entries {
 		status := rawItem[nounsTable.IndexOfField(FieldStatus)].Format("")
-		if mv.breakdown[status] == nil {
-			mv.breakdown[status] = []*Item{}
+		if channel.status2items[status] == nil {
+			channel.status2items[status] = []*Item{}
 		}
-		mv.breakdown[status] = append(mv.breakdown[status], &Item{
+		channel.status2items[status] = append(channel.status2items[status], &Item{
 			Identifier:  rawItem[nounsTable.IndexOfField(FieldIdentifier)].Format(""),
 			Description: rawItem[nounsTable.IndexOfField(FieldDescription)].Format(""),
 			Coordinal:   rawItem[nounsTable.IndexOfField(FieldCoordinal)].Format(""),
 			Link:        rawItem[nounsTable.IndexOfField(FieldLink)].Format(""),
 		})
 	}
-	for _, items := range mv.breakdown {
+	for _, items := range channel.status2items {
 		sort.Slice(items, func(i, j int) bool {
 			iCdn, jCdn := items[i].Coordinal, items[j].Coordinal
 			// We want to items lacking a coordinal to come last
@@ -827,6 +840,21 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 		}
 	}
 
-	mv.breakdown[FreshView] = mv.name2channel[entryName].fresh
+	channel.status2items[FreshView] = channel.fresh
 	return nil
+}
+
+func (mv *MainView) selectedChannel(g *gocui.Gui) (*channel, error) {
+	var cy, oy int
+	view, err := g.View(ResourcesView)
+	if err != nil && err != gocui.ErrUnknownView {
+		return nil, err
+	} else if err == nil {
+		_, cy = view.Cursor()
+		_, oy = view.Origin()
+	}
+	if oy+cy >= len(mv.domains[mv.selectedDomain].channels) {
+		return nil, nil
+	}
+	return mv.name2channel[mv.domains[mv.selectedDomain].channels[oy+cy]], nil
 }
