@@ -48,7 +48,7 @@ type MainView struct {
 
 	selectedDomain int
 	domains        []*domain
-	name2channel   map[string]*channel
+	id2channel     map[string]*channel
 }
 
 type domain struct {
@@ -88,7 +88,7 @@ func NewMainView(path string, g *gocui.Gui) (*MainView, error) {
 
 		path: path,
 
-		name2channel: map[string]*channel{},
+		id2channel: map[string]*channel{},
 	}
 	mv.ignoredPath = path + ".ignored"
 	_, err = os.Stat(mv.ignoredPath)
@@ -154,7 +154,6 @@ func (mv *MainView) gatherDomains() (map[string]string, error) {
 
 func (mv *MainView) fetchResources() error {
 	// TODO use constants for column names
-	// TODO would be good to parallelize fetches
 	nounsTable, ok := mv.DB.Tables[TableNouns]
 	if !ok {
 		return fmt.Errorf("expected nouns table to exist")
@@ -198,7 +197,7 @@ func (mv *MainView) fetchResources() error {
 		}
 		domain := domains[domainName]
 		name := entry[nounsTable.IndexOfField(FieldIdentifier)].Format("")
-		mv.name2channel[name] = &channel{
+		mv.id2channel[name] = &channel{
 			row:          entry,
 			status2items: map[string][]*Item{},
 		}
@@ -251,9 +250,9 @@ func (mv *MainView) fetchNewItems(g *gocui.Gui, v *gocui.View) error {
 	semaphore := make(chan bool, 5) // Limit parallel requests
 	for _, domain := range mv.domains {
 		for _, name := range domain.channels {
-			entry := mv.name2channel[name]
+			entry := mv.id2channel[name]
 			entryName := entry.row[nounsTable.IndexOfField(FieldIdentifier)].Format("")
-			channel := mv.name2channel[entryName]
+			channel := mv.id2channel[entryName]
 			channel.status2items[FreshView] = nil
 
 			feedURL := entry.row[nounsTable.IndexOfField(FieldFeed)].Format("")
@@ -293,11 +292,11 @@ func (mv *MainView) addFreshItem(g *gocui.Gui, v *gocui.View) error {
 	if !ok {
 		return fmt.Errorf("expected resources table to exist")
 	}
-	feed := mv.name2channel[mv.domains[mv.selectedDomain].channels[selectedResource]]
+	feed := mv.id2channel[mv.domains[mv.selectedDomain].channels[selectedResource]]
 	entryName := feed.row[nounsTable.IndexOfField(FieldIdentifier)].Format("")
 	_, cy := v.Cursor()
 	_, oy := v.Origin()
-	item := mv.name2channel[entryName].status2items[FreshView][oy+cy]
+	item := mv.id2channel[entryName].status2items[FreshView][oy+cy]
 	identifier := item.Identifier
 	err = nounsTable.Insert(identifier)
 	if err != nil {
@@ -337,7 +336,7 @@ func (mv *MainView) addFreshItem(g *gocui.Gui, v *gocui.View) error {
 	if err != nil {
 		return fmt.Errorf("Failed to update context for entry: %s", err)
 	}
-	channel := mv.name2channel[entryName]
+	channel := mv.id2channel[entryName]
 	channel.status2items[FreshView] = append(channel.status2items[FreshView][:oy+cy], channel.status2items[FreshView][oy+cy+1:]...)
 	return mv.refreshView(g)
 }
@@ -359,7 +358,7 @@ func (mv *MainView) layoutDomains(g *gocui.Gui, domainHeight int) error {
 		name := "  " + domain.name
 		totalFresh := 0
 		for _, channel := range domain.channels {
-			totalFresh += len(mv.name2channel[channel].status2items[FreshView])
+			totalFresh += len(mv.id2channel[channel].status2items[FreshView])
 		}
 		lenCorrection := 0
 		if totalFresh > 0 {
@@ -412,7 +411,7 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	}
-	resources, err := g.SetView(ResourcesView, 0, domainHeight+1, resourcesWidth, maxY-1)
+	resources, err := g.SetView(ResourcesView, 0, domainHeight+1, resourcesWidth, maxY-10)
 	if err != nil && err == gocui.ErrUnknownView {
 		_, err = g.SetCurrentView(ResourcesView)
 		if err != nil {
@@ -422,6 +421,16 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 		return err
 	}
 	resources.Clear()
+	stats, err := g.SetView(StatsView, 0, maxY-9, resourcesWidth, maxY-1)
+	if err != nil && err != gocui.ErrUnknownView {
+		return err
+	}
+	stats.Clear()
+	statsContents, err := mv.statsContents(g)
+	if err != nil {
+		return err
+	}
+	stats.Write(statsContents)
 	for _, view := range []*gocui.View{active, pending, idea, fresh, resources} {
 		view.SelBgColor = gocui.ColorWhite
 		view.SelFgColor = gocui.ColorBlack
@@ -430,7 +439,7 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 	}
 
 	for _, name := range mv.domains[mv.selectedDomain].channels {
-		channel := mv.name2channel[name]
+		channel := mv.id2channel[name]
 		description := channel.row[nounsTable.IndexOfField(FieldDescription)].Format("")
 		if len(channel.status2items[FreshView]) > 0 {
 			description += fmt.Sprintf(" %s(%d)%s", boldTextEscape, len(channel.status2items[FreshView]), resetEscape)
@@ -660,10 +669,10 @@ func (mv *MainView) moveDown(g *gocui.Gui, v *gocui.View) error {
 		}
 		_, roy := resources.Origin()
 		_, rcy := resources.Cursor()
-		entry := mv.name2channel[mv.domains[mv.selectedDomain].channels[roy+rcy]].row
+		entry := mv.id2channel[mv.domains[mv.selectedDomain].channels[roy+rcy]].row
 		entryName := entry[nounsTable.IndexOfField(FieldIdentifier)].Format("")
 		mv.ignored[entryName][pk] = true
-		channel := mv.name2channel[entryName]
+		channel := mv.id2channel[entryName]
 		channel.status2items[FreshView] = append(channel.status2items[FreshView][:oy+cy], channel.status2items[FreshView][oy+cy+1:]...)
 	} else {
 		new, err := nounsTable.Entries[pk][nounsTable.IndexOfField(FieldStatus)].Add(-1)
@@ -771,7 +780,7 @@ func (mv *MainView) goToPK(g *gocui.Gui, v *gocui.View) error {
 		if !ok {
 			return fmt.Errorf("expected nouns table to exist")
 		}
-		pk = mv.name2channel[mv.domains[mv.selectedDomain].channels[oy+cy]].row[nounsTable.IndexOfField(FieldIdentifier)].Format("")
+		pk = mv.id2channel[mv.domains[mv.selectedDomain].channels[oy+cy]].row[nounsTable.IndexOfField(FieldIdentifier)].Format("")
 	} else {
 		channel, err := mv.selectedChannel(g)
 		if err != nil {
@@ -792,33 +801,24 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 	if !ok {
 		return fmt.Errorf("expected nouns table to exist")
 	}
-	channel, err := mv.selectedChannel(g)
-	if err != nil {
-		return err
+	// We refresh all channels here so we can be sure the status UI reflects the current
+	// state even though most likely only the current selected channel changed
+	for _, chn := range mv.id2channel {
+		for _, status := range []string{StatusActive, StatusPending, StatusIdea} {
+			chn.status2items[status] = nil
+		}
 	}
-	entryName := channel.row[nounsTable.IndexOfField(FieldIdentifier)].Format("")
-
-	for _, status := range []string{StatusActive, StatusPending, StatusIdea} {
-		channel.status2items[status] = nil
-	}
-	rawItems, err := nounsTable.Query(types.QueryParams{
-		Filters: []types.Filter{
-			&ui.EqualFilter{
-				Field:     FieldParent,
-				Col:       nounsTable.IndexOfField(FieldParent),
-				Formatted: entryName,
-			},
-		},
-	})
+	rawItems, err := nounsTable.Query(types.QueryParams{})
 	if err != nil {
 		return err
 	}
 
 	for _, rawItem := range rawItems.Entries {
-		status := rawItem[nounsTable.IndexOfField(FieldStatus)].Format("")
-		if channel.status2items[status] == nil {
-			channel.status2items[status] = []*Item{}
+		channel, ok := mv.id2channel[rawItem[nounsTable.IndexOfField(FieldParent)].Format("")]
+		if !ok {
+			continue
 		}
+		status := rawItem[nounsTable.IndexOfField(FieldStatus)].Format("")
 		channel.status2items[status] = append(channel.status2items[status], &Item{
 			Identifier:  rawItem[nounsTable.IndexOfField(FieldIdentifier)].Format(""),
 			Description: rawItem[nounsTable.IndexOfField(FieldDescription)].Format(""),
@@ -826,23 +826,25 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 			Link:        rawItem[nounsTable.IndexOfField(FieldLink)].Format(""),
 		})
 	}
-	for status, items := range channel.status2items {
-		if status == FreshView {
-			continue
-		}
-		sort.Slice(items, func(i, j int) bool {
-			iCdn, jCdn := items[i].Coordinal, items[j].Coordinal
-			// We want to items lacking a coordinal to come last
-			return (iCdn < jCdn && iCdn != "") || jCdn == ""
-		})
-		// reset coordinals
-		for i, item := range items {
-			padded := strconv.Itoa(i)
-			if len(padded) < 3 {
-				padded = strings.Repeat("0", 3-len(padded)) + padded
+	for _, channel := range mv.id2channel {
+		for status, items := range channel.status2items {
+			if status == FreshView {
+				continue
 			}
-			item.Coordinal = padded
-			nounsTable.Entries[item.Identifier][nounsTable.IndexOfField(FieldCoordinal)] = types.String(padded)
+			sort.Slice(items, func(i, j int) bool {
+				iCdn, jCdn := items[i].Coordinal, items[j].Coordinal
+				// We want to items lacking a coordinal to come last
+				return (iCdn < jCdn && iCdn != "") || jCdn == ""
+			})
+			// reset coordinals
+			for i, item := range items {
+				padded := strconv.Itoa(i)
+				if len(padded) < 3 {
+					padded = strings.Repeat("0", 3-len(padded)) + padded
+				}
+				item.Coordinal = padded
+				nounsTable.Entries[item.Identifier][nounsTable.IndexOfField(FieldCoordinal)] = types.String(padded)
+			}
 		}
 	}
 	return nil
@@ -860,5 +862,63 @@ func (mv *MainView) selectedChannel(g *gocui.Gui) (*channel, error) {
 	if oy+cy >= len(mv.domains[mv.selectedDomain].channels) {
 		return nil, nil
 	}
-	return mv.name2channel[mv.domains[mv.selectedDomain].channels[oy+cy]], nil
+	return mv.id2channel[mv.domains[mv.selectedDomain].channels[oy+cy]], nil
+}
+
+func (mv *MainView) statsContents(g *gocui.Gui) ([]byte, error) {
+	colW := 5
+	channel, err := mv.selectedChannel(g)
+	if err != nil {
+		return nil, err
+	}
+	domainCounts := mv.domainCounts()
+	allCounts := mv.allCounts()
+	stats := fmt.Sprintf(`      U    I    P    A
+
+C     %s%s%s%s
+
+D     %s%s%s%s
+
+A     %s%s%s%s
+`,
+		// Channel
+		fmt.Sprintf("%-*d", colW, len(channel.status2items[FreshView])),
+		fmt.Sprintf("%-*d", colW, len(channel.status2items[StatusIdea])),
+		fmt.Sprintf("%-*d", colW, len(channel.status2items[StatusPending])),
+		fmt.Sprintf("%-*d", colW, len(channel.status2items[StatusActive])),
+
+		// Domain
+		fmt.Sprintf("%-*d", colW, domainCounts[FreshView]),
+		fmt.Sprintf("%-*d", colW, domainCounts[StatusIdea]),
+		fmt.Sprintf("%-*d", colW, domainCounts[StatusPending]),
+		fmt.Sprintf("%-*d", colW, domainCounts[StatusActive]),
+
+		// All
+		fmt.Sprintf("%-*d", colW, allCounts[FreshView]),
+		fmt.Sprintf("%-*d", colW, allCounts[StatusIdea]),
+		fmt.Sprintf("%-*d", colW, allCounts[StatusPending]),
+		fmt.Sprintf("%-*d", colW, allCounts[StatusActive]),
+	)
+	return []byte(stats), nil
+}
+
+func (mv *MainView) domainCounts() map[string]int {
+	domain := mv.domains[mv.selectedDomain]
+	counts := map[string]int{}
+	for _, id := range domain.channels {
+		for status, items := range mv.id2channel[id].status2items {
+			counts[status] += len(items)
+		}
+	}
+	return counts
+}
+
+func (mv *MainView) allCounts() map[string]int {
+	counts := map[string]int{}
+	for _, channel := range mv.id2channel {
+		for status, items := range channel.status2items {
+			counts[status] += len(items)
+		}
+	}
+	return counts
 }

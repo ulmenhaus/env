@@ -14,6 +14,7 @@ const (
 	ResourcesView string = "Resources"
 	FreshView     string = "Fresh"
 	DomainView    string = "Domains"
+	StatsView     string = "Status"
 
 	FieldIdentifier  string = "_Identifier"
 	FieldDescription string = "Description"
