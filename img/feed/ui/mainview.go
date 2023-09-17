@@ -686,12 +686,12 @@ func (mv *MainView) moveDown(g *gocui.Gui, v *gocui.View) error {
 
 func (mv *MainView) incrementDomain(g *gocui.Gui, v *gocui.View) error {
 	mv.selectedDomain = (mv.selectedDomain + 1) % len(mv.domains)
-	return mv.refreshView(g)
+	return mv.resetView(g)
 }
 
 func (mv *MainView) decrementDomain(g *gocui.Gui, v *gocui.View) error {
 	mv.selectedDomain = (mv.selectedDomain + len(mv.domains) - 1) % len(mv.domains)
-	return mv.refreshView(g)
+	return mv.resetView(g)
 }
 
 func (mv *MainView) moveUp(g *gocui.Gui, v *gocui.View) error {
@@ -728,9 +728,22 @@ func (mv *MainView) cursorDown(g *gocui.Gui, v *gocui.View) error {
 	if v == nil {
 		return nil
 	}
+	max := 0
+	if v.Name() == ResourcesView {
+		max = len(mv.domains[mv.selectedDomain].channels)
+	} else {
+		channel, err := mv.selectedChannel(g)
+		if err != nil {
+			return err
+		}
+		max = len(channel.status2items[v.Name()])
+	}
 	cx, cy := v.Cursor()
+	ox, oy := v.Origin()
+	if cy + oy + 1 >= max {
+		return nil
+	}
 	if err := v.SetCursor(cx, cy+1); err != nil {
-		ox, oy := v.Origin()
 		if err := v.SetOrigin(ox, oy+1); err != nil {
 			return err
 		}
@@ -921,4 +934,25 @@ func (mv *MainView) allCounts() map[string]int {
 		}
 	}
 	return counts
+}
+
+// resetView resets all cursors and the selected view for use
+// when user switches the selected domain
+func (mv *MainView) resetView(g *gocui.Gui) error {
+	for _, viewName := range []string{ResourcesView, FreshView, StatusIdea, StatusPending, StatusActive} {
+		view, err := g.View(viewName)
+		if err != nil {
+			return err
+		}
+		if err := view.SetCursor(0, 0); err != nil {
+			return err
+		}
+		if err := view.SetOrigin(0, 0); err != nil {
+			return err
+		}
+	}
+	if _, err := g.SetCurrentView(ResourcesView); err != nil {
+		return err
+	}
+	return mv.refreshView(g)
 }
