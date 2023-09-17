@@ -57,8 +57,7 @@ type domain struct {
 }
 
 type channel struct {
-	row   []types.Entry
-	fresh []*Item
+	row          []types.Entry
 	status2items map[string][]*Item
 }
 
@@ -200,7 +199,8 @@ func (mv *MainView) fetchResources() error {
 		domain := domains[domainName]
 		name := entry[nounsTable.IndexOfField(FieldIdentifier)].Format("")
 		mv.name2channel[name] = &channel{
-			row: entry,
+			row:          entry,
+			status2items: map[string][]*Item{},
 		}
 		domain.channels = append(domain.channels, name)
 		if mv.ignored[entryName] == nil {
@@ -254,6 +254,7 @@ func (mv *MainView) fetchNewItems(g *gocui.Gui, v *gocui.View) error {
 			entry := mv.name2channel[name]
 			entryName := entry.row[nounsTable.IndexOfField(FieldIdentifier)].Format("")
 			channel := mv.name2channel[entryName]
+			channel.status2items[FreshView] = nil
 
 			feedURL := entry.row[nounsTable.IndexOfField(FieldFeed)].Format("")
 			if !strings.Contains(feedURL, "://") {
@@ -272,7 +273,7 @@ func (mv *MainView) fetchNewItems(g *gocui.Gui, v *gocui.View) error {
 				}
 				for _, item := range latest {
 					if !(allIDs[item.Identifier] || mv.ignored[entryName][item.Identifier]) {
-						channel.fresh = append(channel.fresh, item)
+						channel.status2items[FreshView] = append(channel.status2items[FreshView], item)
 					}
 				}
 				return nil
@@ -296,7 +297,7 @@ func (mv *MainView) addFreshItem(g *gocui.Gui, v *gocui.View) error {
 	entryName := feed.row[nounsTable.IndexOfField(FieldIdentifier)].Format("")
 	_, cy := v.Cursor()
 	_, oy := v.Origin()
-	item := mv.name2channel[entryName].fresh[oy+cy]
+	item := mv.name2channel[entryName].status2items[FreshView][oy+cy]
 	identifier := item.Identifier
 	err = nounsTable.Insert(identifier)
 	if err != nil {
@@ -337,7 +338,7 @@ func (mv *MainView) addFreshItem(g *gocui.Gui, v *gocui.View) error {
 		return fmt.Errorf("Failed to update context for entry: %s", err)
 	}
 	channel := mv.name2channel[entryName]
-	channel.fresh = append(channel.fresh[:oy+cy], channel.fresh[oy+cy+1:]...)
+	channel.status2items[FreshView] = append(channel.status2items[FreshView][:oy+cy], channel.status2items[FreshView][oy+cy+1:]...)
 	return mv.refreshView(g)
 }
 
@@ -358,7 +359,7 @@ func (mv *MainView) layoutDomains(g *gocui.Gui, domainHeight int) error {
 		name := "  " + domain.name
 		totalFresh := 0
 		for _, channel := range domain.channels {
-			totalFresh += len(mv.name2channel[channel].fresh)
+			totalFresh += len(mv.name2channel[channel].status2items[FreshView])
 		}
 		lenCorrection := 0
 		if totalFresh > 0 {
@@ -366,7 +367,7 @@ func (mv *MainView) layoutDomains(g *gocui.Gui, domainHeight int) error {
 			lenCorrection = -10
 		}
 		if (len(name) + lenCorrection) < domainWidth {
-			buffer := strings.Repeat(" ", (domainWidth-(len(name) + lenCorrection)) / 2)
+			buffer := strings.Repeat(" ", (domainWidth-(len(name)+lenCorrection))/2)
 			name = buffer + name + buffer
 		}
 		if i == mv.selectedDomain {
@@ -431,8 +432,8 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 	for _, name := range mv.domains[mv.selectedDomain].channels {
 		channel := mv.name2channel[name]
 		description := channel.row[nounsTable.IndexOfField(FieldDescription)].Format("")
-		if len(channel.fresh) > 0 {
-			description += fmt.Sprintf(" %s(%d)%s", boldTextEscape, len(channel.fresh), resetEscape)
+		if len(channel.status2items[FreshView]) > 0 {
+			description += fmt.Sprintf(" %s(%d)%s", boldTextEscape, len(channel.status2items[FreshView]), resetEscape)
 		}
 		fmt.Fprintf(resources, "  %s\n", description)
 	}
@@ -663,7 +664,7 @@ func (mv *MainView) moveDown(g *gocui.Gui, v *gocui.View) error {
 		entryName := entry[nounsTable.IndexOfField(FieldIdentifier)].Format("")
 		mv.ignored[entryName][pk] = true
 		channel := mv.name2channel[entryName]
-		channel.fresh = append(channel.fresh[:oy+cy], channel.fresh[oy+cy+1:]...)
+		channel.status2items[FreshView] = append(channel.status2items[FreshView][:oy+cy], channel.status2items[FreshView][oy+cy+1:]...)
 	} else {
 		new, err := nounsTable.Entries[pk][nounsTable.IndexOfField(FieldStatus)].Add(-1)
 		if err != nil {
@@ -797,7 +798,9 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 	}
 	entryName := channel.row[nounsTable.IndexOfField(FieldIdentifier)].Format("")
 
-	channel.status2items = map[string][]*Item{}
+	for _, status := range []string{StatusActive, StatusPending, StatusIdea} {
+		channel.status2items[status] = nil
+	}
 	rawItems, err := nounsTable.Query(types.QueryParams{
 		Filters: []types.Filter{
 			&ui.EqualFilter{
@@ -823,7 +826,10 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 			Link:        rawItem[nounsTable.IndexOfField(FieldLink)].Format(""),
 		})
 	}
-	for _, items := range channel.status2items {
+	for status, items := range channel.status2items {
+		if status == FreshView {
+			continue
+		}
 		sort.Slice(items, func(i, j int) bool {
 			iCdn, jCdn := items[i].Coordinal, items[j].Coordinal
 			// We want to items lacking a coordinal to come last
@@ -839,8 +845,6 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 			nounsTable.Entries[item.Identifier][nounsTable.IndexOfField(FieldCoordinal)] = types.String(padded)
 		}
 	}
-
-	channel.status2items[FreshView] = channel.fresh
 	return nil
 }
 
