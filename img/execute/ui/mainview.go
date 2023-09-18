@@ -725,6 +725,8 @@ func (mv *MainView) nextSpan(g *gocui.Gui, v *gocui.View) error {
 	mv.span = Spans[(ixs[mv.span]+1)%len(Spans)]
 	if mv.span == Today {
 		mv.selectNextFreeTask(g, v)
+	} else {
+		v.SetCursor(0, 0)
 	}
 	return mv.refreshView(g)
 }
