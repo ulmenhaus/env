@@ -40,6 +40,7 @@ const (
 	TableLog        string = "log"
 	TableTasks      string = "tasks"
 	TableAssertions string = "assertions"
+	TableNouns      string = "nouns"
 
 	JQLName string = "jql"
 

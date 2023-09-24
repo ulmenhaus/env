@@ -232,6 +232,7 @@ def generate_markdown(snapshot, table, pk):
         lambda: collections.defaultdict(list))
     meta_rels = [
         "Bookmark",
+        "Cheat Sheet",
         "Command",
         "Conclusion",
         "Habit",
@@ -361,6 +362,8 @@ def generate_markdown(snapshot, table, pk):
             [snapshot['tasks'][child]['Status'] for child in habit_children])
         key2rel2orobs[habit_full_pk].pop("Habit-Mode", None)
         key2rel2orobs[habit_full_pk].pop("Subject", None)
+        # Other attributes just clutter up the table so don't show them for habits
+        key2rel2orobs[habit_full_pk] = collections.defaultdict(list)
         for status, count in statuses.items():
             key2rel2orobs[habit_full_pk][status].append((status, str(count)))
 

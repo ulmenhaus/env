@@ -843,18 +843,22 @@ func (mv *MainView) addToStatus(g *gocui.Gui, v *gocui.View, delta int) error {
 }
 
 func (mv *MainView) openLink(g *gocui.Gui, v *gocui.View) error {
-	taskTable := mv.DB.Tables[TableTasks]
-	var cy, oy int
-	view, err := g.View(TasksView)
-	if err != nil && err != gocui.ErrUnknownView {
+	pk, err := mv.resolveSelectedPK(g)
+	if err != nil {
 		return err
-	} else if err == nil {
-		_, oy = view.Origin()
-		_, cy = view.Cursor()
 	}
-
-	selectedItem := mv.tasks[mv.span][oy+cy]
-	cmd := exec.Command("txtopen", selectedItem[taskTable.IndexOfField(FieldLink)].Format(""))
+	taskTable := mv.DB.Tables[TableTasks]
+	nounTable := mv.DB.Tables[TableNouns]
+	task, ok := taskTable.Entries[pk]
+	if !ok {
+		return fmt.Errorf("Could not find selected pk: %s", pk)
+	}
+	direct := task[taskTable.IndexOfField(FieldDirect)].Format("")
+	obj, ok := nounTable.Entries[direct]
+	if !ok {
+		return fmt.Errorf("Could not find direct object: %s", direct)
+	}
+	cmd := exec.Command("txtopen", obj[nounTable.IndexOfField(FieldLink)].Format(""))
 	return cmd.Run()
 }
 
@@ -1045,23 +1049,37 @@ func (mv *MainView) triggerGoToJQLEntry(g *gocui.Gui, v *gocui.View) error {
 }
 
 func (mv *MainView) goToJQLEntry(g *gocui.Gui, v *gocui.View) error {
-	_, oy := v.Origin()
-	_, cy := v.Cursor()
+	pk, err := mv.resolveSelectedPK(g)
+	if err != nil {
+		return err
+	}
+	return mv.goToPK(g, v, pk)
+}
+
+func (mv *MainView) resolveSelectedPK(g *gocui.Gui) (string, error) {
+	var cy, oy int
+	view, err := g.View(TasksView)
+	if err != nil && err != gocui.ErrUnknownView {
+		return "", err
+	} else if err == nil {
+		_, oy = view.Origin()
+		_, cy = view.Cursor()
+	}
 	ix := oy + cy
 	if mv.span == Today {
 		item, ok := mv.ix2item[ix]
 		if !ok {
-			return nil
+			return "", nil
 		}
 		meta, ok := mv.today2item[item.Description]
 		if !ok {
-			return nil
+			return "", nil
 		}
-		return mv.goToPK(g, v, meta.TaskPK)
+		return meta.TaskPK, nil
 	} else {
 		taskTable := mv.DB.Tables[TableTasks]
 		selectedTask := mv.tasks[mv.span][ix]
-		return mv.goToPK(g, v, selectedTask[taskTable.IndexOfField(FieldDescription)].Format(""))
+		return selectedTask[taskTable.IndexOfField(FieldDescription)].Format(""), nil
 	}
 }
 
