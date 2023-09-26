@@ -19,7 +19,13 @@ RUN apt-get update && apt-get install -y  \
 	texlive-pstricks \
 	xzdec
 
-RUN pip3 install markdown python-chess
+RUN pip3 install \
+  markdown \
+  matplotlib \
+  numpy \
+  pandas \
+  python-chess \
+  scipy
 
 COPY lib /ulmenhaus/env/lib
 COPY bin /ulmenhaus/env/bin

@@ -446,7 +446,7 @@ def resolve_jql_links(base_markdown):
 def render_pics(grouped, meta):
     for i, group in enumerate(grouped):
         lines = group.split("\n")
-        if lines[0] not in ["```pic.py", "```m4"]:
+        if lines[0] not in ["```pic.py", "```m4", "```plt.py"]:
             yield group
             continue
         group_meta = meta.get(i, "").encode("utf-8")

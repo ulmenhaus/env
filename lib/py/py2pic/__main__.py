@@ -5,6 +5,7 @@ import subprocess
 import sys
 
 from py2pic.drawing import Drawing
+import matplotlib.pyplot as plt
 
 WRAPPER_TEMPLATE = """
 \\documentclass<article>
@@ -30,6 +31,19 @@ def _convert_to_m4(draw_file):
     draw(d)
     return d.render()
 
+def _convert_plot_to_ping(name):
+    global plot
+    plot_path = name + ".plt.py"
+    meta_path = plot_path + ".meta"
+    if os.path.exists(meta_path):
+        with open(meta_path) as f:
+            meta = f.read()
+        os.environ["PIC_PY_META"] = meta
+    with open(plot_path) as f:
+        exec(f.read(), globals())
+    plot()
+    plt.savefig(name + '.plt.svg',bbox_inches='tight')
+
 
 def _fixup_tex(path):
     with open(path) as f:
@@ -53,13 +67,17 @@ def _fixup_tex(path):
 def main():
     draw_file = sys.argv[1]
     name = os.path.basename(draw_file)
-    if draw_file.endswith(".py"):
+    if draw_file.endswith(".pic.py"):
         name = name[:-3]
-        m4 = _convert_to_m4(draw_file)
+        contents = _convert_to_m4(draw_file)
+    elif draw_file.endswith(".plt.py"):
+        name = name[:-len(".plt.py")]
+        with open(draw_file) as f:
+            contents = f.read()
     elif draw_file.endswith(".m4"):
         name = name[:-3]
         with open(draw_file) as f:
-            m4 = f.read()
+            contents = f.read()
     else:
         raise ValueError("I do not know how to render {}".format(name))
 
@@ -74,9 +92,13 @@ def main():
 
     os.chdir("build")
 
-    with open("{}.m4".format(name), 'w') as f:
-        f.write(m4)
+    is_plot = draw_file.endswith(".plt.py")
+    tgt_path = "{}.{}".format(name, "plt.py" if is_plot else "m4")
+    with open(tgt_path, 'w') as f:
+        f.write(contents)
 
+    if is_plot:
+        return _convert_plot_to_ping(name)
     with open("{}_wrapper.tex".format(name), 'w') as f:
         f.write(
             WRAPPER_TEMPLATE.format(wrapped=name).replace("<", "{").replace(
