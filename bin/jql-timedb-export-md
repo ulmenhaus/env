@@ -73,7 +73,7 @@ def _render_link(description, target, new_window=False):
 
 
 def pluralize(word):
-    if word.lower() in ["implements"]:
+    if word.lower() in ["implements"] or is_verb(word):
         return word
     # HACK a few rules for pluralization
     if word.endswith("y") and len(word) > 2 and word[-2] not in "aeou":
@@ -81,6 +81,12 @@ def pluralize(word):
     return f"{word}s" if not (word.endswith("s")
                               or word.endswith("h")) else f"{word}es"
 
+
+def is_verb(attribute):
+    return attribute.endswith("es")
+
+def infinitive(verb):
+    return verb[:-1].lower() if verb.endswith("es") else verb
 
 def tabulate_entries(
         snapshot,
@@ -265,13 +271,9 @@ def generate_markdown(snapshot, table, pk):
     singletons = {
         rel
         for rel, orobs in by_relation.items()
-        if len(orobs) == 1 and rel not in meta_rels
+        if len(orobs) == 1 and not orobs[0][1].startswith("### ") and rel not in meta_rels
     }
-    multitons = {
-        rel
-        for rel, orobs in by_relation.items()
-        if len(orobs) != 1 or rel in meta_rels
-    }
+    multitons = set(by_relation) - singletons
     title, subtitle = pk, ""
     if table == "tasks":
         task = snapshot[table][pk]
@@ -368,10 +370,14 @@ def generate_markdown(snapshot, table, pk):
             key2rel2orobs[habit_full_pk][status].append((status, str(count)))
 
     markdown += "\n## Related"
+    entry_class = src2cls.get(f"{table} {pk}", "item").lower()
     shown_with_attribute = set()
     for cls, rel2subj in cls2rel2subj.items():
         for rel, subjects in rel2subj.items():
-            markdown += f"\n### {pluralize(cls)} with this {rel} ({len(subjects)})\n"
+            if is_verb(rel):
+                markdown += f"\n### {pluralize(cls)} which {infinitive(rel)} this {entry_class} ({len(subjects)})\n"
+            else:
+                markdown += f"\n### {pluralize(cls)} with this {rel} ({len(subjects)})\n"
             table = tabulate_entries(snapshot,
                                      full_pk,
                                      sort_related(subjects),

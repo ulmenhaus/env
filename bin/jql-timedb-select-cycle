@@ -80,7 +80,7 @@ def main():
         table = "nouns"
         field = "Relation"
         formatted = "Source"
-    elif "--ideate":
+    elif "--ideate" in sys.argv:
         formatted = iface['current_view']['primary_selection']
         create_ideation_task(snapshot, formatted)
         table = "tasks"
