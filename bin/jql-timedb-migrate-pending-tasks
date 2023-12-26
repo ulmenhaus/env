@@ -1,0 +1,54 @@
+#! /usr/local/bin/python3
+"""
+For jql time management schema
+
+Macro will take all pending tasks from the previous cycle and move them to the appropriate
+attention cycle for the current goal cycle.
+
+Before running this, ensure you have:
+* marked your old goal cycle as satisfied
+* marked your new one as habitual
+* marked your old attention cycles and habits as satisfied
+* marked your new attention cycles as habitual
+"""
+
+import json
+
+from timedb import pks
+
+
+def main():
+    with open("schema2.json") as f:
+        snapshot = json.load(f)
+    tdb = pks.TimeDB(snapshot)
+    key = lambda task: (task['Action'], task['Direct'], task['Indirect'])
+    tasks = tdb.db['tasks']
+    habitual = {
+        key(task): pk
+        for pk, task in tasks.items() if task['Status'] == 'Habitual'
+    }
+    to_update = []
+    for pk, task in tasks.items():
+        if task['Status'] != 'Pending':
+            continue
+        parent = tasks[task['Primary Goal']]
+        if key(parent) not in habitual:
+            continue
+        print("Migrating", pk, "to", habitual[key(parent)])
+        new_parent = habitual[key(parent)]
+        task['Primary Goal'] = new_parent
+        if task['Param~Span'] == "Quarter":
+            task['Param~Start'] = tasks[new_parent]['Param~Start']
+        to_update.append(pk)
+    for pk in to_update:
+        tdb.update_task(pk)
+    with open("schema2.json", 'w') as f:
+        json.dump(snapshot,
+                  f,
+                  sort_keys=True,
+                  indent=4,
+                  separators=(",", ": "))
+
+
+if __name__ == "__main__":
+    main()
