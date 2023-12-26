@@ -48,7 +48,7 @@ def markdown_table(rows):
                      for row in rows)
 
 
-def format_related_tasks(parent, child, actions):
+def format_related_task(parent, child, actions):
     """
     Remove common prefix and suffix for easier reading
     """
@@ -85,8 +85,10 @@ def pluralize(word):
 def is_verb(attribute):
     return attribute.endswith("es")
 
+
 def infinitive(verb):
     return verb[:-1].lower() if verb.endswith("es") else verb
+
 
 def tabulate_entries(
         snapshot,
@@ -110,13 +112,18 @@ def tabulate_entries(
     for full_pk in full_pks:
         tab, pk = full_pk.split(" ", 1)
         display_name = pk
+        entry = snapshot[tab][pk]
         if page_tab == "tasks" and tab == "tasks":
-            display_name = format_related_tasks(parent, snapshot['tasks'][pk],
-                                                snapshot['actions'])
+            display_name = format_related_task(parent, entry,
+                                               snapshot['actions'])
+        if page_tab == "nouns" and tab == "nouns" and entry["Parent"] == page_pk:
+            # If we're looking at the parent of this entry then prefixing with
+            # the context code is superfluous
+            display_name = entry["Description"]
         if tab == "tasks" and concise_display:
             # For well schematized tables we don't get much benefit from the full pk so
             # just show the last token
-            task = snapshot['tasks'][pk]
+            task = entry
             terms = pks.pk_terms_for_task(task, snapshot['actions'])
             display_name = terms[-1]
             if task['Indirect'] in pks.HABIT_MODES:
@@ -270,8 +277,8 @@ def generate_markdown(snapshot, table, pk):
         del by_relation["Description"]
     singletons = {
         rel
-        for rel, orobs in by_relation.items()
-        if len(orobs) == 1 and not orobs[0][1].startswith("### ") and rel not in meta_rels
+        for rel, orobs in by_relation.items() if len(orobs) == 1
+        and not orobs[0][1].startswith("### ") and rel not in meta_rels
     }
     multitons = set(by_relation) - singletons
     title, subtitle = pk, ""
