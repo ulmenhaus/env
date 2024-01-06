@@ -20,6 +20,7 @@ class CycleManager(object):
             if ancestor in current_cycles:
                 parent_task_pk = current_cycles[ancestor]
                 break
+
         if tasks[parent_task_pk]['Indirect'] == "":
             # if this is the root task for this cycle
             if lineage[:2] != ["root", "models"]:

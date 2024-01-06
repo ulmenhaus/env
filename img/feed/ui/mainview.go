@@ -190,7 +190,7 @@ func (mv *MainView) fetchResources() error {
 		entryName := entry[nounsTable.IndexOfField(FieldIdentifier)].Format("")
 		domainName := noun2domain[entryName]
 		if domainName == "" {
-			domainName = "Attention Domains"
+			domainName = "other"
 		}
 		if _, ok := domains[domainName]; !ok {
 			domains[domainName] = &domain{name: domainName}
@@ -212,7 +212,7 @@ func (mv *MainView) fetchResources() error {
 	sort.Slice(mv.domains, func(i, j int) bool {
 		iName, jName := mv.domains[i].name, mv.domains[j].name
 		// We want to show generic Attention Domains last
-		return (iName < jName && iName != "Attention Domains") || jName == "Attention Domains"
+		return (iName < jName && iName != "other") || jName == "other"
 	})
 
 	return nil
@@ -355,7 +355,15 @@ func (mv *MainView) layoutDomains(g *gocui.Gui, domainHeight int) error {
 	domains.Clear()
 	domainWidth := maxX / len(mv.domains)
 	for i, domain := range mv.domains {
-		name := "  " + domain.name
+		name := "  "
+		if strings.HasPrefix(domain.name, "my ") {
+			// HACK strip domain of unnecessary contextualizing prefix. A better approach to this
+			// would be to use a "my" context code for my particular things and then show the description
+			// of the domain but that's more ambitious than worthwhile for the moment
+			name += domain.name[len("my "):]
+		} else {
+			name += domain.name
+		}
 		totalFresh := 0
 		for _, channel := range domain.channels {
 			totalFresh += len(mv.id2channel[channel].status2items[FreshView])

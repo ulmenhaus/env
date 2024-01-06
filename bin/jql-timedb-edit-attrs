@@ -163,7 +163,7 @@ def extract_assertions_from_markdown(full_id, path):
         if current:
             values.append(current)
         for i, value in enumerate(values):
-            key = str((relation, full_id, i))
+            key = str((relation, full_id, str(i).rjust(4, '0')))
             relations[key] = {
                 "A Relation": relation,
                 "Arg0": full_id,

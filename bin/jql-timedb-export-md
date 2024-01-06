@@ -78,6 +78,8 @@ def pluralize(word):
     # HACK a few rules for pluralization
     if word.endswith("y") and len(word) > 2 and word[-2] not in "aeou":
         return word[:-1] + "ies"
+    if word.endswith("is"):
+        return word[:-2] + "es"
     return f"{word}s" if not (word.endswith("s")
                               or word.endswith("h")) else f"{word}es"
 
@@ -116,9 +118,17 @@ def tabulate_entries(
         if page_tab == "tasks" and tab == "tasks":
             display_name = format_related_task(parent, entry,
                                                snapshot['actions'])
-        if page_tab == "nouns" and tab == "nouns" and entry["Parent"] == page_pk:
-            # If we're looking at the parent of this entry then prefixing with
-            # the context code is superfluous
+        if tab == "nouns":
+            if page_tab == "nouns":
+                if entry["Parent"] == page_pk:
+                    # If we're looking at the parent of this entry then prefixing with
+                    # the context code is superfluous
+                    display_name = entry["Description"]
+                if entry["Context"] == snapshot[page_tab][page_pk]["Context"]:
+                    # Similarly if the two entries are siblings, no need to show the context
+                    display_name = entry["Description"]
+            # Finally, this line removes contexts from all displayed noun links -- my suspicion is this
+            # is worth the tradeoff, but if not we can narrow to just the cases above
             display_name = entry["Description"]
         if tab == "tasks" and concise_display:
             # For well schematized tables we don't get much benefit from the full pk so
@@ -248,6 +258,7 @@ def generate_markdown(snapshot, table, pk):
         "Cheat Sheet",
         "Command",
         "Conclusion",
+        "Features",
         "Habit",
         "Idea",
         "Implements",

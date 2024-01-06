@@ -129,8 +129,8 @@ class TimeDB(object):
         new_full_id = "{} {}".format(table, new)
         # Take a snapshot of assertions to not modify while iterating
         for pk, assn in list(self.db["assertions"].items()):
-            if table == "nouns" and assn["Arg1"] == f"@timedb:{old}:":
-                assn["Arg1"] = f"@timedb:{new}:"
+            if table == "nouns" and f"@timedb:{old}:" in assn["Arg1"]:
+                assn["Arg1"] = assn["Arg1"].replace(f"@timedb:{old}:", f"@timedb:{new}:")
             if assn["Arg0"] == full_id:
                 assn["Arg0"] = new_full_id
                 new_pk = pk_for_assertion(assn)
