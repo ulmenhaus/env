@@ -8,7 +8,7 @@ import (
 
 	"github.com/jroimartin/gocui"
 	"github.com/spf13/cobra"
-	"github.com/ulmenhaus/env/img/jql/dbms"
+	"github.com/ulmenhaus/env/img/jql/api"
 	"github.com/ulmenhaus/env/img/jql/osm"
 	"github.com/ulmenhaus/env/img/jql/types"
 	"github.com/ulmenhaus/env/img/jql/ui"
@@ -49,7 +49,7 @@ func runCLI() error {
 	}
 
 	cmd.Flags().StringVarP(&cfg.mode, "mode", "m", "standalone", "Mode of operation")
-	cmd.Flags().StringVarP(&cfg.addr, "addr", "a", "", "Address (for remote connections)")
+	cmd.Flags().StringVarP(&cfg.addr, "addr", "a", ":9999", "Address (for remote connections)")
 
 	if err := cmd.Execute(); err != nil {
 		return err
@@ -76,7 +76,7 @@ func runJQL(cfg jqlConfig) error {
 }
 
 func runDaemon(dbPath, tableName string, mapper *osm.ObjectStoreMapper, db *types.Database, addr string) error {
-	server, err := dbms.NewDatabaseServer(mapper, db, dbPath)
+	server, err := api.NewLocalAPI(mapper, db, dbPath)
 	if err != nil {
 		return fmt.Errorf("failed to initialize database server: %v", err)
 	}
@@ -85,7 +85,7 @@ func runDaemon(dbPath, tableName string, mapper *osm.ObjectStoreMapper, db *type
 		return fmt.Errorf("failed to listen: %v", err)
 	}
 	s := grpc.NewServer()
-	jqlpb.RegisterJQLServer(s, server)
+	jqlpb.RegisterJQLServer(s, api.NewAPIShim(server))
 	log.Printf("server listening at %v", lis.Addr())
 	if err := s.Serve(lis); err != nil {
 		return fmt.Errorf("failed to serve: %v", err)
