@@ -47,5 +47,5 @@ func (s *DatabaseServer) Persist(ctx context.Context, r *jqlpb.PersistRequest) (
 		return &jqlpb.PersistResponse{}, err
 	}
 	defer f.Close()
-	return &jqlpb.PersistResponse{}, s.OSM.Dump(s.DB, f)
+	return &jqlpb.PersistResponse{}, s.OSM.StoreEntries(s.DB)
 }

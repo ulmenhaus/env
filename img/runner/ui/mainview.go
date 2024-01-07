@@ -11,7 +11,6 @@ import (
 
 	"github.com/jroimartin/gocui"
 	"github.com/ulmenhaus/env/img/jql/osm"
-	"github.com/ulmenhaus/env/img/jql/storage"
 	"github.com/ulmenhaus/env/img/jql/types"
 )
 
@@ -70,22 +69,11 @@ type MainView struct {
 
 // NewMainView returns a MainView initialized with a given Table
 func NewMainView(path string, g *gocui.Gui, jqlBinDir, defaultResourceFilter string) (*MainView, error) {
-	var store storage.Store
-	if strings.HasSuffix(path, ".json") {
-		store = &storage.JSONStore{}
-	} else {
-		return nil, fmt.Errorf("unknown file type")
-	}
-	mapper, err := osm.NewObjectStoreMapper(store)
+	mapper, err := osm.NewObjectStoreMapper(path)
 	if err != nil {
 		return nil, err
 	}
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	db, err := mapper.Load(f)
+	db, err := mapper.Load()
 	if err != nil {
 		return nil, err
 	}

@@ -1,8 +1,10 @@
 package osm
 
 import (
+	"bytes"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"strings"
 
@@ -31,17 +33,34 @@ var (
 // used by storage drivers
 type ObjectStoreMapper struct {
 	store storage.Store // the storage.Store to which items are stored
+	path  string
 }
 
 // NewObjectStoreMapper returns a new ObjectStoreMapper given a storage driver
-func NewObjectStoreMapper(store storage.Store) (*ObjectStoreMapper, error) {
+func NewObjectStoreMapper(path string) (*ObjectStoreMapper, error) {
+	var store storage.Store
+	if strings.HasSuffix(path, ".json") {
+		store = &storage.JSONStore{}
+	} else {
+		return nil, fmt.Errorf("Unknown file type")
+	}
 	return &ObjectStoreMapper{
 		store: store,
+		path:  path,
 	}, nil
 }
 
+func (osm *ObjectStoreMapper) Load() (*types.Database, error) {
+	f, err := os.Open(osm.path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return osm.LoadSnapshot(f)
+}
+
 // Load takes the given reader of a serialized databse and returns a databse object
-func (osm *ObjectStoreMapper) Load(src io.Reader) (*types.Database, error) {
+func (osm *ObjectStoreMapper) LoadSnapshot(src io.Reader) (*types.Database, error) {
 	// XXX needs refactor
 	raw, err := osm.store.Read(src)
 	if err != nil {
@@ -189,8 +208,7 @@ func (osm *ObjectStoreMapper) Load(src io.Reader) (*types.Database, error) {
 	return db, nil
 }
 
-// Dump takes the database and serializes it using the storage driver
-func (osm *ObjectStoreMapper) Dump(db *types.Database, dst io.Writer) error {
+func (osm *ObjectStoreMapper) dumpSnapshot(db *types.Database, dst io.Writer) error {
 	encoded := storage.EncodedDatabase{
 		schemataTableName: db.Schemata,
 	}
@@ -209,6 +227,23 @@ func (osm *ObjectStoreMapper) Dump(db *types.Database, dst io.Writer) error {
 		}
 		encoded[name] = encodedTable
 	}
-	err := osm.store.Write(dst, encoded)
-	return err
+	return osm.store.Write(dst, encoded)
+}
+
+func (osm *ObjectStoreMapper) StoreEntries(db *types.Database) error {
+	dst, err := os.OpenFile(osm.path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	if err != nil {
+		return err
+	}
+	defer dst.Close()
+	return osm.dumpSnapshot(db, dst)
+}
+
+func (osm *ObjectStoreMapper) GetSnapshot(db *types.Database) (string, error) {
+	var snapshot bytes.Buffer
+	err := osm.dumpSnapshot(db, &snapshot)
+	if err != nil {
+		return "", err
+	}
+	return string(snapshot.Bytes()), nil
 }

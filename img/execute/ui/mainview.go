@@ -15,7 +15,6 @@ import (
 
 	"github.com/jroimartin/gocui"
 	"github.com/ulmenhaus/env/img/jql/osm"
-	"github.com/ulmenhaus/env/img/jql/storage"
 	"github.com/ulmenhaus/env/img/jql/types"
 	"github.com/ulmenhaus/env/img/jql/ui"
 )
@@ -117,22 +116,11 @@ func NewMainView(path string, g *gocui.Gui) (*MainView, error) {
 }
 
 func (mv *MainView) load(g *gocui.Gui) error {
-	var store storage.Store
-	if strings.HasSuffix(mv.path, ".json") {
-		store = &storage.JSONStore{}
-	} else {
-		return fmt.Errorf("unknown file type")
-	}
-	mapper, err := osm.NewObjectStoreMapper(store)
+	mapper, err := osm.NewObjectStoreMapper(mv.path)
 	if err != nil {
 		return err
 	}
-	f, err := os.Open(mv.path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	db, err := mapper.Load(f)
+	db, err := mapper.Load()
 	if err != nil {
 		return err
 	}
@@ -579,7 +567,7 @@ func (mv *MainView) save() error {
 		return err
 	}
 	defer f.Close()
-	err = mv.OSM.Dump(mv.DB, f)
+	err = mv.OSM.StoreEntries(mv.DB)
 	if err != nil {
 		return err
 	}

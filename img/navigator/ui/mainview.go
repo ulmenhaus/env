@@ -12,7 +12,6 @@ import (
 
 	"github.com/jroimartin/gocui"
 	"github.com/ulmenhaus/env/img/jql/osm"
-	"github.com/ulmenhaus/env/img/jql/storage"
 	"github.com/ulmenhaus/env/img/jql/types"
 	"github.com/ulmenhaus/env/img/jql/ui"
 )
@@ -102,16 +101,11 @@ func NewMainView(g *gocui.Gui, projectName, jqlBinDir string) (*MainView, error)
 		return nil, err
 	}
 	projectsPath := filepath.Join(homedir, ".projects.json")
-	mapper, err := osm.NewObjectStoreMapper(&storage.JSONStore{})
+	mapper, err := osm.NewObjectStoreMapper(projectsPath)
 	if err != nil {
 		return nil, err
 	}
-	f, err := os.Open(projectsPath)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	db, err := mapper.Load(f)
+	db, err := mapper.Load()
 	if err != nil {
 		return nil, err
 	}
@@ -130,16 +124,16 @@ func NewMainView(g *gocui.Gui, projectName, jqlBinDir string) (*MainView, error)
 		return nil, err
 	}
 	projectPath := filepath.Join(projWorkdir, ".project.json")
-	codeMapper, err := osm.NewObjectStoreMapper(&storage.JSONStore{})
+	codeMapper, err := osm.NewObjectStoreMapper(projectPath)
 	if err != nil {
 		return nil, err
 	}
-	f, err = os.Open(projectPath)
+	f, err := os.Open(projectPath)
 	if err != nil && !os.IsNotExist(err) {
 		return nil, err
 	} else if err == nil {
 		defer f.Close()
-		codeDB, err := mapper.Load(f)
+		codeDB, err := mapper.Load()
 		if err != nil {
 			return nil, err
 		}
@@ -384,7 +378,7 @@ func (mv *MainView) refreshActiveResources() error {
 	}
 	for _, resource := range mv.allResources {
 		description := resource.Description
-		if shouldLower{
+		if shouldLower {
 			description = strings.ToLower(resource.Description)
 		}
 		if regex.Match([]byte(description)) {

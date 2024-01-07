@@ -5,13 +5,11 @@ import (
 	"log"
 	"net"
 	"os"
-	"strings"
 
 	"github.com/jroimartin/gocui"
 	"github.com/spf13/cobra"
 	"github.com/ulmenhaus/env/img/jql/dbms"
 	"github.com/ulmenhaus/env/img/jql/osm"
-	"github.com/ulmenhaus/env/img/jql/storage"
 	"github.com/ulmenhaus/env/img/jql/types"
 	"github.com/ulmenhaus/env/img/jql/ui"
 	"github.com/ulmenhaus/env/proto/jql/jqlpb"
@@ -135,22 +133,11 @@ func quit(g *gocui.Gui, v *gocui.View) error {
 }
 
 func runDatabse(path string) (*osm.ObjectStoreMapper, *types.Database, error) {
-	var store storage.Store
-	if strings.HasSuffix(path, ".json") {
-		store = &storage.JSONStore{}
-	} else {
-		return nil, nil, fmt.Errorf("unknown file type")
-	}
-	mapper, err := osm.NewObjectStoreMapper(store)
+	mapper, err := osm.NewObjectStoreMapper(path)
 	if err != nil {
 		return nil, nil, err
 	}
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer f.Close()
-	db, err := mapper.Load(f)
+	db, err := mapper.Load()
 	if err != nil {
 		return nil, nil, err
 	}

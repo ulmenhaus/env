@@ -12,7 +12,6 @@ import (
 
 	"github.com/jroimartin/gocui"
 	"github.com/ulmenhaus/env/img/jql/osm"
-	"github.com/ulmenhaus/env/img/jql/storage"
 	"github.com/ulmenhaus/env/img/jql/types"
 	"github.com/ulmenhaus/env/img/jql/ui"
 	"golang.org/x/sync/errgroup"
@@ -41,10 +40,9 @@ type MainView struct {
 
 	Mode MainViewMode
 
-	path string
-
 	ignored     map[string](map[string]bool) // stores a map from feed name to a set of ignored entries
 	ignoredPath string
+	returnArgs []string
 
 	selectedDomain int
 	domains        []*domain
@@ -62,36 +60,16 @@ type channel struct {
 }
 
 // NewMainView returns a MainView initialized with a given Table
-func NewMainView(path string, g *gocui.Gui) (*MainView, error) {
-	var store storage.Store
-	if strings.HasSuffix(path, ".json") {
-		store = &storage.JSONStore{}
-	} else {
-		return nil, fmt.Errorf("unknown file type")
-	}
-	mapper, err := osm.NewObjectStoreMapper(store)
-	if err != nil {
-		return nil, err
-	}
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	db, err := mapper.Load(f)
-	if err != nil {
-		return nil, err
-	}
+func NewMainView(g *gocui.Gui, mapper *osm.ObjectStoreMapper, db *types.Database, ignoredPath string, returnArgs []string) (*MainView, error) {
 	mv := &MainView{
 		OSM: mapper,
 		DB:  db,
 
-		path: path,
-
+		ignoredPath: ignoredPath,
+		returnArgs: returnArgs,
 		id2channel: map[string]*channel{},
 	}
-	mv.ignoredPath = path + ".ignored"
-	_, err = os.Stat(mv.ignoredPath)
+	_, err := os.Stat(mv.ignoredPath)
 	if os.IsNotExist(err) {
 		mv.ignored = map[string](map[string]bool){}
 	} else if err != nil {
@@ -456,7 +434,7 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 		// If resources are not selected we'll bold the selected channel
 		_, cy := resources.Cursor()
 		_, oy := resources.Origin()
-		if !resourcesSelected && ix == (cy + oy){
+		if !resourcesSelected && ix == (cy+oy) {
 			fmt.Fprintf(resources, "  %s%s%s\n", boldTextEscape, description, resetEscape)
 		} else {
 			fmt.Fprintf(resources, "  %s\n", description)
@@ -490,12 +468,7 @@ func (mv *MainView) saveContents(g *gocui.Gui, v *gocui.View) error {
 }
 
 func (mv *MainView) save() error {
-	f, err := os.OpenFile(mv.path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	err = mv.OSM.Dump(mv.DB, f)
+	err := mv.OSM.StoreEntries(mv.DB)
 	if err != nil {
 		return err
 	}
@@ -756,7 +729,7 @@ func (mv *MainView) cursorDown(g *gocui.Gui, v *gocui.View) error {
 	}
 	cx, cy := v.Cursor()
 	ox, oy := v.Origin()
-	if cy + oy + 1 >= max {
+	if cy+oy+1 >= max {
 		return nil
 	}
 	if err := v.SetCursor(cx, cy+1); err != nil {
@@ -791,7 +764,7 @@ func (mv *MainView) goToJQL(extraArgs ...string) error {
 		return err
 	}
 
-	args := []string{JQLName, mv.path}
+	args := append([]string{JQLName}, mv.returnArgs...)
 	args = append(args, extraArgs...)
 
 	env := os.Environ()

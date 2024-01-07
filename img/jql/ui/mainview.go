@@ -401,12 +401,7 @@ func (mv *MainView) saveContents() error {
 }
 
 func (mv *MainView) saveSilent() error {
-	f, err := os.OpenFile(mv.path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	return mv.OSM.Dump(mv.DB, f)
+	return mv.OSM.StoreEntries(mv.DB)
 }
 
 func (mv *MainView) handleSelectInput(g *gocui.Gui, v *gocui.View) error {
@@ -1123,8 +1118,8 @@ func (mv *MainView) runMacro(ch rune) error {
 	loc := strings.Split(entry[macros.IndexOfField(MacroLocationCol)].Format(""), " ")
 	reloadIndex := macros.IndexOfField("Reload")
 	isReload := reloadIndex != -1 && entry[reloadIndex].Format("") == "yes"
-	var stdout, snapshot, stderr bytes.Buffer
-	err := mv.OSM.Dump(mv.DB, &snapshot)
+	var stdout, stderr bytes.Buffer
+	snapshot, err := mv.OSM.GetSnapshot(mv.DB)
 	if err != nil {
 		return fmt.Errorf("Could not create snapshot: %s", err)
 	}
@@ -1144,7 +1139,7 @@ func (mv *MainView) runMacro(ch rune) error {
 	primarySelection := mv.response.Entries[row][mv.Table.Primary()]
 
 	input := MacroInterface{
-		Snapshot: string(snapshot.Bytes()),
+		Snapshot: snapshot,
 		CurrentView: MacroCurrentView{
 			Table:            mv.tableName,
 			PKs:              pks,
@@ -1184,7 +1179,7 @@ func (mv *MainView) runMacro(ch rune) error {
 		}
 		newDB = []byte(output.Snapshot)
 	}
-	mv.DB, err = mv.OSM.Load(bytes.NewBuffer(newDB))
+	mv.DB, err = mv.OSM.LoadSnapshot(bytes.NewBuffer(newDB))
 	if err != nil {
 		return fmt.Errorf("Could not load database from macro: %s", err)
 	}

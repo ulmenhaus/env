@@ -5,6 +5,7 @@ import (
 
 	"github.com/jroimartin/gocui"
 	"github.com/ulmenhaus/env/img/feed/ui"
+	"github.com/ulmenhaus/env/img/jql/osm"
 )
 
 // TODO now that jql is providing a library for other components it would
@@ -18,7 +19,16 @@ func main() {
 		panic(err)
 	}
 	defer g.Close()
-	mv, err := ui.NewMainView(dbPath, g)
+
+	mapper, err := osm.NewObjectStoreMapper(dbPath)
+	if err != nil {
+		panic(err)
+	}
+	db, err := mapper.Load()
+	if err != nil {
+		panic(err)
+	}
+	mv, err := ui.NewMainView(g, mapper, db, dbPath+".ignored", []string{dbPath})
 	if err != nil {
 		panic(err)
 	}
