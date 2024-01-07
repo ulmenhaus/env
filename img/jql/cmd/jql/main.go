@@ -8,47 +8,76 @@ import (
 	"strings"
 
 	"github.com/jroimartin/gocui"
+	"github.com/spf13/cobra"
+	"github.com/ulmenhaus/env/img/jql/dbms"
 	"github.com/ulmenhaus/env/img/jql/osm"
 	"github.com/ulmenhaus/env/img/jql/storage"
 	"github.com/ulmenhaus/env/img/jql/types"
-	"github.com/ulmenhaus/env/img/jql/dbms"
 	"github.com/ulmenhaus/env/img/jql/ui"
 	"github.com/ulmenhaus/env/proto/jql/jqlpb"
 	"google.golang.org/grpc"
 )
 
 func main() {
-	err := initJQL()
+	err := runCLI()
 	if err != nil {
 		panic(err)
 	}
 }
 
-func initJQL() error {
-	// TODO use a cli library
-	dbPath := os.Args[1]
-	tableName := os.Args[2]
-	mapper, db, err := initDatabse(dbPath)
+type jqlConfig struct {
+	path  string
+	table string
+	pk    string
+
+	mode string
+	addr string
+}
+
+func runCLI() error {
+	cfg := jqlConfig{}
+
+	var cmd = &cobra.Command{
+		Use:   "jql <path> <table> [pk]",
+		Short: "The JSON backed smart spreadsheets",
+		Args:  cobra.MinimumNArgs(2),
+		Run: func(cmd *cobra.Command, args []string) {
+			cfg.path = args[0]
+			cfg.table = args[1]
+			if len(args) > 2 {
+				cfg.pk = args[2]
+			}
+		},
+	}
+
+	cmd.Flags().StringVarP(&cfg.mode, "mode", "m", "standalone", "Mode of operation")
+	cmd.Flags().StringVarP(&cfg.addr, "addr", "a", "", "Address (for remote connections)")
+
+	if err := cmd.Execute(); err != nil {
+		return err
+	}
+	return runJQL(cfg)
+}
+
+func runJQL(cfg jqlConfig) error {
+	mapper, db, err := runDatabse(cfg.path)
 	if err != nil {
 		return err
 	}
-	// placeholders for an eventual CLI args
 	// TODO path should be hidden behind the OSM and never used directly by any of these components
-	mode := "standalone"
-	addr := "localhost:9999"
-	switch mode {
+	switch cfg.mode {
 	case "standalone":
-		return initStandalone(dbPath, tableName, mapper, db)
+		return runStandalone(cfg.path, cfg.table, mapper, db)
 	case "daemon":
-		return initDaemon(dbPath, tableName, mapper, db, addr)
+		return runDaemon(cfg.path, cfg.table, mapper, db, cfg.addr)
 	case "client":
-		return initClient(dbPath, tableName, mapper, db)
+		return runClient(cfg.path, cfg.table, mapper, db)
 	default:
-		return fmt.Errorf("Unknown init mode: %v", mode)
+		return fmt.Errorf("Unknown mode: %v", cfg.mode)
 	}
 }
 
-func initDaemon(dbPath, tableName string, mapper *osm.ObjectStoreMapper, db *types.Database, addr string) error {
+func runDaemon(dbPath, tableName string, mapper *osm.ObjectStoreMapper, db *types.Database, addr string) error {
 	server, err := dbms.NewDatabaseServer(mapper, db, dbPath)
 	if err != nil {
 		return fmt.Errorf("failed to initialize database server: %v", err)
@@ -66,11 +95,11 @@ func initDaemon(dbPath, tableName string, mapper *osm.ObjectStoreMapper, db *typ
 	return nil
 }
 
-func initClient(dbPath, tableName string, mapper *osm.ObjectStoreMapper, db *types.Database) error {
+func runClient(dbPath, tableName string, mapper *osm.ObjectStoreMapper, db *types.Database) error {
 	return fmt.Errorf("Client mode not yet implemented")
 }
 
-func initStandalone(dbPath, tableName string, mapper *osm.ObjectStoreMapper, db *types.Database) error {
+func runStandalone(dbPath, tableName string, mapper *osm.ObjectStoreMapper, db *types.Database) error {
 	mv, err := ui.NewMainView(dbPath, tableName, mapper, db)
 	if err != nil {
 		return err
@@ -105,7 +134,7 @@ func quit(g *gocui.Gui, v *gocui.View) error {
 	return gocui.ErrQuit
 }
 
-func initDatabse(path string) (*osm.ObjectStoreMapper, *types.Database, error) {
+func runDatabse(path string) (*osm.ObjectStoreMapper, *types.Database, error) {
 	var store storage.Store
 	if strings.HasSuffix(path, ".json") {
 		store = &storage.JSONStore{}

@@ -18,7 +18,7 @@ var (
 	MultiLinePubVar = 0 // a public var defined as a part of a multi-line definition
 )
 
-var slVar2var = []int{
+var SlVar2var = []int{
 	singleLinePrvConst,
 	SingleLinePubVar,
 } // a var that references other vars
@@ -45,30 +45,34 @@ type MultiLineInterface interface {
 }
 
 // SingleLineFuncCompositeInput is a function defined on a single line
-func SingleLineFuncCompositeInput(SingleLineType)
+type SingleLineFuncCompositeInput func(SingleLineType)
 
 // SingleLineFuncCompositeReturn is a function defined on a single line
-func SingleLineFuncCompositeReturn() SingleLineType
+type SingleLineFuncCompositeReturn func() SingleLineType
 
 // MultiLineFunc is a multi-line function that references a const, var, type, and field
 func MultiLineFunc() {
 	a := singleLinePrvConst
-	b := slVar2var
+	b := SlVar2var
 	c := MultiLineType{}
 	d := c.SimpleField
 	var e MultiLineInterface
-	e.SimpleMethod(0)
-	SingleLineFuncCompositeInput(SingleLineType(0))
+	e.SimpleMethod(a + len(b) + d)
+	var f SingleLineFuncCompositeInput
+	f = func(SingleLineType){}
+	f(SingleLineType(0))
 	c.MultiLineMethod()
 }
 
 // MultiLineMethod is a multi-line method that references a const, var, type, and field
 func (*MultiLineType) MultiLineMethod() {
 	a := singleLinePrvConst
-	b := slVar2var
+	b := SlVar2var
 	c := MultiLineType{}
 	d := c.SimpleField
 	var e MultiLineInterface
-	e.SimpleMethod(0)
-	SingleLineFuncCompositeInput(SingleLineType(0))
+	e.SimpleMethod(a + len(b) + d)
+	var f SingleLineFuncCompositeInput
+	f = func(SingleLineType){}
+	f(SingleLineType(0))
 }

@@ -1,7 +1,9 @@
 package collector
 
 import (
+	"bytes"
 	"fmt"
+	"log"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -13,7 +15,9 @@ func collectFromFixtures() (*models.EncodedGraph, error) {
 		"github.com/ulmenhaus/env/img/extract/tests/fixtures/source",
 		"github.com/ulmenhaus/env/img/extract/tests/fixtures/target",
 	}
-	c, err := NewCollector(pkgs)
+	errLog := bytes.NewBuffer([]byte{})
+	logger := log.New(errLog, "prefix", log.LstdFlags)
+	c, err := NewCollector(pkgs, logger, false)
 	if err != nil {
 		return nil, err
 	}
@@ -21,7 +25,7 @@ func collectFromFixtures() (*models.EncodedGraph, error) {
 	if err != nil {
 		return nil, err
 	}
-	return c.Graph(), nil
+	return c.Graph(ModePkg), nil
 }
 
 func formatEdge(e models.EncodedEdge) string {

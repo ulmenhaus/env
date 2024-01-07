@@ -6,11 +6,13 @@ package target
 // in other files
 func InterFileFunc() {
 	a := singleLinePrvConst
-	b := slVar2var
+	b := SlVar2var
 	c := MultiLineType{}
 	d := c.SimpleField
 	var e MultiLineInterface
-	e.SimpleMethod(0)
-	SingleLineFuncCompositeInput(SingleLineType(0))
+	e.SimpleMethod(a + len(b) + d)
+	var f SingleLineFuncCompositeInput
+	f = func(SingleLineType){}
+	f(SingleLineType(0))
 	c.MultiLineMethod()
 }
