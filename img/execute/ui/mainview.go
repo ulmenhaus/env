@@ -53,7 +53,6 @@ const (
 // and a detailed view of the current project
 type MainView struct {
 	OSM *osm.ObjectStoreMapper
-	DB  *types.Database
 
 	MainViewMode MainViewMode
 	TaskViewMode TaskViewMode
@@ -120,12 +119,11 @@ func (mv *MainView) load(g *gocui.Gui) error {
 	if err != nil {
 		return err
 	}
-	db, err := mapper.Load()
+	err = mapper.Load()
 	if err != nil {
 		return err
 	}
 	mv.OSM = mapper
-	mv.DB = db
 	mv.MainViewMode = MainViewModeListBar
 	mv.tasks = map[string]([][]types.Entry){}
 	mv.span = Today
@@ -223,7 +221,7 @@ func (mv *MainView) createNewPlanFromInput(g *gocui.Gui, v *gocui.View) error {
 }
 
 func (mv *MainView) createNewPlan(g *gocui.Gui, taskPK, description string) error {
-	assnTable := mv.DB.Tables[TableAssertions]
+	assnTable := mv.OSM.GetDB().Tables[TableAssertions]
 	newOrder := 0
 	plansResp, err := mv.queryPlans([]string{taskPK})
 	if err != nil {
@@ -264,8 +262,8 @@ func (mv *MainView) createNewPlan(g *gocui.Gui, taskPK, description string) erro
 }
 
 func (mv *MainView) insertDayPlan(g *gocui.Gui, description string) error {
-	assnTable := mv.DB.Tables[TableAssertions]
-	tasksTable := mv.DB.Tables[TableTasks]
+	assnTable := mv.OSM.GetDB().Tables[TableAssertions]
+	tasksTable := mv.OSM.GetDB().Tables[TableTasks]
 	tasksView, err := g.View(TasksView)
 	if err != nil {
 		return err
@@ -429,7 +427,7 @@ func (mv *MainView) listTasksLayout(g *gocui.Gui) error {
 		fmt.Fprintf(tasks, "%s\n", desc)
 	}
 
-	logTable := mv.DB.Tables[TableLog]
+	logTable := mv.OSM.GetDB().Tables[TableLog]
 
 	logDescriptionField := logTable.IndexOfField(FieldLogDescription)
 	beginField := logTable.IndexOfField(FieldBegin)
@@ -457,7 +455,7 @@ func (mv *MainView) tabulatedTasks(g *gocui.Gui, v *gocui.View) []string {
 		}
 		return mv.cachedTodayTasks
 	}
-	taskTable := mv.DB.Tables[TableTasks]
+	taskTable := mv.OSM.GetDB().Tables[TableTasks]
 	projectField := taskTable.IndexOfField(FieldPrimaryGoal)
 	descriptionField := taskTable.IndexOfField(FieldDescription)
 
@@ -489,7 +487,7 @@ func (mv *MainView) todayBreakdown() []DayItem {
 	if mv.TaskViewMode != TaskViewModeListCycles {
 		return mv.today
 	}
-	taskTable := mv.DB.Tables[TableTasks]
+	taskTable := mv.OSM.GetDB().Tables[TableTasks]
 	today := []DayItem{}
 	for _, item := range mv.today {
 		// Fall back to using the item's description as its attention
@@ -567,7 +565,7 @@ func (mv *MainView) save() error {
 		return err
 	}
 	defer f.Close()
-	err = mv.OSM.StoreEntries(mv.DB)
+	err = mv.OSM.StoreEntries()
 	if err != nil {
 		return err
 	}
@@ -805,7 +803,7 @@ func (mv *MainView) degradeStatus(g *gocui.Gui, v *gocui.View) error {
 
 func (mv *MainView) addToStatus(g *gocui.Gui, v *gocui.View, delta int) error {
 	// TODO getting selected task is very common. Should factor out.
-	taskTable := mv.DB.Tables[TableTasks]
+	taskTable := mv.OSM.GetDB().Tables[TableTasks]
 	var cy, oy int
 	view, err := g.View(TasksView)
 	if err != nil && err != gocui.ErrUnknownView {
@@ -835,8 +833,8 @@ func (mv *MainView) openLink(g *gocui.Gui, v *gocui.View) error {
 	if err != nil {
 		return err
 	}
-	taskTable := mv.DB.Tables[TableTasks]
-	nounTable := mv.DB.Tables[TableNouns]
+	taskTable := mv.OSM.GetDB().Tables[TableTasks]
+	nounTable := mv.OSM.GetDB().Tables[TableNouns]
 	task, ok := taskTable.Entries[pk]
 	if !ok {
 		return fmt.Errorf("Could not find selected pk: %s", pk)
@@ -851,8 +849,8 @@ func (mv *MainView) openLink(g *gocui.Gui, v *gocui.View) error {
 }
 
 func (mv *MainView) logTime(g *gocui.Gui, v *gocui.View) error {
-	taskTable := mv.DB.Tables[TableTasks]
-	logTable := mv.DB.Tables[TableLog]
+	taskTable := mv.OSM.GetDB().Tables[TableTasks]
+	logTable := mv.OSM.GetDB().Tables[TableLog]
 	var cy, oy int
 	view, err := g.View(TasksView)
 	if err != nil && err != gocui.ErrUnknownView {
@@ -898,8 +896,8 @@ func (mv *MainView) logTime(g *gocui.Gui, v *gocui.View) error {
 }
 
 func (mv *MainView) newTime(g *gocui.Gui, pk string, selectedTask []types.Entry, andFinish bool) error {
-	taskTable := mv.DB.Tables[TableTasks]
-	logTable := mv.DB.Tables[TableLog]
+	taskTable := mv.OSM.GetDB().Tables[TableTasks]
+	logTable := mv.OSM.GetDB().Tables[TableLog]
 	err := logTable.Insert(pk)
 	if err != nil {
 		return err
@@ -1028,7 +1026,7 @@ func (mv *MainView) goToToday(g *gocui.Gui, v *gocui.View) error {
 	if today == nil {
 		return nil
 	}
-	return mv.goToPK(g, v, today[mv.DB.Tables[TableTasks].Primary()].Format(""))
+	return mv.goToPK(g, v, today[mv.OSM.GetDB().Tables[TableTasks].Primary()].Format(""))
 }
 
 func (mv *MainView) triggerGoToJQLEntry(g *gocui.Gui, v *gocui.View) error {
@@ -1065,7 +1063,7 @@ func (mv *MainView) resolveSelectedPK(g *gocui.Gui) (string, error) {
 		}
 		return meta.TaskPK, nil
 	} else {
-		taskTable := mv.DB.Tables[TableTasks]
+		taskTable := mv.OSM.GetDB().Tables[TableTasks]
 		selectedTask := mv.tasks[mv.span][ix]
 		return selectedTask[taskTable.IndexOfField(FieldDescription)].Format(""), nil
 	}
@@ -1090,7 +1088,7 @@ func (mv *MainView) goToPK(g *gocui.Gui, v *gocui.View, pk string) error {
 }
 
 func (mv *MainView) refreshView(g *gocui.Gui) error {
-	taskTable := mv.DB.Tables[TableTasks]
+	taskTable := mv.OSM.GetDB().Tables[TableTasks]
 	descriptionField := taskTable.IndexOfField(FieldDescription)
 	projectField := taskTable.IndexOfField(FieldPrimaryGoal)
 	spanField := taskTable.IndexOfField(FieldSpan)
@@ -1200,8 +1198,8 @@ func (mv *MainView) refreshToday() error {
 	if today == nil {
 		return nil
 	}
-	assertionsTable := mv.DB.Tables[TableAssertions]
-	tasksTable := mv.DB.Tables[TableTasks]
+	assertionsTable := mv.OSM.GetDB().Tables[TableAssertions]
+	tasksTable := mv.OSM.GetDB().Tables[TableTasks]
 	resp, err := assertionsTable.Query(types.QueryParams{
 		Filters: []types.Filter{
 			&ui.EqualFilter{
@@ -1250,7 +1248,7 @@ func (mv *MainView) queryInProgressTasks(ignore string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	taskTable := mv.DB.Tables[TableTasks]
+	taskTable := mv.OSM.GetDB().Tables[TableTasks]
 	pks := []string{}
 	for _, task := range tasks {
 		pk := task[taskTable.Primary()].Format("")
@@ -1266,7 +1264,7 @@ func (mv *MainView) queryAllTasks(status ...string) ([][]types.Entry, error) {
 	for _, s := range status {
 		statusMap[s] = true
 	}
-	taskTable := mv.DB.Tables[TableTasks]
+	taskTable := mv.OSM.GetDB().Tables[TableTasks]
 	resp, err := taskTable.Query(types.QueryParams{
 		Filters: []types.Filter{
 			&ui.InFilter{
@@ -1289,8 +1287,8 @@ func (mv *MainView) queryAllTasks(status ...string) ([][]types.Entry, error) {
 }
 
 func (mv *MainView) queryLogs(task []types.Entry) (*types.Response, error) {
-	taskTable := mv.DB.Tables[TableTasks]
-	logTable := mv.DB.Tables[TableLog]
+	taskTable := mv.OSM.GetDB().Tables[TableTasks]
+	logTable := mv.OSM.GetDB().Tables[TableLog]
 	return logTable.Query(types.QueryParams{
 		Filters: []types.Filter{
 			&ui.EqualFilter{
@@ -1349,7 +1347,7 @@ func (mv *MainView) switchModes(g *gocui.Gui, v *gocui.View) error {
 }
 
 func (mv *MainView) queryActiveAndHabitualTasks() (*types.Response, error) {
-	taskTable := mv.DB.Tables[TableTasks]
+	taskTable := mv.OSM.GetDB().Tables[TableTasks]
 	return taskTable.Query(types.QueryParams{
 		Filters: []types.Filter{
 			&ui.InFilter{
@@ -1369,7 +1367,7 @@ func (mv *MainView) queryPlans(taskPKs []string) (*types.Response, error) {
 	for _, task := range taskPKs {
 		taskCols[fmt.Sprintf("tasks %s", task)] = true
 	}
-	assertionsTable := mv.DB.Tables[TableAssertions]
+	assertionsTable := mv.OSM.GetDB().Tables[TableAssertions]
 	return assertionsTable.Query(types.QueryParams{
 		Filters: []types.Filter{
 			&ui.InFilter{
@@ -1387,7 +1385,7 @@ func (mv *MainView) queryPlans(taskPKs []string) (*types.Response, error) {
 }
 
 func (mv *MainView) queryDayPlan() ([]types.Entry, error) {
-	taskTable := mv.DB.Tables[TableTasks]
+	taskTable := mv.OSM.GetDB().Tables[TableTasks]
 	resp, err := taskTable.Query(types.QueryParams{
 		Filters: []types.Filter{
 			&ui.EqualFilter{
@@ -1424,7 +1422,7 @@ func (mv *MainView) queryDayPlan() ([]types.Entry, error) {
 }
 
 func (mv *MainView) queryYesterday() ([]types.Entry, error) {
-	taskTable := mv.DB.Tables[TableTasks]
+	taskTable := mv.OSM.GetDB().Tables[TableTasks]
 	resp, err := taskTable.Query(types.QueryParams{
 		Filters: []types.Filter{
 			&ui.EqualFilter{
@@ -1456,7 +1454,7 @@ func (mv *MainView) queryYesterday() ([]types.Entry, error) {
 }
 
 func (mv *MainView) queryExistingTasks(planPK string) (map[string]bool, error) {
-	assertionsTable := mv.DB.Tables[TableAssertions]
+	assertionsTable := mv.OSM.GetDB().Tables[TableAssertions]
 	resp, err := assertionsTable.Query(types.QueryParams{
 		Filters: []types.Filter{
 			&ui.EqualFilter{
@@ -1481,8 +1479,8 @@ func (mv *MainView) queryExistingTasks(planPK string) (map[string]bool, error) {
 }
 
 func (mv *MainView) copyOldTasks() error {
-	taskTable := mv.DB.Tables[TableTasks]
-	assertionsTable := mv.DB.Tables[TableAssertions]
+	taskTable := mv.OSM.GetDB().Tables[TableTasks]
+	assertionsTable := mv.OSM.GetDB().Tables[TableAssertions]
 
 	yesterday, err := mv.queryYesterday()
 	if err != nil {
@@ -1558,8 +1556,8 @@ func (mv *MainView) gatherNewTasks() ([]DayItemMeta, error) {
 	// gather each plan for those tasks
 	// show an item if it is a plan or if it is an active leaf task with no plans
 	// save contents
-	taskTable := mv.DB.Tables[TableTasks]
-	assertionsTable := mv.DB.Tables[TableAssertions]
+	taskTable := mv.OSM.GetDB().Tables[TableTasks]
+	assertionsTable := mv.OSM.GetDB().Tables[TableAssertions]
 	tasks, err := mv.queryActiveAndHabitualTasks()
 	if err != nil {
 		return nil, err
@@ -1624,8 +1622,8 @@ func (mv *MainView) gatherNewTasks() ([]DayItemMeta, error) {
 }
 
 func (mv *MainView) insertNewTasks() error {
-	taskTable := mv.DB.Tables[TableTasks]
-	assertionsTable := mv.DB.Tables[TableAssertions]
+	taskTable := mv.OSM.GetDB().Tables[TableTasks]
+	assertionsTable := mv.OSM.GetDB().Tables[TableAssertions]
 
 	newTasks, err := mv.gatherNewTasks()
 	if err != nil {
@@ -1725,8 +1723,8 @@ func (mv *MainView) markTask(g *gocui.Gui, v *gocui.View) error {
 	}
 
 	newVal := strings.Replace(selection, "[ ]", "[x]", 1)
-	assertionsTable := mv.DB.Tables[TableAssertions]
-	tasksTable := mv.DB.Tables[TableTasks]
+	assertionsTable := mv.OSM.GetDB().Tables[TableAssertions]
+	tasksTable := mv.OSM.GetDB().Tables[TableTasks]
 	// TODO(rabrams) this code predates having ix2item. See if it can be cleaned up with it.
 	for _, item := range mv.today {
 		if item.Description != selection {
@@ -1781,7 +1779,7 @@ func (mv *MainView) deleteDayPlan(g *gocui.Gui, v *gocui.View) error {
 	_, cy := tasksView.Cursor()
 	ix := oy + cy
 	item := mv.ix2item[ix]
-	assnTable := mv.DB.Tables[TableAssertions]
+	assnTable := mv.OSM.GetDB().Tables[TableAssertions]
 	err = assnTable.Delete(item.PK)
 	if err != nil {
 		return err
@@ -1813,8 +1811,8 @@ func (mv *MainView) substituteTask(g *gocui.Gui, v *gocui.View) error {
 
 func (mv *MainView) substituteTaskWithPlans(g *gocui.Gui, taskPK string) error {
 	mv.substitutingPlan = false
-	assnTable := mv.DB.Tables[TableAssertions]
-	tasksTable := mv.DB.Tables[TableTasks]
+	assnTable := mv.OSM.GetDB().Tables[TableAssertions]
+	tasksTable := mv.OSM.GetDB().Tables[TableTasks]
 	direct := tasksTable.Entries[taskPK][tasksTable.IndexOfField(FieldDirect)].Format("")
 	action := tasksTable.Entries[taskPK][tasksTable.IndexOfField(FieldAction)].Format("")
 	procedures, err := assnTable.Query(types.QueryParams{
@@ -1863,8 +1861,8 @@ func (mv *MainView) substituteTaskWithPlans(g *gocui.Gui, taskPK string) error {
 
 func (mv *MainView) substitutePlanWithImplementation(g *gocui.Gui, plan string) error {
 	mv.substitutingPlan = true
-	tasksTable := mv.DB.Tables[TableTasks]
-	assnTable := mv.DB.Tables[TableAssertions]
+	tasksTable := mv.OSM.GetDB().Tables[TableTasks]
+	assnTable := mv.OSM.GetDB().Tables[TableAssertions]
 	candidates, err := mv.queryAllTasks(StatusActive, StatusHabitual, StatusPlanned, StatusPending)
 	if err != nil {
 		return err
@@ -1968,7 +1966,7 @@ func (mv *MainView) substitutePlanSelectionsForPlan(g *gocui.Gui, v *gocui.View)
 	}
 	mv.MainViewMode = MainViewModeListBar
 	inserted := false
-	tasksTable := mv.DB.Tables[TableTasks]
+	tasksTable := mv.OSM.GetDB().Tables[TableTasks]
 	for _, item := range mv.planSelections {
 		if !item.Marked {
 			continue
@@ -2049,8 +2047,8 @@ func (mv *MainView) toggleFocus(g *gocui.Gui, v *gocui.View) error {
 // shouldn't be shown in an overview pane and will get picked up otherwise
 // anyway.
 func (mv *MainView) queryPendingNoImplements() ([][]types.Entry, error) {
-	assnTable := mv.DB.Tables[TableAssertions]
-	tasksTable := mv.DB.Tables[TableTasks]
+	assnTable := mv.OSM.GetDB().Tables[TableAssertions]
+	tasksTable := mv.OSM.GetDB().Tables[TableTasks]
 	pending, err := mv.queryAllTasks(StatusPending)
 	if err != nil {
 		return nil, err

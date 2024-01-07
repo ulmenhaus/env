@@ -36,7 +36,6 @@ const (
 // and a detailed view of the current resource
 type MainView struct {
 	OSM *osm.ObjectStoreMapper
-	DB  *types.Database
 
 	Mode MainViewMode
 
@@ -60,10 +59,9 @@ type channel struct {
 }
 
 // NewMainView returns a MainView initialized with a given Table
-func NewMainView(g *gocui.Gui, mapper *osm.ObjectStoreMapper, db *types.Database, ignoredPath string, returnArgs []string) (*MainView, error) {
+func NewMainView(g *gocui.Gui, mapper *osm.ObjectStoreMapper, ignoredPath string, returnArgs []string) (*MainView, error) {
 	mv := &MainView{
 		OSM: mapper,
-		DB:  db,
 
 		ignoredPath: ignoredPath,
 		returnArgs: returnArgs,
@@ -94,7 +92,7 @@ func NewMainView(g *gocui.Gui, mapper *osm.ObjectStoreMapper, db *types.Database
 }
 
 func (mv *MainView) gatherDomains() (map[string]string, error) {
-	assnTable, ok := mv.DB.Tables[TableAssertions]
+	assnTable, ok := mv.OSM.GetDB().Tables[TableAssertions]
 	if !ok {
 		return nil, fmt.Errorf("expected assertions table to exist")
 	}
@@ -132,7 +130,7 @@ func (mv *MainView) gatherDomains() (map[string]string, error) {
 
 func (mv *MainView) fetchResources() error {
 	// TODO use constants for column names
-	nounsTable, ok := mv.DB.Tables[TableNouns]
+	nounsTable, ok := mv.OSM.GetDB().Tables[TableNouns]
 	if !ok {
 		return fmt.Errorf("expected nouns table to exist")
 	}
@@ -198,11 +196,11 @@ func (mv *MainView) fetchResources() error {
 
 func (mv *MainView) fetchNewItems(g *gocui.Gui, v *gocui.View) error {
 	// TODO worth taking a second pass at this function for code cleanliness and performance
-	nounsTable, ok := mv.DB.Tables[TableNouns]
+	nounsTable, ok := mv.OSM.GetDB().Tables[TableNouns]
 	if !ok {
 		return fmt.Errorf("expected nouns table to exist")
 	}
-	contextTable, ok := mv.DB.Tables[TableContexts]
+	contextTable, ok := mv.OSM.GetDB().Tables[TableContexts]
 	if !ok {
 		return fmt.Errorf("expected context table to exist")
 	}
@@ -266,7 +264,7 @@ func (mv *MainView) addFreshItem(g *gocui.Gui, v *gocui.View) error {
 		return err
 	}
 	_, selectedResource := resources.Cursor()
-	nounsTable, ok := mv.DB.Tables[TableNouns]
+	nounsTable, ok := mv.OSM.GetDB().Tables[TableNouns]
 	if !ok {
 		return fmt.Errorf("expected resources table to exist")
 	}
@@ -367,7 +365,7 @@ func (mv *MainView) layoutDomains(g *gocui.Gui, domainHeight int) error {
 }
 
 func (mv *MainView) Layout(g *gocui.Gui) error {
-	nounsTable, ok := mv.DB.Tables[TableNouns]
+	nounsTable, ok := mv.OSM.GetDB().Tables[TableNouns]
 	if !ok {
 		return fmt.Errorf("expected nouns table to exist")
 	}
@@ -468,7 +466,7 @@ func (mv *MainView) saveContents(g *gocui.Gui, v *gocui.View) error {
 }
 
 func (mv *MainView) save() error {
-	err := mv.OSM.StoreEntries(mv.DB)
+	err := mv.OSM.StoreEntries()
 	if err != nil {
 		return err
 	}
@@ -572,7 +570,7 @@ func (mv *MainView) moveDownInPipe(g *gocui.Gui, v *gocui.View) error {
 	}
 	_, cy := v.Cursor()
 	_, oy := v.Origin()
-	nounsTable, ok := mv.DB.Tables[TableNouns]
+	nounsTable, ok := mv.OSM.GetDB().Tables[TableNouns]
 	if !ok {
 		return fmt.Errorf("Expected to find nouns table")
 	}
@@ -607,7 +605,7 @@ func (mv *MainView) moveUpInPipe(g *gocui.Gui, v *gocui.View) error {
 	}
 	_, cy := v.Cursor()
 	_, oy := v.Origin()
-	nounsTable, ok := mv.DB.Tables[TableNouns]
+	nounsTable, ok := mv.OSM.GetDB().Tables[TableNouns]
 	if !ok {
 		return fmt.Errorf("Expected to find nouns table")
 	}
@@ -642,7 +640,7 @@ func (mv *MainView) moveDown(g *gocui.Gui, v *gocui.View) error {
 	}
 	_, cy := v.Cursor()
 	_, oy := v.Origin()
-	nounsTable, ok := mv.DB.Tables[TableNouns]
+	nounsTable, ok := mv.OSM.GetDB().Tables[TableNouns]
 	if !ok {
 		return fmt.Errorf("Expected to find nouns table")
 	}
@@ -701,7 +699,7 @@ func (mv *MainView) moveUp(g *gocui.Gui, v *gocui.View) error {
 	_, cy := v.Cursor()
 	_, oy := v.Origin()
 	pk := channel.status2items[name][oy+cy].Identifier
-	nounsTable, ok := mv.DB.Tables[TableNouns]
+	nounsTable, ok := mv.OSM.GetDB().Tables[TableNouns]
 	if !ok {
 		return fmt.Errorf("Expected to find items table")
 	}
@@ -778,7 +776,7 @@ func (mv *MainView) goToPK(g *gocui.Gui, v *gocui.View) error {
 	_, oy := v.Origin()
 	var pk string
 	if v.Name() == ResourcesView {
-		nounsTable, ok := mv.DB.Tables[TableNouns]
+		nounsTable, ok := mv.OSM.GetDB().Tables[TableNouns]
 		if !ok {
 			return fmt.Errorf("expected nouns table to exist")
 		}
@@ -799,7 +797,7 @@ func (mv *MainView) switchToJQL(g *gocui.Gui, v *gocui.View) error {
 
 func (mv *MainView) refreshView(g *gocui.Gui) error {
 	// TODO this method could use a second pass for code cleanliness and performance
-	nounsTable, ok := mv.DB.Tables[TableNouns]
+	nounsTable, ok := mv.OSM.GetDB().Tables[TableNouns]
 	if !ok {
 		return fmt.Errorf("expected nouns table to exist")
 	}

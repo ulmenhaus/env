@@ -2,6 +2,7 @@ package ui
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -14,8 +15,10 @@ import (
 	"syscall"
 
 	"github.com/jroimartin/gocui"
+	"github.com/ulmenhaus/env/img/jql/api"
 	"github.com/ulmenhaus/env/img/jql/osm"
 	"github.com/ulmenhaus/env/img/jql/types"
+	"github.com/ulmenhaus/env/proto/jql/jqlpb"
 )
 
 // MainViewMode is the current mode of the MainView.
@@ -74,9 +77,9 @@ const (
 // interaction modes if jql supports those.
 type MainView struct {
 	path string
+	dbms api.JQL_DBMS
 
 	OSM     *osm.ObjectStoreMapper
-	DB      *types.Database
 	Table   *types.Table
 	Params  types.QueryParams
 	columns []string
@@ -98,11 +101,11 @@ type MainView struct {
 }
 
 // NewMainView returns a MainView initialized with a given Table
-func NewMainView(path, start string, mapper *osm.ObjectStoreMapper, db *types.Database) (*MainView, error) {
+func NewMainView(path, start string, mapper *osm.ObjectStoreMapper, dbms api.JQL_DBMS) (*MainView, error) {
 	mv := &MainView{
 		path: path,
+		dbms: dbms,
 		OSM:  mapper,
-		DB:   db,
 	}
 	return mv, mv.loadTable(start)
 }
@@ -112,11 +115,11 @@ func NewMainView(path, start string, mapper *osm.ObjectStoreMapper, db *types.Da
 // the first table to match the provided prefix, or an error if no
 // table matches
 func (mv *MainView) findTable(t string) (string, error) {
-	_, ok := mv.DB.Tables[t]
+	_, ok := mv.OSM.GetDB().Tables[t]
 	if ok {
 		return t, nil
 	}
-	for name, _ := range mv.DB.Tables {
+	for name, _ := range mv.OSM.GetDB().Tables {
 		if strings.HasPrefix(name, t) {
 			return name, nil
 		}
@@ -150,7 +153,7 @@ func (mv *MainView) loadTable(t string) error {
 	if err != nil {
 		return err
 	}
-	table := mv.DB.Tables[tName]
+	table := mv.OSM.GetDB().Tables[tName]
 	mv.Table = table
 	mv.tableName = tName
 	columns := []string{}
@@ -401,7 +404,7 @@ func (mv *MainView) saveContents() error {
 }
 
 func (mv *MainView) saveSilent() error {
-	return mv.OSM.StoreEntries(mv.DB)
+	return mv.OSM.StoreEntries()
 }
 
 func (mv *MainView) handleSelectInput(g *gocui.Gui, v *gocui.View) error {
@@ -463,7 +466,7 @@ func (mv *MainView) triggerEdit() error {
 		mv.selectOptions = f.Values()
 		mv.switchMode(MainViewModeSelectBox)
 	case types.ForeignKey:
-		ftable := mv.DB.Tables[f.Table]
+		ftable := mv.OSM.GetDB().Tables[f.Table]
 		// TODO not cache mapping
 		fresp, err := ftable.Query(types.QueryParams{
 			OrderBy: ftable.Columns[ftable.Primary()],
@@ -547,7 +550,7 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		mv.TableView.Move(DirectionDown)
 	case 'g', 'u':
 		tables := map[string]*types.Table{}
-		for tableName, table := range mv.DB.Tables {
+		for tableName, table := range mv.OSM.GetDB().Tables {
 			if (tableName == mv.tableName) == (ch == 'u') {
 				tables[tableName] = table
 			}
@@ -555,7 +558,7 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		err = mv.goToSelectedValue(tables)
 	case 'G', 'U':
 		tables := map[string]*types.Table{}
-		for tableName, table := range mv.DB.Tables {
+		for tableName, table := range mv.OSM.GetDB().Tables {
 			if (tableName == mv.tableName) == (ch == 'U') {
 				tables[tableName] = table
 			}
@@ -760,20 +763,23 @@ func (mv *MainView) promptExit(contents string, finish bool, err error) {
 				return
 			}
 			newPK := strings.Join(parts[1:], " ")
-			err = mv.Table.Insert(newPK)
-			if err != nil {
-				return
-			}
+			fields := map[string]string{}
 			for _, filter := range mv.Params.Filters {
 				col, formatted := filter.Example()
 				if col == -1 {
 					// TODO should unapply all filters here
 					continue
 				}
-				err = mv.Table.Update(newPK, mv.Table.Columns[col], formatted)
-				if err != nil {
-					return
-				}
+				fields[mv.Table.Columns[col]] = formatted
+			}
+
+			_, err = mv.dbms.WriteEntry(context.Background(), &jqlpb.WriteEntryRequest{
+				Table:  mv.tableName,
+				Pk:     newPK,
+				Fields: fields,
+			})
+			if err != nil {
+				return
 			}
 			err = mv.updateTableViewContents()
 			return
@@ -816,7 +822,7 @@ loop:
 	if err != nil {
 		return err
 	}
-	primary := mv.DB.Tables[table].Primary()
+	primary := mv.OSM.GetDB().Tables[table].Primary()
 	var filter types.Filter
 	if len(keys) == 1 {
 		filter = &EqualFilter{
@@ -889,7 +895,7 @@ func (mv *MainView) incrementSelected(amt int) error {
 	// TODO leaky abstraction
 	switch typed := entry.(type) {
 	case types.ForeignKey:
-		ftable := mv.DB.Tables[typed.Table]
+		ftable := mv.OSM.GetDB().Tables[typed.Table]
 		// TODO not cache mapping
 		fresp, err := ftable.Query(types.QueryParams{
 			OrderBy: ftable.Columns[ftable.Primary()],
@@ -1109,7 +1115,7 @@ func (mv *MainView) cursorUp(g *gocui.Gui, v *gocui.View) error {
 }
 
 func (mv *MainView) runMacro(ch rune) error {
-	macros := mv.DB.Tables[MacroTable]
+	macros := mv.OSM.GetDB().Tables[MacroTable]
 
 	entry, ok := macros.Entries[string(ch)]
 	if !ok {
@@ -1119,7 +1125,7 @@ func (mv *MainView) runMacro(ch rune) error {
 	reloadIndex := macros.IndexOfField("Reload")
 	isReload := reloadIndex != -1 && entry[reloadIndex].Format("") == "yes"
 	var stdout, stderr bytes.Buffer
-	snapshot, err := mv.OSM.GetSnapshot(mv.DB)
+	snapshot, err := mv.OSM.GetSnapshot(mv.OSM.GetDB())
 	if err != nil {
 		return fmt.Errorf("Could not create snapshot: %s", err)
 	}
@@ -1179,7 +1185,7 @@ func (mv *MainView) runMacro(ch rune) error {
 		}
 		newDB = []byte(output.Snapshot)
 	}
-	mv.DB, err = mv.OSM.LoadSnapshot(bytes.NewBuffer(newDB))
+	err = mv.OSM.LoadSnapshot(bytes.NewBuffer(newDB))
 	if err != nil {
 		return fmt.Errorf("Could not load database from macro: %s", err)
 	}

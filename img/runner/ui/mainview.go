@@ -73,7 +73,7 @@ func NewMainView(path string, g *gocui.Gui, jqlBinDir, defaultResourceFilter str
 	if err != nil {
 		return nil, err
 	}
-	db, err := mapper.Load()
+	err = mapper.Load()
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +83,7 @@ func NewMainView(path string, g *gocui.Gui, jqlBinDir, defaultResourceFilter str
 	}
 	mv := &MainView{
 		OSM:       mapper,
-		DB:        db,
+		DB:        mapper.GetDB(),
 		topic:     rootTopic,
 		TypeIX:    1,
 		recursive: true,

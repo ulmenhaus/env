@@ -24,11 +24,11 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	db, err := mapper.Load()
+	err = mapper.Load()
 	if err != nil {
 		panic(err)
 	}
-	mv, err := ui.NewMainView(g, mapper, db, dbPath+".ignored", []string{dbPath})
+	mv, err := ui.NewMainView(g, mapper, dbPath+".ignored", []string{dbPath})
 	if err != nil {
 		panic(err)
 	}

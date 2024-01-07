@@ -84,7 +84,6 @@ type MainView struct {
 	DB  *types.Database
 
 	CodeOSM *osm.ObjectStoreMapper
-	CodeDB  *types.Database
 
 	projectName     string
 	resourceQ       string
@@ -105,14 +104,14 @@ func NewMainView(g *gocui.Gui, projectName, jqlBinDir string) (*MainView, error)
 	if err != nil {
 		return nil, err
 	}
-	db, err := mapper.Load()
+	err = mapper.Load()
 	if err != nil {
 		return nil, err
 	}
 
 	mv := &MainView{
 		OSM: mapper,
-		DB:  db,
+		DB:  mapper.GetDB(),
 
 		TypeIX: 1,
 
@@ -133,11 +132,10 @@ func NewMainView(g *gocui.Gui, projectName, jqlBinDir string) (*MainView, error)
 		return nil, err
 	} else if err == nil {
 		defer f.Close()
-		codeDB, err := mapper.Load()
+		err := mapper.Load()
 		if err != nil {
 			return nil, err
 		}
-		mv.CodeDB = codeDB
 		mv.CodeOSM = codeMapper
 	}
 	return mv, mv.refreshAllResources()
@@ -434,10 +432,10 @@ func (mv *MainView) gatherJumps() error {
 }
 
 func (mv *MainView) gatherComponents() error {
-	if mv.CodeDB == nil {
+	if mv.CodeOSM.GetDB() == nil {
 		return nil
 	}
-	componentsTable := mv.CodeDB.Tables[ComponentsTable]
+	componentsTable := mv.CodeOSM.GetDB().Tables[ComponentsTable]
 	components, err := componentsTable.Query(
 		types.QueryParams{
 			OrderBy: FieldDisplayName,

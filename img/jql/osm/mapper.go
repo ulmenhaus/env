@@ -34,6 +34,13 @@ var (
 type ObjectStoreMapper struct {
 	store storage.Store // the storage.Store to which items are stored
 	path  string
+
+	// NOTE to support an incremental migration to daemonized jql we store
+	// the database as an attribute on the OSM that can be exposed to
+	// higher level callers. Once exposure to the database is fully
+	// hidden behind the DBMS API and we are doing sharded storage
+	// we can reconsider the handoff between the OSM and the API layer
+	db *types.Database 
 }
 
 // NewObjectStoreMapper returns a new ObjectStoreMapper given a storage driver
@@ -50,25 +57,29 @@ func NewObjectStoreMapper(path string) (*ObjectStoreMapper, error) {
 	}, nil
 }
 
-func (osm *ObjectStoreMapper) Load() (*types.Database, error) {
+func (osm *ObjectStoreMapper) GetDB() *types.Database {
+	return osm.db
+}
+
+func (osm *ObjectStoreMapper) Load() error {
 	f, err := os.Open(osm.path)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer f.Close()
 	return osm.LoadSnapshot(f)
 }
 
 // Load takes the given reader of a serialized databse and returns a databse object
-func (osm *ObjectStoreMapper) LoadSnapshot(src io.Reader) (*types.Database, error) {
+func (osm *ObjectStoreMapper) LoadSnapshot(src io.Reader) error {
 	// XXX needs refactor
 	raw, err := osm.store.Read(src)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	schemata, ok := raw[schemataTableName]
 	if !ok {
-		return nil, fmt.Errorf("missing schema table")
+		return fmt.Errorf("missing schema table")
 	}
 	// field index is non deterministic which will lead to random output
 	// we could have another attribute for "_presentation" which contains
@@ -80,18 +91,18 @@ func (osm *ObjectStoreMapper) LoadSnapshot(src io.Reader) (*types.Database, erro
 	for name, schema := range schemata {
 		parts := strings.Split(name, ".")
 		if len(parts) != 2 {
-			return nil, fmt.Errorf("invalid column name: %s", name)
+			return fmt.Errorf("invalid column name: %s", name)
 		}
 		table := parts[0]
 		column := parts[1]
 		// TODO schema validation outside of loop -- this is inefficient
 		fieldTypeRaw, ok := schema["type"]
 		if !ok {
-			return nil, fmt.Errorf("missing type for %s.%s", table, column)
+			return fmt.Errorf("missing type for %s.%s", table, column)
 		}
 		fieldType, ok := fieldTypeRaw.(string)
 		if !ok {
-			return nil, fmt.Errorf("invalid type %#v", fieldTypeRaw)
+			return fmt.Errorf("invalid type %#v", fieldTypeRaw)
 		}
 		if strings.HasPrefix(fieldType, "dynamic.") {
 			// TODO implement dymanic columns
@@ -101,7 +112,7 @@ func (osm *ObjectStoreMapper) LoadSnapshot(src io.Reader) (*types.Database, erro
 		if primary, ok := schema["primary"]; ok {
 			if primaryB, ok := primary.(bool); ok && primaryB {
 				if currentPrimary, ok := primariesByTable[table]; ok {
-					return nil, fmt.Errorf("Duplicate primary keys for %s: %s %s", table, currentPrimary, column)
+					return fmt.Errorf("Duplicate primary keys for %s: %s %s", table, currentPrimary, column)
 				}
 				primariesByTable[table] = column
 			}
@@ -132,7 +143,7 @@ func (osm *ObjectStoreMapper) LoadSnapshot(src io.Reader) (*types.Database, erro
 		} else {
 			constructor, ok = constructors[fieldType]
 			if !ok {
-				return nil, fmt.Errorf("invalid type '%s'", fieldType)
+				return fmt.Errorf("invalid type '%s'", fieldType)
 			}
 		}
 		byTable, ok := fieldsByTable[table]
@@ -151,7 +162,7 @@ func (osm *ObjectStoreMapper) LoadSnapshot(src io.Reader) (*types.Database, erro
 		if ok {
 			features, ok = featuresUncast.(map[string]interface{})
 			if !ok {
-				return nil, fmt.Errorf("invalid type for `features`")
+				return fmt.Errorf("invalid type for `features`")
 			}
 		}
 		featuresByColumnByTable[table][column] = features
@@ -164,7 +175,7 @@ func (osm *ObjectStoreMapper) LoadSnapshot(src io.Reader) (*types.Database, erro
 			indexMap[fmt.Sprintf("%s.%s", table, column)] = index
 		}
 		if _, ok := primariesByTable[table]; !ok {
-			return nil, fmt.Errorf("No primary key for table: %s", table)
+			return fmt.Errorf("No primary key for table: %s", table)
 		}
 	}
 
@@ -176,7 +187,7 @@ func (osm *ObjectStoreMapper) LoadSnapshot(src io.Reader) (*types.Database, erro
 	for name, encoded := range raw {
 		primary, ok := primariesByTable[name]
 		if !ok {
-			return nil, fmt.Errorf("Unknown table: %s", name)
+			return fmt.Errorf("Unknown table: %s", name)
 		}
 		// TODO use a constructor and Inserts -- that way the able can map
 		// columns by name
@@ -193,19 +204,20 @@ func (osm *ObjectStoreMapper) LoadSnapshot(src io.Reader) (*types.Database, erro
 				fullName := fmt.Sprintf("%s.%s", name, column)
 				index, ok := indexMap[fullName]
 				if !ok {
-					return nil, fmt.Errorf("unknown column: %s", fullName)
+					return fmt.Errorf("unknown column: %s", fullName)
 				}
 				constructor := constructorsByTable[name][column]
 
 				typedVal, err := constructor(value, featuresByColumnByTable[name][column])
 				if err != nil {
-					return nil, fmt.Errorf("failed to init %s.%s for %s: %s", name, column, pk, err)
+					return fmt.Errorf("failed to init %s.%s for %s: %s", name, column, pk, err)
 				}
 				row[index] = typedVal
 			}
 		}
 	}
-	return db, nil
+	osm.db = db
+	return nil
 }
 
 func (osm *ObjectStoreMapper) dumpSnapshot(db *types.Database, dst io.Writer) error {
@@ -230,13 +242,13 @@ func (osm *ObjectStoreMapper) dumpSnapshot(db *types.Database, dst io.Writer) er
 	return osm.store.Write(dst, encoded)
 }
 
-func (osm *ObjectStoreMapper) StoreEntries(db *types.Database) error {
+func (osm *ObjectStoreMapper) StoreEntries() error {
 	dst, err := os.OpenFile(osm.path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
 		return err
 	}
 	defer dst.Close()
-	return osm.dumpSnapshot(db, dst)
+	return osm.dumpSnapshot(osm.db, dst)
 }
 
 func (osm *ObjectStoreMapper) GetSnapshot(db *types.Database) (string, error) {

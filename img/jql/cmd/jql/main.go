@@ -10,7 +10,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/ulmenhaus/env/img/jql/api"
 	"github.com/ulmenhaus/env/img/jql/osm"
-	"github.com/ulmenhaus/env/img/jql/types"
 	"github.com/ulmenhaus/env/img/jql/ui"
 	"github.com/ulmenhaus/env/proto/jql/jqlpb"
 	"google.golang.org/grpc"
@@ -58,34 +57,30 @@ func runCLI() error {
 }
 
 func runJQL(cfg jqlConfig) error {
-	mapper, db, err := runDatabse(cfg.path)
+	dbms, mapper, err := runDatabse(cfg.path)
 	if err != nil {
 		return err
 	}
 	// TODO path should be hidden behind the OSM and never used directly by any of these components
 	switch cfg.mode {
 	case "standalone":
-		return runStandalone(cfg.path, cfg.table, mapper, db)
+		return runStandalone(cfg.path, cfg.table, mapper, dbms)
 	case "daemon":
-		return runDaemon(cfg.path, cfg.table, mapper, db, cfg.addr)
+		return runDaemon(cfg.path, cfg.table, mapper, cfg.addr, dbms)
 	case "client":
-		return runClient(cfg.path, cfg.table, mapper, db)
+		return runClient(dbms)
 	default:
 		return fmt.Errorf("Unknown mode: %v", cfg.mode)
 	}
 }
 
-func runDaemon(dbPath, tableName string, mapper *osm.ObjectStoreMapper, db *types.Database, addr string) error {
-	server, err := api.NewLocalAPI(mapper, db, dbPath)
-	if err != nil {
-		return fmt.Errorf("failed to initialize database server: %v", err)
-	}
+func runDaemon(dbPath, tableName string, mapper *osm.ObjectStoreMapper, addr string, dbms api.JQL_DBMS) error {
 	lis, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("failed to listen: %v", err)
 	}
 	s := grpc.NewServer()
-	jqlpb.RegisterJQLServer(s, api.NewAPIShim(server))
+	jqlpb.RegisterJQLServer(s, api.NewDBMSShim(dbms))
 	log.Printf("server listening at %v", lis.Addr())
 	if err := s.Serve(lis); err != nil {
 		return fmt.Errorf("failed to serve: %v", err)
@@ -93,12 +88,12 @@ func runDaemon(dbPath, tableName string, mapper *osm.ObjectStoreMapper, db *type
 	return nil
 }
 
-func runClient(dbPath, tableName string, mapper *osm.ObjectStoreMapper, db *types.Database) error {
+func runClient(dbms api.JQL_DBMS) error {
 	return fmt.Errorf("Client mode not yet implemented")
 }
 
-func runStandalone(dbPath, tableName string, mapper *osm.ObjectStoreMapper, db *types.Database) error {
-	mv, err := ui.NewMainView(dbPath, tableName, mapper, db)
+func runStandalone(dbPath, tableName string, mapper *osm.ObjectStoreMapper, dbms api.JQL_DBMS) error {
+	mv, err := ui.NewMainView(dbPath, tableName, mapper, dbms)
 	if err != nil {
 		return err
 	}
@@ -132,14 +127,18 @@ func quit(g *gocui.Gui, v *gocui.View) error {
 	return gocui.ErrQuit
 }
 
-func runDatabse(path string) (*osm.ObjectStoreMapper, *types.Database, error) {
+func runDatabse(path string) (api.JQL_DBMS, *osm.ObjectStoreMapper, error) {
 	mapper, err := osm.NewObjectStoreMapper(path)
 	if err != nil {
 		return nil, nil, err
 	}
-	db, err := mapper.Load()
+	err = mapper.Load()
 	if err != nil {
 		return nil, nil, err
 	}
-	return mapper, db, err
+	dbms, err := api.NewLocalDBMS(mapper, path)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to initialize database server: %v", err)
+	}
+	return dbms, mapper, err
 }
