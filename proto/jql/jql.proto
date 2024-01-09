@@ -5,26 +5,57 @@ option go_package = "jql/jqlpb";
 package jql;
 
 service JQL {
-	rpc ListEntries (ListEntriesRequest) returns (ListEntriesResponse);
-	rpc GetEntry (GetEntryRequest) returns (GetEntryResponse);
-  rpc WriteEntry (WriteEntryRequest) returns (WriteEntryResponse);
-	rpc DeleteEntry (DeleteEntryRequest) returns (DeleteEntryResponse);
+	rpc ListRows (ListRowsRequest) returns (ListRowsResponse);
+	rpc GetRow (GetRowRequest) returns (GetRowResponse);
+  rpc WriteRow (WriteRowRequest) returns (WriteRowResponse);
+	rpc DeleteRow (DeleteRowRequest) returns (DeleteRowResponse);
 	rpc Persist (PersistRequest) returns (PersistResponse);
 }
 
-message ListEntriesRequest {
+message ListRowsRequest {
 }
 
-message ListEntriesResponse {
+enum EntryType {
+	STRING = 0;
+	INT = 1;
+	DATE = 2;
+	ENUM = 3;
+	ID = 4;
+	TIME = 5;
+	MONEYAMT = 6;
+	FOREIGN = 7;
+	FOREIGNS = 8;
 }
 
-message GetEntryRequest {
+message Column {
+	string name = 1;
+	EntryType type = 2;
 }
 
-message GetEntryResponse {
+message Entry {
+	string formatted = 1;
 }
 
-message WriteEntryRequest {
+message Row {
+	repeated Entry entries = 1;
+}
+
+message ListRowsResponse {
+	repeated Column columns = 1;
+	repeated Row rows = 2;
+}
+
+message GetRowRequest {
+	string table = 1;
+	string pk = 2;
+}
+
+message GetRowResponse {
+	repeated Column columns = 1;
+	Row row = 2;
+}
+
+message WriteRowRequest {
 	string table = 1;
 	string pk = 2;
 	map<string, string> fields = 3;
@@ -32,14 +63,14 @@ message WriteEntryRequest {
 	bool insert_only = 5;
 }
 
-message WriteEntryResponse {}
+message WriteRowResponse {}
 
-message DeleteEntryRequest {
+message DeleteRowRequest {
 	string table = 1;
 	string pk = 2;
 }
 
-message DeleteEntryResponse {}
+message DeleteRowResponse {}
 
 message PersistRequest {}
 

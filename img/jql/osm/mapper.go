@@ -10,6 +10,7 @@ import (
 
 	"github.com/ulmenhaus/env/img/jql/storage"
 	"github.com/ulmenhaus/env/img/jql/types"
+	"github.com/ulmenhaus/env/proto/jql/jqlpb"
 )
 
 const (
@@ -26,6 +27,15 @@ var (
 		"time":     types.NewTime,
 		"moneyamt": types.NewMoneyAmount,
 	} // maps field types to their corresponding constructor functions
+	fieldTypes = map[string]jqlpb.EntryType{
+		"string":   jqlpb.EntryType_STRING,
+		"int":      jqlpb.EntryType_INT,
+		"date":     jqlpb.EntryType_DATE,
+		"enum":     jqlpb.EntryType_ENUM,
+		"id":       jqlpb.EntryType_ID,
+		"time":     jqlpb.EntryType_TIME,
+		"moneyamt": jqlpb.EntryType_MONEYAMT,
+	}
 )
 
 // An ObjectStoreMapper is responsible for converting between the
@@ -40,7 +50,7 @@ type ObjectStoreMapper struct {
 	// higher level callers. Once exposure to the database is fully
 	// hidden behind the DBMS API and we are doing sharded storage
 	// we can reconsider the handoff between the OSM and the API layer
-	db *types.Database 
+	db *types.Database
 }
 
 // NewObjectStoreMapper returns a new ObjectStoreMapper given a storage driver
@@ -88,6 +98,7 @@ func (osm *ObjectStoreMapper) LoadSnapshot(src io.Reader) error {
 	primariesByTable := map[string]string{}
 	constructorsByTable := map[string](map[string]types.FieldValueConstructor){}
 	featuresByColumnByTable := map[string](map[string](map[string]interface{})){}
+	columnMetaByTable := map[string](map[string]types.ColumnMeta){}
 	for name, schema := range schemata {
 		parts := strings.Split(name, ".")
 		if len(parts) != 2 {
@@ -118,10 +129,12 @@ func (osm *ObjectStoreMapper) LoadSnapshot(src io.Reader) error {
 			}
 		}
 		var constructor types.FieldValueConstructor
+		var entryType jqlpb.EntryType
 		if strings.HasPrefix(fieldType, "foreign.") {
 			// TODO(rabrams) double check scoping of this variable
 			// also would be good to validate foriegn values
 			table := fieldType[len("foreign."):]
+			entryType = jqlpb.EntryType_FOREIGN
 			constructor = func(i interface{}, features map[string]interface{}) (types.Entry, error) {
 				if features == nil {
 					features = map[string]interface{}{}
@@ -129,10 +142,12 @@ func (osm *ObjectStoreMapper) LoadSnapshot(src io.Reader) error {
 				features["table"] = table
 				return types.NewForeignKey(i, features)
 			}
+
 		} else if strings.HasPrefix(fieldType, "foreigns.") {
 			// TODO(rabrams) double check scoping of this variable
 			// also would be good to validate foriegn values
 			table := fieldType[len("foreigns."):]
+			entryType = jqlpb.EntryType_FOREIGNS
 			constructor = func(i interface{}, features map[string]interface{}) (types.Entry, error) {
 				if features == nil {
 					features = map[string]interface{}{}
@@ -145,6 +160,10 @@ func (osm *ObjectStoreMapper) LoadSnapshot(src io.Reader) error {
 			if !ok {
 				return fmt.Errorf("invalid type '%s'", fieldType)
 			}
+			entryType, ok = fieldTypes[fieldType]
+			if !ok {
+				return fmt.Errorf("invalid type '%s'", fieldType)
+			}
 		}
 		byTable, ok := fieldsByTable[table]
 		if !ok {
@@ -153,9 +172,17 @@ func (osm *ObjectStoreMapper) LoadSnapshot(src io.Reader) error {
 				column: constructor,
 			}
 			featuresByColumnByTable[table] = map[string](map[string]interface{}){}
+			columnMetaByTable[table] = map[string]types.ColumnMeta{
+				column: {
+					Type: entryType,
+				},
+			}
 		} else {
 			fieldsByTable[table] = append(byTable, column)
 			constructorsByTable[table][column] = constructor
+			columnMetaByTable[table][column] = types.ColumnMeta{
+				Type: entryType,
+			}
 		}
 		features := map[string]interface{}{}
 		featuresUncast, ok := schema["features"]
@@ -191,7 +218,7 @@ func (osm *ObjectStoreMapper) LoadSnapshot(src io.Reader) error {
 		}
 		// TODO use a constructor and Inserts -- that way the able can map
 		// columns by name
-		table := types.NewTable(fieldsByTable[name], map[string][]types.Entry{}, primary, constructorsByTable[name], featuresByColumnByTable[name])
+		table := types.NewTable(fieldsByTable[name], map[string][]types.Entry{}, primary, constructorsByTable[name], featuresByColumnByTable[name], columnMetaByTable[name])
 		allFields := fieldsByTable[name]
 
 		db.Tables[name] = table

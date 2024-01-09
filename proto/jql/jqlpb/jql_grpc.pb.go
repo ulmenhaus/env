@@ -19,21 +19,21 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	JQL_ListEntries_FullMethodName = "/jql.JQL/ListEntries"
-	JQL_GetEntry_FullMethodName    = "/jql.JQL/GetEntry"
-	JQL_WriteEntry_FullMethodName  = "/jql.JQL/WriteEntry"
-	JQL_DeleteEntry_FullMethodName = "/jql.JQL/DeleteEntry"
-	JQL_Persist_FullMethodName     = "/jql.JQL/Persist"
+	JQL_ListRows_FullMethodName  = "/jql.JQL/ListRows"
+	JQL_GetRow_FullMethodName    = "/jql.JQL/GetRow"
+	JQL_WriteRow_FullMethodName  = "/jql.JQL/WriteRow"
+	JQL_DeleteRow_FullMethodName = "/jql.JQL/DeleteRow"
+	JQL_Persist_FullMethodName   = "/jql.JQL/Persist"
 )
 
 // JQLClient is the client API for JQL service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type JQLClient interface {
-	ListEntries(ctx context.Context, in *ListEntriesRequest, opts ...grpc.CallOption) (*ListEntriesResponse, error)
-	GetEntry(ctx context.Context, in *GetEntryRequest, opts ...grpc.CallOption) (*GetEntryResponse, error)
-	WriteEntry(ctx context.Context, in *WriteEntryRequest, opts ...grpc.CallOption) (*WriteEntryResponse, error)
-	DeleteEntry(ctx context.Context, in *DeleteEntryRequest, opts ...grpc.CallOption) (*DeleteEntryResponse, error)
+	ListRows(ctx context.Context, in *ListRowsRequest, opts ...grpc.CallOption) (*ListRowsResponse, error)
+	GetRow(ctx context.Context, in *GetRowRequest, opts ...grpc.CallOption) (*GetRowResponse, error)
+	WriteRow(ctx context.Context, in *WriteRowRequest, opts ...grpc.CallOption) (*WriteRowResponse, error)
+	DeleteRow(ctx context.Context, in *DeleteRowRequest, opts ...grpc.CallOption) (*DeleteRowResponse, error)
 	Persist(ctx context.Context, in *PersistRequest, opts ...grpc.CallOption) (*PersistResponse, error)
 }
 
@@ -45,36 +45,36 @@ func NewJQLClient(cc grpc.ClientConnInterface) JQLClient {
 	return &jQLClient{cc}
 }
 
-func (c *jQLClient) ListEntries(ctx context.Context, in *ListEntriesRequest, opts ...grpc.CallOption) (*ListEntriesResponse, error) {
-	out := new(ListEntriesResponse)
-	err := c.cc.Invoke(ctx, JQL_ListEntries_FullMethodName, in, out, opts...)
+func (c *jQLClient) ListRows(ctx context.Context, in *ListRowsRequest, opts ...grpc.CallOption) (*ListRowsResponse, error) {
+	out := new(ListRowsResponse)
+	err := c.cc.Invoke(ctx, JQL_ListRows_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *jQLClient) GetEntry(ctx context.Context, in *GetEntryRequest, opts ...grpc.CallOption) (*GetEntryResponse, error) {
-	out := new(GetEntryResponse)
-	err := c.cc.Invoke(ctx, JQL_GetEntry_FullMethodName, in, out, opts...)
+func (c *jQLClient) GetRow(ctx context.Context, in *GetRowRequest, opts ...grpc.CallOption) (*GetRowResponse, error) {
+	out := new(GetRowResponse)
+	err := c.cc.Invoke(ctx, JQL_GetRow_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *jQLClient) WriteEntry(ctx context.Context, in *WriteEntryRequest, opts ...grpc.CallOption) (*WriteEntryResponse, error) {
-	out := new(WriteEntryResponse)
-	err := c.cc.Invoke(ctx, JQL_WriteEntry_FullMethodName, in, out, opts...)
+func (c *jQLClient) WriteRow(ctx context.Context, in *WriteRowRequest, opts ...grpc.CallOption) (*WriteRowResponse, error) {
+	out := new(WriteRowResponse)
+	err := c.cc.Invoke(ctx, JQL_WriteRow_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *jQLClient) DeleteEntry(ctx context.Context, in *DeleteEntryRequest, opts ...grpc.CallOption) (*DeleteEntryResponse, error) {
-	out := new(DeleteEntryResponse)
-	err := c.cc.Invoke(ctx, JQL_DeleteEntry_FullMethodName, in, out, opts...)
+func (c *jQLClient) DeleteRow(ctx context.Context, in *DeleteRowRequest, opts ...grpc.CallOption) (*DeleteRowResponse, error) {
+	out := new(DeleteRowResponse)
+	err := c.cc.Invoke(ctx, JQL_DeleteRow_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -94,10 +94,10 @@ func (c *jQLClient) Persist(ctx context.Context, in *PersistRequest, opts ...grp
 // All implementations must embed UnimplementedJQLServer
 // for forward compatibility
 type JQLServer interface {
-	ListEntries(context.Context, *ListEntriesRequest) (*ListEntriesResponse, error)
-	GetEntry(context.Context, *GetEntryRequest) (*GetEntryResponse, error)
-	WriteEntry(context.Context, *WriteEntryRequest) (*WriteEntryResponse, error)
-	DeleteEntry(context.Context, *DeleteEntryRequest) (*DeleteEntryResponse, error)
+	ListRows(context.Context, *ListRowsRequest) (*ListRowsResponse, error)
+	GetRow(context.Context, *GetRowRequest) (*GetRowResponse, error)
+	WriteRow(context.Context, *WriteRowRequest) (*WriteRowResponse, error)
+	DeleteRow(context.Context, *DeleteRowRequest) (*DeleteRowResponse, error)
 	Persist(context.Context, *PersistRequest) (*PersistResponse, error)
 	mustEmbedUnimplementedJQLServer()
 }
@@ -106,17 +106,17 @@ type JQLServer interface {
 type UnimplementedJQLServer struct {
 }
 
-func (UnimplementedJQLServer) ListEntries(context.Context, *ListEntriesRequest) (*ListEntriesResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method ListEntries not implemented")
+func (UnimplementedJQLServer) ListRows(context.Context, *ListRowsRequest) (*ListRowsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListRows not implemented")
 }
-func (UnimplementedJQLServer) GetEntry(context.Context, *GetEntryRequest) (*GetEntryResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetEntry not implemented")
+func (UnimplementedJQLServer) GetRow(context.Context, *GetRowRequest) (*GetRowResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetRow not implemented")
 }
-func (UnimplementedJQLServer) WriteEntry(context.Context, *WriteEntryRequest) (*WriteEntryResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method WriteEntry not implemented")
+func (UnimplementedJQLServer) WriteRow(context.Context, *WriteRowRequest) (*WriteRowResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method WriteRow not implemented")
 }
-func (UnimplementedJQLServer) DeleteEntry(context.Context, *DeleteEntryRequest) (*DeleteEntryResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method DeleteEntry not implemented")
+func (UnimplementedJQLServer) DeleteRow(context.Context, *DeleteRowRequest) (*DeleteRowResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteRow not implemented")
 }
 func (UnimplementedJQLServer) Persist(context.Context, *PersistRequest) (*PersistResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Persist not implemented")
@@ -134,74 +134,74 @@ func RegisterJQLServer(s grpc.ServiceRegistrar, srv JQLServer) {
 	s.RegisterService(&JQL_ServiceDesc, srv)
 }
 
-func _JQL_ListEntries_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ListEntriesRequest)
+func _JQL_ListRows_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListRowsRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(JQLServer).ListEntries(ctx, in)
+		return srv.(JQLServer).ListRows(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: JQL_ListEntries_FullMethodName,
+		FullMethod: JQL_ListRows_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(JQLServer).ListEntries(ctx, req.(*ListEntriesRequest))
+		return srv.(JQLServer).ListRows(ctx, req.(*ListRowsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _JQL_GetEntry_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetEntryRequest)
+func _JQL_GetRow_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetRowRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(JQLServer).GetEntry(ctx, in)
+		return srv.(JQLServer).GetRow(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: JQL_GetEntry_FullMethodName,
+		FullMethod: JQL_GetRow_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(JQLServer).GetEntry(ctx, req.(*GetEntryRequest))
+		return srv.(JQLServer).GetRow(ctx, req.(*GetRowRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _JQL_WriteEntry_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(WriteEntryRequest)
+func _JQL_WriteRow_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(WriteRowRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(JQLServer).WriteEntry(ctx, in)
+		return srv.(JQLServer).WriteRow(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: JQL_WriteEntry_FullMethodName,
+		FullMethod: JQL_WriteRow_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(JQLServer).WriteEntry(ctx, req.(*WriteEntryRequest))
+		return srv.(JQLServer).WriteRow(ctx, req.(*WriteRowRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _JQL_DeleteEntry_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(DeleteEntryRequest)
+func _JQL_DeleteRow_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteRowRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(JQLServer).DeleteEntry(ctx, in)
+		return srv.(JQLServer).DeleteRow(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: JQL_DeleteEntry_FullMethodName,
+		FullMethod: JQL_DeleteRow_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(JQLServer).DeleteEntry(ctx, req.(*DeleteEntryRequest))
+		return srv.(JQLServer).DeleteRow(ctx, req.(*DeleteRowRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -232,20 +232,20 @@ var JQL_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*JQLServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "ListEntries",
-			Handler:    _JQL_ListEntries_Handler,
+			MethodName: "ListRows",
+			Handler:    _JQL_ListRows_Handler,
 		},
 		{
-			MethodName: "GetEntry",
-			Handler:    _JQL_GetEntry_Handler,
+			MethodName: "GetRow",
+			Handler:    _JQL_GetRow_Handler,
 		},
 		{
-			MethodName: "WriteEntry",
-			Handler:    _JQL_WriteEntry_Handler,
+			MethodName: "WriteRow",
+			Handler:    _JQL_WriteRow_Handler,
 		},
 		{
-			MethodName: "DeleteEntry",
-			Handler:    _JQL_DeleteEntry_Handler,
+			MethodName: "DeleteRow",
+			Handler:    _JQL_DeleteRow_Handler,
 		},
 		{
 			MethodName: "Persist",

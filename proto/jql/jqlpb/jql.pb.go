@@ -20,14 +20,81 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-type ListEntriesRequest struct {
+type EntryType int32
+
+const (
+	EntryType_STRING   EntryType = 0
+	EntryType_INT      EntryType = 1
+	EntryType_DATE     EntryType = 2
+	EntryType_ENUM     EntryType = 3
+	EntryType_ID       EntryType = 4
+	EntryType_TIME     EntryType = 5
+	EntryType_MONEYAMT EntryType = 6
+	EntryType_FOREIGN  EntryType = 7
+	EntryType_FOREIGNS EntryType = 8
+)
+
+// Enum value maps for EntryType.
+var (
+	EntryType_name = map[int32]string{
+		0: "STRING",
+		1: "INT",
+		2: "DATE",
+		3: "ENUM",
+		4: "ID",
+		5: "TIME",
+		6: "MONEYAMT",
+		7: "FOREIGN",
+		8: "FOREIGNS",
+	}
+	EntryType_value = map[string]int32{
+		"STRING":   0,
+		"INT":      1,
+		"DATE":     2,
+		"ENUM":     3,
+		"ID":       4,
+		"TIME":     5,
+		"MONEYAMT": 6,
+		"FOREIGN":  7,
+		"FOREIGNS": 8,
+	}
+)
+
+func (x EntryType) Enum() *EntryType {
+	p := new(EntryType)
+	*p = x
+	return p
+}
+
+func (x EntryType) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (EntryType) Descriptor() protoreflect.EnumDescriptor {
+	return file_jql_jql_proto_enumTypes[0].Descriptor()
+}
+
+func (EntryType) Type() protoreflect.EnumType {
+	return &file_jql_jql_proto_enumTypes[0]
+}
+
+func (x EntryType) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use EntryType.Descriptor instead.
+func (EntryType) EnumDescriptor() ([]byte, []int) {
+	return file_jql_jql_proto_rawDescGZIP(), []int{0}
+}
+
+type ListRowsRequest struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 }
 
-func (x *ListEntriesRequest) Reset() {
-	*x = ListEntriesRequest{}
+func (x *ListRowsRequest) Reset() {
+	*x = ListRowsRequest{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_jql_jql_proto_msgTypes[0]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -35,13 +102,13 @@ func (x *ListEntriesRequest) Reset() {
 	}
 }
 
-func (x *ListEntriesRequest) String() string {
+func (x *ListRowsRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ListEntriesRequest) ProtoMessage() {}
+func (*ListRowsRequest) ProtoMessage() {}
 
-func (x *ListEntriesRequest) ProtoReflect() protoreflect.Message {
+func (x *ListRowsRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_jql_jql_proto_msgTypes[0]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -53,19 +120,22 @@ func (x *ListEntriesRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ListEntriesRequest.ProtoReflect.Descriptor instead.
-func (*ListEntriesRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use ListRowsRequest.ProtoReflect.Descriptor instead.
+func (*ListRowsRequest) Descriptor() ([]byte, []int) {
 	return file_jql_jql_proto_rawDescGZIP(), []int{0}
 }
 
-type ListEntriesResponse struct {
+type Column struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
+
+	Name string    `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Type EntryType `protobuf:"varint,2,opt,name=type,proto3,enum=jql.EntryType" json:"type,omitempty"`
 }
 
-func (x *ListEntriesResponse) Reset() {
-	*x = ListEntriesResponse{}
+func (x *Column) Reset() {
+	*x = Column{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_jql_jql_proto_msgTypes[1]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -73,13 +143,13 @@ func (x *ListEntriesResponse) Reset() {
 	}
 }
 
-func (x *ListEntriesResponse) String() string {
+func (x *Column) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ListEntriesResponse) ProtoMessage() {}
+func (*Column) ProtoMessage() {}
 
-func (x *ListEntriesResponse) ProtoReflect() protoreflect.Message {
+func (x *Column) ProtoReflect() protoreflect.Message {
 	mi := &file_jql_jql_proto_msgTypes[1]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -91,19 +161,35 @@ func (x *ListEntriesResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ListEntriesResponse.ProtoReflect.Descriptor instead.
-func (*ListEntriesResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use Column.ProtoReflect.Descriptor instead.
+func (*Column) Descriptor() ([]byte, []int) {
 	return file_jql_jql_proto_rawDescGZIP(), []int{1}
 }
 
-type GetEntryRequest struct {
+func (x *Column) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *Column) GetType() EntryType {
+	if x != nil {
+		return x.Type
+	}
+	return EntryType_STRING
+}
+
+type Entry struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
+
+	Formatted string `protobuf:"bytes,1,opt,name=formatted,proto3" json:"formatted,omitempty"`
 }
 
-func (x *GetEntryRequest) Reset() {
-	*x = GetEntryRequest{}
+func (x *Entry) Reset() {
+	*x = Entry{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_jql_jql_proto_msgTypes[2]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -111,13 +197,13 @@ func (x *GetEntryRequest) Reset() {
 	}
 }
 
-func (x *GetEntryRequest) String() string {
+func (x *Entry) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*GetEntryRequest) ProtoMessage() {}
+func (*Entry) ProtoMessage() {}
 
-func (x *GetEntryRequest) ProtoReflect() protoreflect.Message {
+func (x *Entry) ProtoReflect() protoreflect.Message {
 	mi := &file_jql_jql_proto_msgTypes[2]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -129,19 +215,28 @@ func (x *GetEntryRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use GetEntryRequest.ProtoReflect.Descriptor instead.
-func (*GetEntryRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use Entry.ProtoReflect.Descriptor instead.
+func (*Entry) Descriptor() ([]byte, []int) {
 	return file_jql_jql_proto_rawDescGZIP(), []int{2}
 }
 
-type GetEntryResponse struct {
+func (x *Entry) GetFormatted() string {
+	if x != nil {
+		return x.Formatted
+	}
+	return ""
+}
+
+type Row struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
+
+	Entries []*Entry `protobuf:"bytes,1,rep,name=entries,proto3" json:"entries,omitempty"`
 }
 
-func (x *GetEntryResponse) Reset() {
-	*x = GetEntryResponse{}
+func (x *Row) Reset() {
+	*x = Row{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_jql_jql_proto_msgTypes[3]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -149,13 +244,13 @@ func (x *GetEntryResponse) Reset() {
 	}
 }
 
-func (x *GetEntryResponse) String() string {
+func (x *Row) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*GetEntryResponse) ProtoMessage() {}
+func (*Row) ProtoMessage() {}
 
-func (x *GetEntryResponse) ProtoReflect() protoreflect.Message {
+func (x *Row) ProtoReflect() protoreflect.Message {
 	mi := &file_jql_jql_proto_msgTypes[3]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -167,25 +262,29 @@ func (x *GetEntryResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use GetEntryResponse.ProtoReflect.Descriptor instead.
-func (*GetEntryResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use Row.ProtoReflect.Descriptor instead.
+func (*Row) Descriptor() ([]byte, []int) {
 	return file_jql_jql_proto_rawDescGZIP(), []int{3}
 }
 
-type WriteEntryRequest struct {
+func (x *Row) GetEntries() []*Entry {
+	if x != nil {
+		return x.Entries
+	}
+	return nil
+}
+
+type ListRowsResponse struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Table      string            `protobuf:"bytes,1,opt,name=table,proto3" json:"table,omitempty"`
-	Pk         string            `protobuf:"bytes,2,opt,name=pk,proto3" json:"pk,omitempty"`
-	Fields     map[string]string `protobuf:"bytes,3,rep,name=fields,proto3" json:"fields,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
-	UpdateOnly bool              `protobuf:"varint,4,opt,name=update_only,json=updateOnly,proto3" json:"update_only,omitempty"`
-	InsertOnly bool              `protobuf:"varint,5,opt,name=insert_only,json=insertOnly,proto3" json:"insert_only,omitempty"`
+	Columns []*Column `protobuf:"bytes,1,rep,name=columns,proto3" json:"columns,omitempty"`
+	Rows    []*Row    `protobuf:"bytes,2,rep,name=rows,proto3" json:"rows,omitempty"`
 }
 
-func (x *WriteEntryRequest) Reset() {
-	*x = WriteEntryRequest{}
+func (x *ListRowsResponse) Reset() {
+	*x = ListRowsResponse{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_jql_jql_proto_msgTypes[4]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -193,13 +292,13 @@ func (x *WriteEntryRequest) Reset() {
 	}
 }
 
-func (x *WriteEntryRequest) String() string {
+func (x *ListRowsResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*WriteEntryRequest) ProtoMessage() {}
+func (*ListRowsResponse) ProtoMessage() {}
 
-func (x *WriteEntryRequest) ProtoReflect() protoreflect.Message {
+func (x *ListRowsResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_jql_jql_proto_msgTypes[4]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -211,54 +310,36 @@ func (x *WriteEntryRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use WriteEntryRequest.ProtoReflect.Descriptor instead.
-func (*WriteEntryRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use ListRowsResponse.ProtoReflect.Descriptor instead.
+func (*ListRowsResponse) Descriptor() ([]byte, []int) {
 	return file_jql_jql_proto_rawDescGZIP(), []int{4}
 }
 
-func (x *WriteEntryRequest) GetTable() string {
+func (x *ListRowsResponse) GetColumns() []*Column {
 	if x != nil {
-		return x.Table
-	}
-	return ""
-}
-
-func (x *WriteEntryRequest) GetPk() string {
-	if x != nil {
-		return x.Pk
-	}
-	return ""
-}
-
-func (x *WriteEntryRequest) GetFields() map[string]string {
-	if x != nil {
-		return x.Fields
+		return x.Columns
 	}
 	return nil
 }
 
-func (x *WriteEntryRequest) GetUpdateOnly() bool {
+func (x *ListRowsResponse) GetRows() []*Row {
 	if x != nil {
-		return x.UpdateOnly
+		return x.Rows
 	}
-	return false
+	return nil
 }
 
-func (x *WriteEntryRequest) GetInsertOnly() bool {
-	if x != nil {
-		return x.InsertOnly
-	}
-	return false
-}
-
-type WriteEntryResponse struct {
+type GetRowRequest struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
+
+	Table string `protobuf:"bytes,1,opt,name=table,proto3" json:"table,omitempty"`
+	Pk    string `protobuf:"bytes,2,opt,name=pk,proto3" json:"pk,omitempty"`
 }
 
-func (x *WriteEntryResponse) Reset() {
-	*x = WriteEntryResponse{}
+func (x *GetRowRequest) Reset() {
+	*x = GetRowRequest{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_jql_jql_proto_msgTypes[5]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -266,13 +347,13 @@ func (x *WriteEntryResponse) Reset() {
 	}
 }
 
-func (x *WriteEntryResponse) String() string {
+func (x *GetRowRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*WriteEntryResponse) ProtoMessage() {}
+func (*GetRowRequest) ProtoMessage() {}
 
-func (x *WriteEntryResponse) ProtoReflect() protoreflect.Message {
+func (x *GetRowRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_jql_jql_proto_msgTypes[5]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -284,22 +365,36 @@ func (x *WriteEntryResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use WriteEntryResponse.ProtoReflect.Descriptor instead.
-func (*WriteEntryResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use GetRowRequest.ProtoReflect.Descriptor instead.
+func (*GetRowRequest) Descriptor() ([]byte, []int) {
 	return file_jql_jql_proto_rawDescGZIP(), []int{5}
 }
 
-type DeleteEntryRequest struct {
+func (x *GetRowRequest) GetTable() string {
+	if x != nil {
+		return x.Table
+	}
+	return ""
+}
+
+func (x *GetRowRequest) GetPk() string {
+	if x != nil {
+		return x.Pk
+	}
+	return ""
+}
+
+type GetRowResponse struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Table string `protobuf:"bytes,1,opt,name=table,proto3" json:"table,omitempty"`
-	Pk    string `protobuf:"bytes,2,opt,name=pk,proto3" json:"pk,omitempty"`
+	Columns []*Column `protobuf:"bytes,1,rep,name=columns,proto3" json:"columns,omitempty"`
+	Row     *Row      `protobuf:"bytes,2,opt,name=row,proto3" json:"row,omitempty"`
 }
 
-func (x *DeleteEntryRequest) Reset() {
-	*x = DeleteEntryRequest{}
+func (x *GetRowResponse) Reset() {
+	*x = GetRowResponse{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_jql_jql_proto_msgTypes[6]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -307,13 +402,13 @@ func (x *DeleteEntryRequest) Reset() {
 	}
 }
 
-func (x *DeleteEntryRequest) String() string {
+func (x *GetRowResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*DeleteEntryRequest) ProtoMessage() {}
+func (*GetRowResponse) ProtoMessage() {}
 
-func (x *DeleteEntryRequest) ProtoReflect() protoreflect.Message {
+func (x *GetRowResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_jql_jql_proto_msgTypes[6]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -325,33 +420,39 @@ func (x *DeleteEntryRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use DeleteEntryRequest.ProtoReflect.Descriptor instead.
-func (*DeleteEntryRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use GetRowResponse.ProtoReflect.Descriptor instead.
+func (*GetRowResponse) Descriptor() ([]byte, []int) {
 	return file_jql_jql_proto_rawDescGZIP(), []int{6}
 }
 
-func (x *DeleteEntryRequest) GetTable() string {
+func (x *GetRowResponse) GetColumns() []*Column {
 	if x != nil {
-		return x.Table
+		return x.Columns
 	}
-	return ""
+	return nil
 }
 
-func (x *DeleteEntryRequest) GetPk() string {
+func (x *GetRowResponse) GetRow() *Row {
 	if x != nil {
-		return x.Pk
+		return x.Row
 	}
-	return ""
+	return nil
 }
 
-type DeleteEntryResponse struct {
+type WriteRowRequest struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
+
+	Table      string            `protobuf:"bytes,1,opt,name=table,proto3" json:"table,omitempty"`
+	Pk         string            `protobuf:"bytes,2,opt,name=pk,proto3" json:"pk,omitempty"`
+	Fields     map[string]string `protobuf:"bytes,3,rep,name=fields,proto3" json:"fields,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+	UpdateOnly bool              `protobuf:"varint,4,opt,name=update_only,json=updateOnly,proto3" json:"update_only,omitempty"`
+	InsertOnly bool              `protobuf:"varint,5,opt,name=insert_only,json=insertOnly,proto3" json:"insert_only,omitempty"`
 }
 
-func (x *DeleteEntryResponse) Reset() {
-	*x = DeleteEntryResponse{}
+func (x *WriteRowRequest) Reset() {
+	*x = WriteRowRequest{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_jql_jql_proto_msgTypes[7]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -359,13 +460,13 @@ func (x *DeleteEntryResponse) Reset() {
 	}
 }
 
-func (x *DeleteEntryResponse) String() string {
+func (x *WriteRowRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*DeleteEntryResponse) ProtoMessage() {}
+func (*WriteRowRequest) ProtoMessage() {}
 
-func (x *DeleteEntryResponse) ProtoReflect() protoreflect.Message {
+func (x *WriteRowRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_jql_jql_proto_msgTypes[7]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -377,9 +478,175 @@ func (x *DeleteEntryResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use DeleteEntryResponse.ProtoReflect.Descriptor instead.
-func (*DeleteEntryResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use WriteRowRequest.ProtoReflect.Descriptor instead.
+func (*WriteRowRequest) Descriptor() ([]byte, []int) {
 	return file_jql_jql_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *WriteRowRequest) GetTable() string {
+	if x != nil {
+		return x.Table
+	}
+	return ""
+}
+
+func (x *WriteRowRequest) GetPk() string {
+	if x != nil {
+		return x.Pk
+	}
+	return ""
+}
+
+func (x *WriteRowRequest) GetFields() map[string]string {
+	if x != nil {
+		return x.Fields
+	}
+	return nil
+}
+
+func (x *WriteRowRequest) GetUpdateOnly() bool {
+	if x != nil {
+		return x.UpdateOnly
+	}
+	return false
+}
+
+func (x *WriteRowRequest) GetInsertOnly() bool {
+	if x != nil {
+		return x.InsertOnly
+	}
+	return false
+}
+
+type WriteRowResponse struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+}
+
+func (x *WriteRowResponse) Reset() {
+	*x = WriteRowResponse{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_jql_jql_proto_msgTypes[8]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *WriteRowResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WriteRowResponse) ProtoMessage() {}
+
+func (x *WriteRowResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_jql_jql_proto_msgTypes[8]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WriteRowResponse.ProtoReflect.Descriptor instead.
+func (*WriteRowResponse) Descriptor() ([]byte, []int) {
+	return file_jql_jql_proto_rawDescGZIP(), []int{8}
+}
+
+type DeleteRowRequest struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Table string `protobuf:"bytes,1,opt,name=table,proto3" json:"table,omitempty"`
+	Pk    string `protobuf:"bytes,2,opt,name=pk,proto3" json:"pk,omitempty"`
+}
+
+func (x *DeleteRowRequest) Reset() {
+	*x = DeleteRowRequest{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_jql_jql_proto_msgTypes[9]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *DeleteRowRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteRowRequest) ProtoMessage() {}
+
+func (x *DeleteRowRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_jql_jql_proto_msgTypes[9]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteRowRequest.ProtoReflect.Descriptor instead.
+func (*DeleteRowRequest) Descriptor() ([]byte, []int) {
+	return file_jql_jql_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *DeleteRowRequest) GetTable() string {
+	if x != nil {
+		return x.Table
+	}
+	return ""
+}
+
+func (x *DeleteRowRequest) GetPk() string {
+	if x != nil {
+		return x.Pk
+	}
+	return ""
+}
+
+type DeleteRowResponse struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+}
+
+func (x *DeleteRowResponse) Reset() {
+	*x = DeleteRowResponse{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_jql_jql_proto_msgTypes[10]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *DeleteRowResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteRowResponse) ProtoMessage() {}
+
+func (x *DeleteRowResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_jql_jql_proto_msgTypes[10]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteRowResponse.ProtoReflect.Descriptor instead.
+func (*DeleteRowResponse) Descriptor() ([]byte, []int) {
+	return file_jql_jql_proto_rawDescGZIP(), []int{10}
 }
 
 type PersistRequest struct {
@@ -391,7 +658,7 @@ type PersistRequest struct {
 func (x *PersistRequest) Reset() {
 	*x = PersistRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_jql_jql_proto_msgTypes[8]
+		mi := &file_jql_jql_proto_msgTypes[11]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -404,7 +671,7 @@ func (x *PersistRequest) String() string {
 func (*PersistRequest) ProtoMessage() {}
 
 func (x *PersistRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_jql_jql_proto_msgTypes[8]
+	mi := &file_jql_jql_proto_msgTypes[11]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -417,7 +684,7 @@ func (x *PersistRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PersistRequest.ProtoReflect.Descriptor instead.
 func (*PersistRequest) Descriptor() ([]byte, []int) {
-	return file_jql_jql_proto_rawDescGZIP(), []int{8}
+	return file_jql_jql_proto_rawDescGZIP(), []int{11}
 }
 
 type PersistResponse struct {
@@ -429,7 +696,7 @@ type PersistResponse struct {
 func (x *PersistResponse) Reset() {
 	*x = PersistResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_jql_jql_proto_msgTypes[9]
+		mi := &file_jql_jql_proto_msgTypes[12]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -442,7 +709,7 @@ func (x *PersistResponse) String() string {
 func (*PersistResponse) ProtoMessage() {}
 
 func (x *PersistResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_jql_jql_proto_msgTypes[9]
+	mi := &file_jql_jql_proto_msgTypes[12]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -455,64 +722,88 @@ func (x *PersistResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PersistResponse.ProtoReflect.Descriptor instead.
 func (*PersistResponse) Descriptor() ([]byte, []int) {
-	return file_jql_jql_proto_rawDescGZIP(), []int{9}
+	return file_jql_jql_proto_rawDescGZIP(), []int{12}
 }
 
 var File_jql_jql_proto protoreflect.FileDescriptor
 
 var file_jql_jql_proto_rawDesc = []byte{
 	0x0a, 0x0d, 0x6a, 0x71, 0x6c, 0x2f, 0x6a, 0x71, 0x6c, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x12,
-	0x03, 0x6a, 0x71, 0x6c, 0x22, 0x14, 0x0a, 0x12, 0x4c, 0x69, 0x73, 0x74, 0x45, 0x6e, 0x74, 0x72,
-	0x69, 0x65, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x22, 0x15, 0x0a, 0x13, 0x4c, 0x69,
-	0x73, 0x74, 0x45, 0x6e, 0x74, 0x72, 0x69, 0x65, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73,
-	0x65, 0x22, 0x11, 0x0a, 0x0f, 0x47, 0x65, 0x74, 0x45, 0x6e, 0x74, 0x72, 0x79, 0x52, 0x65, 0x71,
-	0x75, 0x65, 0x73, 0x74, 0x22, 0x12, 0x0a, 0x10, 0x47, 0x65, 0x74, 0x45, 0x6e, 0x74, 0x72, 0x79,
-	0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0xf2, 0x01, 0x0a, 0x11, 0x57, 0x72, 0x69,
-	0x74, 0x65, 0x45, 0x6e, 0x74, 0x72, 0x79, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x14,
-	0x0a, 0x05, 0x74, 0x61, 0x62, 0x6c, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x05, 0x74,
-	0x61, 0x62, 0x6c, 0x65, 0x12, 0x0e, 0x0a, 0x02, 0x70, 0x6b, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09,
-	0x52, 0x02, 0x70, 0x6b, 0x12, 0x3a, 0x0a, 0x06, 0x66, 0x69, 0x65, 0x6c, 0x64, 0x73, 0x18, 0x03,
-	0x20, 0x03, 0x28, 0x0b, 0x32, 0x22, 0x2e, 0x6a, 0x71, 0x6c, 0x2e, 0x57, 0x72, 0x69, 0x74, 0x65,
-	0x45, 0x6e, 0x74, 0x72, 0x79, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x2e, 0x46, 0x69, 0x65,
-	0x6c, 0x64, 0x73, 0x45, 0x6e, 0x74, 0x72, 0x79, 0x52, 0x06, 0x66, 0x69, 0x65, 0x6c, 0x64, 0x73,
-	0x12, 0x1f, 0x0a, 0x0b, 0x75, 0x70, 0x64, 0x61, 0x74, 0x65, 0x5f, 0x6f, 0x6e, 0x6c, 0x79, 0x18,
-	0x04, 0x20, 0x01, 0x28, 0x08, 0x52, 0x0a, 0x75, 0x70, 0x64, 0x61, 0x74, 0x65, 0x4f, 0x6e, 0x6c,
-	0x79, 0x12, 0x1f, 0x0a, 0x0b, 0x69, 0x6e, 0x73, 0x65, 0x72, 0x74, 0x5f, 0x6f, 0x6e, 0x6c, 0x79,
-	0x18, 0x05, 0x20, 0x01, 0x28, 0x08, 0x52, 0x0a, 0x69, 0x6e, 0x73, 0x65, 0x72, 0x74, 0x4f, 0x6e,
-	0x6c, 0x79, 0x1a, 0x39, 0x0a, 0x0b, 0x46, 0x69, 0x65, 0x6c, 0x64, 0x73, 0x45, 0x6e, 0x74, 0x72,
-	0x79, 0x12, 0x10, 0x0a, 0x03, 0x6b, 0x65, 0x79, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x03,
-	0x6b, 0x65, 0x79, 0x12, 0x14, 0x0a, 0x05, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x18, 0x02, 0x20, 0x01,
-	0x28, 0x09, 0x52, 0x05, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x3a, 0x02, 0x38, 0x01, 0x22, 0x14, 0x0a,
-	0x12, 0x57, 0x72, 0x69, 0x74, 0x65, 0x45, 0x6e, 0x74, 0x72, 0x79, 0x52, 0x65, 0x73, 0x70, 0x6f,
-	0x6e, 0x73, 0x65, 0x22, 0x3a, 0x0a, 0x12, 0x44, 0x65, 0x6c, 0x65, 0x74, 0x65, 0x45, 0x6e, 0x74,
-	0x72, 0x79, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x14, 0x0a, 0x05, 0x74, 0x61, 0x62,
-	0x6c, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x05, 0x74, 0x61, 0x62, 0x6c, 0x65, 0x12,
-	0x0e, 0x0a, 0x02, 0x70, 0x6b, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x02, 0x70, 0x6b, 0x22,
-	0x15, 0x0a, 0x13, 0x44, 0x65, 0x6c, 0x65, 0x74, 0x65, 0x45, 0x6e, 0x74, 0x72, 0x79, 0x52, 0x65,
+	0x03, 0x6a, 0x71, 0x6c, 0x22, 0x11, 0x0a, 0x0f, 0x4c, 0x69, 0x73, 0x74, 0x52, 0x6f, 0x77, 0x73,
+	0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x22, 0x40, 0x0a, 0x06, 0x43, 0x6f, 0x6c, 0x75, 0x6d,
+	0x6e, 0x12, 0x12, 0x0a, 0x04, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52,
+	0x04, 0x6e, 0x61, 0x6d, 0x65, 0x12, 0x22, 0x0a, 0x04, 0x74, 0x79, 0x70, 0x65, 0x18, 0x02, 0x20,
+	0x01, 0x28, 0x0e, 0x32, 0x0e, 0x2e, 0x6a, 0x71, 0x6c, 0x2e, 0x45, 0x6e, 0x74, 0x72, 0x79, 0x54,
+	0x79, 0x70, 0x65, 0x52, 0x04, 0x74, 0x79, 0x70, 0x65, 0x22, 0x25, 0x0a, 0x05, 0x45, 0x6e, 0x74,
+	0x72, 0x79, 0x12, 0x1c, 0x0a, 0x09, 0x66, 0x6f, 0x72, 0x6d, 0x61, 0x74, 0x74, 0x65, 0x64, 0x18,
+	0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x09, 0x66, 0x6f, 0x72, 0x6d, 0x61, 0x74, 0x74, 0x65, 0x64,
+	0x22, 0x2b, 0x0a, 0x03, 0x52, 0x6f, 0x77, 0x12, 0x24, 0x0a, 0x07, 0x65, 0x6e, 0x74, 0x72, 0x69,
+	0x65, 0x73, 0x18, 0x01, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x0a, 0x2e, 0x6a, 0x71, 0x6c, 0x2e, 0x45,
+	0x6e, 0x74, 0x72, 0x79, 0x52, 0x07, 0x65, 0x6e, 0x74, 0x72, 0x69, 0x65, 0x73, 0x22, 0x57, 0x0a,
+	0x10, 0x4c, 0x69, 0x73, 0x74, 0x52, 0x6f, 0x77, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73,
+	0x65, 0x12, 0x25, 0x0a, 0x07, 0x63, 0x6f, 0x6c, 0x75, 0x6d, 0x6e, 0x73, 0x18, 0x01, 0x20, 0x03,
+	0x28, 0x0b, 0x32, 0x0b, 0x2e, 0x6a, 0x71, 0x6c, 0x2e, 0x43, 0x6f, 0x6c, 0x75, 0x6d, 0x6e, 0x52,
+	0x07, 0x63, 0x6f, 0x6c, 0x75, 0x6d, 0x6e, 0x73, 0x12, 0x1c, 0x0a, 0x04, 0x72, 0x6f, 0x77, 0x73,
+	0x18, 0x02, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x08, 0x2e, 0x6a, 0x71, 0x6c, 0x2e, 0x52, 0x6f, 0x77,
+	0x52, 0x04, 0x72, 0x6f, 0x77, 0x73, 0x22, 0x35, 0x0a, 0x0d, 0x47, 0x65, 0x74, 0x52, 0x6f, 0x77,
+	0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x14, 0x0a, 0x05, 0x74, 0x61, 0x62, 0x6c, 0x65,
+	0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x05, 0x74, 0x61, 0x62, 0x6c, 0x65, 0x12, 0x0e, 0x0a,
+	0x02, 0x70, 0x6b, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x02, 0x70, 0x6b, 0x22, 0x53, 0x0a,
+	0x0e, 0x47, 0x65, 0x74, 0x52, 0x6f, 0x77, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12,
+	0x25, 0x0a, 0x07, 0x63, 0x6f, 0x6c, 0x75, 0x6d, 0x6e, 0x73, 0x18, 0x01, 0x20, 0x03, 0x28, 0x0b,
+	0x32, 0x0b, 0x2e, 0x6a, 0x71, 0x6c, 0x2e, 0x43, 0x6f, 0x6c, 0x75, 0x6d, 0x6e, 0x52, 0x07, 0x63,
+	0x6f, 0x6c, 0x75, 0x6d, 0x6e, 0x73, 0x12, 0x1a, 0x0a, 0x03, 0x72, 0x6f, 0x77, 0x18, 0x02, 0x20,
+	0x01, 0x28, 0x0b, 0x32, 0x08, 0x2e, 0x6a, 0x71, 0x6c, 0x2e, 0x52, 0x6f, 0x77, 0x52, 0x03, 0x72,
+	0x6f, 0x77, 0x22, 0xee, 0x01, 0x0a, 0x0f, 0x57, 0x72, 0x69, 0x74, 0x65, 0x52, 0x6f, 0x77, 0x52,
+	0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x14, 0x0a, 0x05, 0x74, 0x61, 0x62, 0x6c, 0x65, 0x18,
+	0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x05, 0x74, 0x61, 0x62, 0x6c, 0x65, 0x12, 0x0e, 0x0a, 0x02,
+	0x70, 0x6b, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x02, 0x70, 0x6b, 0x12, 0x38, 0x0a, 0x06,
+	0x66, 0x69, 0x65, 0x6c, 0x64, 0x73, 0x18, 0x03, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x20, 0x2e, 0x6a,
+	0x71, 0x6c, 0x2e, 0x57, 0x72, 0x69, 0x74, 0x65, 0x52, 0x6f, 0x77, 0x52, 0x65, 0x71, 0x75, 0x65,
+	0x73, 0x74, 0x2e, 0x46, 0x69, 0x65, 0x6c, 0x64, 0x73, 0x45, 0x6e, 0x74, 0x72, 0x79, 0x52, 0x06,
+	0x66, 0x69, 0x65, 0x6c, 0x64, 0x73, 0x12, 0x1f, 0x0a, 0x0b, 0x75, 0x70, 0x64, 0x61, 0x74, 0x65,
+	0x5f, 0x6f, 0x6e, 0x6c, 0x79, 0x18, 0x04, 0x20, 0x01, 0x28, 0x08, 0x52, 0x0a, 0x75, 0x70, 0x64,
+	0x61, 0x74, 0x65, 0x4f, 0x6e, 0x6c, 0x79, 0x12, 0x1f, 0x0a, 0x0b, 0x69, 0x6e, 0x73, 0x65, 0x72,
+	0x74, 0x5f, 0x6f, 0x6e, 0x6c, 0x79, 0x18, 0x05, 0x20, 0x01, 0x28, 0x08, 0x52, 0x0a, 0x69, 0x6e,
+	0x73, 0x65, 0x72, 0x74, 0x4f, 0x6e, 0x6c, 0x79, 0x1a, 0x39, 0x0a, 0x0b, 0x46, 0x69, 0x65, 0x6c,
+	0x64, 0x73, 0x45, 0x6e, 0x74, 0x72, 0x79, 0x12, 0x10, 0x0a, 0x03, 0x6b, 0x65, 0x79, 0x18, 0x01,
+	0x20, 0x01, 0x28, 0x09, 0x52, 0x03, 0x6b, 0x65, 0x79, 0x12, 0x14, 0x0a, 0x05, 0x76, 0x61, 0x6c,
+	0x75, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x05, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x3a,
+	0x02, 0x38, 0x01, 0x22, 0x12, 0x0a, 0x10, 0x57, 0x72, 0x69, 0x74, 0x65, 0x52, 0x6f, 0x77, 0x52,
+	0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x38, 0x0a, 0x10, 0x44, 0x65, 0x6c, 0x65, 0x74,
+	0x65, 0x52, 0x6f, 0x77, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x14, 0x0a, 0x05, 0x74,
+	0x61, 0x62, 0x6c, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x05, 0x74, 0x61, 0x62, 0x6c,
+	0x65, 0x12, 0x0e, 0x0a, 0x02, 0x70, 0x6b, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x02, 0x70,
+	0x6b, 0x22, 0x13, 0x0a, 0x11, 0x44, 0x65, 0x6c, 0x65, 0x74, 0x65, 0x52, 0x6f, 0x77, 0x52, 0x65,
 	0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x10, 0x0a, 0x0e, 0x50, 0x65, 0x72, 0x73, 0x69, 0x73,
 	0x74, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x22, 0x11, 0x0a, 0x0f, 0x50, 0x65, 0x72, 0x73,
-	0x69, 0x73, 0x74, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x32, 0xb7, 0x02, 0x0a, 0x03,
-	0x4a, 0x51, 0x4c, 0x12, 0x40, 0x0a, 0x0b, 0x4c, 0x69, 0x73, 0x74, 0x45, 0x6e, 0x74, 0x72, 0x69,
-	0x65, 0x73, 0x12, 0x17, 0x2e, 0x6a, 0x71, 0x6c, 0x2e, 0x4c, 0x69, 0x73, 0x74, 0x45, 0x6e, 0x74,
-	0x72, 0x69, 0x65, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x18, 0x2e, 0x6a, 0x71,
-	0x6c, 0x2e, 0x4c, 0x69, 0x73, 0x74, 0x45, 0x6e, 0x74, 0x72, 0x69, 0x65, 0x73, 0x52, 0x65, 0x73,
-	0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x37, 0x0a, 0x08, 0x47, 0x65, 0x74, 0x45, 0x6e, 0x74, 0x72,
-	0x79, 0x12, 0x14, 0x2e, 0x6a, 0x71, 0x6c, 0x2e, 0x47, 0x65, 0x74, 0x45, 0x6e, 0x74, 0x72, 0x79,
-	0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x15, 0x2e, 0x6a, 0x71, 0x6c, 0x2e, 0x47, 0x65,
-	0x74, 0x45, 0x6e, 0x74, 0x72, 0x79, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x3d,
-	0x0a, 0x0a, 0x57, 0x72, 0x69, 0x74, 0x65, 0x45, 0x6e, 0x74, 0x72, 0x79, 0x12, 0x16, 0x2e, 0x6a,
-	0x71, 0x6c, 0x2e, 0x57, 0x72, 0x69, 0x74, 0x65, 0x45, 0x6e, 0x74, 0x72, 0x79, 0x52, 0x65, 0x71,
-	0x75, 0x65, 0x73, 0x74, 0x1a, 0x17, 0x2e, 0x6a, 0x71, 0x6c, 0x2e, 0x57, 0x72, 0x69, 0x74, 0x65,
-	0x45, 0x6e, 0x74, 0x72, 0x79, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x40, 0x0a,
-	0x0b, 0x44, 0x65, 0x6c, 0x65, 0x74, 0x65, 0x45, 0x6e, 0x74, 0x72, 0x79, 0x12, 0x17, 0x2e, 0x6a,
-	0x71, 0x6c, 0x2e, 0x44, 0x65, 0x6c, 0x65, 0x74, 0x65, 0x45, 0x6e, 0x74, 0x72, 0x79, 0x52, 0x65,
-	0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x18, 0x2e, 0x6a, 0x71, 0x6c, 0x2e, 0x44, 0x65, 0x6c, 0x65,
-	0x74, 0x65, 0x45, 0x6e, 0x74, 0x72, 0x79, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12,
-	0x34, 0x0a, 0x07, 0x50, 0x65, 0x72, 0x73, 0x69, 0x73, 0x74, 0x12, 0x13, 0x2e, 0x6a, 0x71, 0x6c,
-	0x2e, 0x50, 0x65, 0x72, 0x73, 0x69, 0x73, 0x74, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a,
-	0x14, 0x2e, 0x6a, 0x71, 0x6c, 0x2e, 0x50, 0x65, 0x72, 0x73, 0x69, 0x73, 0x74, 0x52, 0x65, 0x73,
-	0x70, 0x6f, 0x6e, 0x73, 0x65, 0x42, 0x0b, 0x5a, 0x09, 0x6a, 0x71, 0x6c, 0x2f, 0x6a, 0x71, 0x6c,
-	0x70, 0x62, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
+	0x69, 0x73, 0x74, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x2a, 0x6f, 0x0a, 0x09, 0x45,
+	0x6e, 0x74, 0x72, 0x79, 0x54, 0x79, 0x70, 0x65, 0x12, 0x0a, 0x0a, 0x06, 0x53, 0x54, 0x52, 0x49,
+	0x4e, 0x47, 0x10, 0x00, 0x12, 0x07, 0x0a, 0x03, 0x49, 0x4e, 0x54, 0x10, 0x01, 0x12, 0x08, 0x0a,
+	0x04, 0x44, 0x41, 0x54, 0x45, 0x10, 0x02, 0x12, 0x08, 0x0a, 0x04, 0x45, 0x4e, 0x55, 0x4d, 0x10,
+	0x03, 0x12, 0x06, 0x0a, 0x02, 0x49, 0x44, 0x10, 0x04, 0x12, 0x08, 0x0a, 0x04, 0x54, 0x49, 0x4d,
+	0x45, 0x10, 0x05, 0x12, 0x0c, 0x0a, 0x08, 0x4d, 0x4f, 0x4e, 0x45, 0x59, 0x41, 0x4d, 0x54, 0x10,
+	0x06, 0x12, 0x0b, 0x0a, 0x07, 0x46, 0x4f, 0x52, 0x45, 0x49, 0x47, 0x4e, 0x10, 0x07, 0x12, 0x0c,
+	0x0a, 0x08, 0x46, 0x4f, 0x52, 0x45, 0x49, 0x47, 0x4e, 0x53, 0x10, 0x08, 0x32, 0x9c, 0x02, 0x0a,
+	0x03, 0x4a, 0x51, 0x4c, 0x12, 0x37, 0x0a, 0x08, 0x4c, 0x69, 0x73, 0x74, 0x52, 0x6f, 0x77, 0x73,
+	0x12, 0x14, 0x2e, 0x6a, 0x71, 0x6c, 0x2e, 0x4c, 0x69, 0x73, 0x74, 0x52, 0x6f, 0x77, 0x73, 0x52,
+	0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x15, 0x2e, 0x6a, 0x71, 0x6c, 0x2e, 0x4c, 0x69, 0x73,
+	0x74, 0x52, 0x6f, 0x77, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x31, 0x0a,
+	0x06, 0x47, 0x65, 0x74, 0x52, 0x6f, 0x77, 0x12, 0x12, 0x2e, 0x6a, 0x71, 0x6c, 0x2e, 0x47, 0x65,
+	0x74, 0x52, 0x6f, 0x77, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x13, 0x2e, 0x6a, 0x71,
+	0x6c, 0x2e, 0x47, 0x65, 0x74, 0x52, 0x6f, 0x77, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65,
+	0x12, 0x37, 0x0a, 0x08, 0x57, 0x72, 0x69, 0x74, 0x65, 0x52, 0x6f, 0x77, 0x12, 0x14, 0x2e, 0x6a,
+	0x71, 0x6c, 0x2e, 0x57, 0x72, 0x69, 0x74, 0x65, 0x52, 0x6f, 0x77, 0x52, 0x65, 0x71, 0x75, 0x65,
+	0x73, 0x74, 0x1a, 0x15, 0x2e, 0x6a, 0x71, 0x6c, 0x2e, 0x57, 0x72, 0x69, 0x74, 0x65, 0x52, 0x6f,
+	0x77, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x3a, 0x0a, 0x09, 0x44, 0x65, 0x6c,
+	0x65, 0x74, 0x65, 0x52, 0x6f, 0x77, 0x12, 0x15, 0x2e, 0x6a, 0x71, 0x6c, 0x2e, 0x44, 0x65, 0x6c,
+	0x65, 0x74, 0x65, 0x52, 0x6f, 0x77, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x16, 0x2e,
+	0x6a, 0x71, 0x6c, 0x2e, 0x44, 0x65, 0x6c, 0x65, 0x74, 0x65, 0x52, 0x6f, 0x77, 0x52, 0x65, 0x73,
+	0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x34, 0x0a, 0x07, 0x50, 0x65, 0x72, 0x73, 0x69, 0x73, 0x74,
+	0x12, 0x13, 0x2e, 0x6a, 0x71, 0x6c, 0x2e, 0x50, 0x65, 0x72, 0x73, 0x69, 0x73, 0x74, 0x52, 0x65,
+	0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x14, 0x2e, 0x6a, 0x71, 0x6c, 0x2e, 0x50, 0x65, 0x72, 0x73,
+	0x69, 0x73, 0x74, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x42, 0x0b, 0x5a, 0x09, 0x6a,
+	0x71, 0x6c, 0x2f, 0x6a, 0x71, 0x6c, 0x70, 0x62, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
 }
 
 var (
@@ -527,37 +818,48 @@ func file_jql_jql_proto_rawDescGZIP() []byte {
 	return file_jql_jql_proto_rawDescData
 }
 
-var file_jql_jql_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_jql_jql_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_jql_jql_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_jql_jql_proto_goTypes = []interface{}{
-	(*ListEntriesRequest)(nil),  // 0: jql.ListEntriesRequest
-	(*ListEntriesResponse)(nil), // 1: jql.ListEntriesResponse
-	(*GetEntryRequest)(nil),     // 2: jql.GetEntryRequest
-	(*GetEntryResponse)(nil),    // 3: jql.GetEntryResponse
-	(*WriteEntryRequest)(nil),   // 4: jql.WriteEntryRequest
-	(*WriteEntryResponse)(nil),  // 5: jql.WriteEntryResponse
-	(*DeleteEntryRequest)(nil),  // 6: jql.DeleteEntryRequest
-	(*DeleteEntryResponse)(nil), // 7: jql.DeleteEntryResponse
-	(*PersistRequest)(nil),      // 8: jql.PersistRequest
-	(*PersistResponse)(nil),     // 9: jql.PersistResponse
-	nil,                         // 10: jql.WriteEntryRequest.FieldsEntry
+	(EntryType)(0),            // 0: jql.EntryType
+	(*ListRowsRequest)(nil),   // 1: jql.ListRowsRequest
+	(*Column)(nil),            // 2: jql.Column
+	(*Entry)(nil),             // 3: jql.Entry
+	(*Row)(nil),               // 4: jql.Row
+	(*ListRowsResponse)(nil),  // 5: jql.ListRowsResponse
+	(*GetRowRequest)(nil),     // 6: jql.GetRowRequest
+	(*GetRowResponse)(nil),    // 7: jql.GetRowResponse
+	(*WriteRowRequest)(nil),   // 8: jql.WriteRowRequest
+	(*WriteRowResponse)(nil),  // 9: jql.WriteRowResponse
+	(*DeleteRowRequest)(nil),  // 10: jql.DeleteRowRequest
+	(*DeleteRowResponse)(nil), // 11: jql.DeleteRowResponse
+	(*PersistRequest)(nil),    // 12: jql.PersistRequest
+	(*PersistResponse)(nil),   // 13: jql.PersistResponse
+	nil,                       // 14: jql.WriteRowRequest.FieldsEntry
 }
 var file_jql_jql_proto_depIdxs = []int32{
-	10, // 0: jql.WriteEntryRequest.fields:type_name -> jql.WriteEntryRequest.FieldsEntry
-	0,  // 1: jql.JQL.ListEntries:input_type -> jql.ListEntriesRequest
-	2,  // 2: jql.JQL.GetEntry:input_type -> jql.GetEntryRequest
-	4,  // 3: jql.JQL.WriteEntry:input_type -> jql.WriteEntryRequest
-	6,  // 4: jql.JQL.DeleteEntry:input_type -> jql.DeleteEntryRequest
-	8,  // 5: jql.JQL.Persist:input_type -> jql.PersistRequest
-	1,  // 6: jql.JQL.ListEntries:output_type -> jql.ListEntriesResponse
-	3,  // 7: jql.JQL.GetEntry:output_type -> jql.GetEntryResponse
-	5,  // 8: jql.JQL.WriteEntry:output_type -> jql.WriteEntryResponse
-	7,  // 9: jql.JQL.DeleteEntry:output_type -> jql.DeleteEntryResponse
-	9,  // 10: jql.JQL.Persist:output_type -> jql.PersistResponse
-	6,  // [6:11] is the sub-list for method output_type
-	1,  // [1:6] is the sub-list for method input_type
-	1,  // [1:1] is the sub-list for extension type_name
-	1,  // [1:1] is the sub-list for extension extendee
-	0,  // [0:1] is the sub-list for field type_name
+	0,  // 0: jql.Column.type:type_name -> jql.EntryType
+	3,  // 1: jql.Row.entries:type_name -> jql.Entry
+	2,  // 2: jql.ListRowsResponse.columns:type_name -> jql.Column
+	4,  // 3: jql.ListRowsResponse.rows:type_name -> jql.Row
+	2,  // 4: jql.GetRowResponse.columns:type_name -> jql.Column
+	4,  // 5: jql.GetRowResponse.row:type_name -> jql.Row
+	14, // 6: jql.WriteRowRequest.fields:type_name -> jql.WriteRowRequest.FieldsEntry
+	1,  // 7: jql.JQL.ListRows:input_type -> jql.ListRowsRequest
+	6,  // 8: jql.JQL.GetRow:input_type -> jql.GetRowRequest
+	8,  // 9: jql.JQL.WriteRow:input_type -> jql.WriteRowRequest
+	10, // 10: jql.JQL.DeleteRow:input_type -> jql.DeleteRowRequest
+	12, // 11: jql.JQL.Persist:input_type -> jql.PersistRequest
+	5,  // 12: jql.JQL.ListRows:output_type -> jql.ListRowsResponse
+	7,  // 13: jql.JQL.GetRow:output_type -> jql.GetRowResponse
+	9,  // 14: jql.JQL.WriteRow:output_type -> jql.WriteRowResponse
+	11, // 15: jql.JQL.DeleteRow:output_type -> jql.DeleteRowResponse
+	13, // 16: jql.JQL.Persist:output_type -> jql.PersistResponse
+	12, // [12:17] is the sub-list for method output_type
+	7,  // [7:12] is the sub-list for method input_type
+	7,  // [7:7] is the sub-list for extension type_name
+	7,  // [7:7] is the sub-list for extension extendee
+	0,  // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_jql_jql_proto_init() }
@@ -567,7 +869,7 @@ func file_jql_jql_proto_init() {
 	}
 	if !protoimpl.UnsafeEnabled {
 		file_jql_jql_proto_msgTypes[0].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ListEntriesRequest); i {
+			switch v := v.(*ListRowsRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -579,7 +881,7 @@ func file_jql_jql_proto_init() {
 			}
 		}
 		file_jql_jql_proto_msgTypes[1].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ListEntriesResponse); i {
+			switch v := v.(*Column); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -591,7 +893,7 @@ func file_jql_jql_proto_init() {
 			}
 		}
 		file_jql_jql_proto_msgTypes[2].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*GetEntryRequest); i {
+			switch v := v.(*Entry); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -603,7 +905,7 @@ func file_jql_jql_proto_init() {
 			}
 		}
 		file_jql_jql_proto_msgTypes[3].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*GetEntryResponse); i {
+			switch v := v.(*Row); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -615,7 +917,7 @@ func file_jql_jql_proto_init() {
 			}
 		}
 		file_jql_jql_proto_msgTypes[4].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*WriteEntryRequest); i {
+			switch v := v.(*ListRowsResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -627,7 +929,7 @@ func file_jql_jql_proto_init() {
 			}
 		}
 		file_jql_jql_proto_msgTypes[5].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*WriteEntryResponse); i {
+			switch v := v.(*GetRowRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -639,7 +941,7 @@ func file_jql_jql_proto_init() {
 			}
 		}
 		file_jql_jql_proto_msgTypes[6].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*DeleteEntryRequest); i {
+			switch v := v.(*GetRowResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -651,7 +953,7 @@ func file_jql_jql_proto_init() {
 			}
 		}
 		file_jql_jql_proto_msgTypes[7].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*DeleteEntryResponse); i {
+			switch v := v.(*WriteRowRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -663,7 +965,7 @@ func file_jql_jql_proto_init() {
 			}
 		}
 		file_jql_jql_proto_msgTypes[8].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*PersistRequest); i {
+			switch v := v.(*WriteRowResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -675,6 +977,42 @@ func file_jql_jql_proto_init() {
 			}
 		}
 		file_jql_jql_proto_msgTypes[9].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*DeleteRowRequest); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_jql_jql_proto_msgTypes[10].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*DeleteRowResponse); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_jql_jql_proto_msgTypes[11].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*PersistRequest); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_jql_jql_proto_msgTypes[12].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*PersistResponse); i {
 			case 0:
 				return &v.state
@@ -692,13 +1030,14 @@ func file_jql_jql_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_jql_jql_proto_rawDesc,
-			NumEnums:      0,
-			NumMessages:   11,
+			NumEnums:      1,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_jql_jql_proto_goTypes,
 		DependencyIndexes: file_jql_jql_proto_depIdxs,
+		EnumInfos:         file_jql_jql_proto_enumTypes,
 		MessageInfos:      file_jql_jql_proto_msgTypes,
 	}.Build()
 	File_jql_jql_proto = out.File

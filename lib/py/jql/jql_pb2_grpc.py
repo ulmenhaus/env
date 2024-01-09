@@ -14,25 +14,25 @@ class JQLStub(object):
         Args:
             channel: A grpc.Channel.
         """
-        self.ListEntries = channel.unary_unary(
-                '/jql.JQL/ListEntries',
-                request_serializer=jql_dot_jql__pb2.ListEntriesRequest.SerializeToString,
-                response_deserializer=jql_dot_jql__pb2.ListEntriesResponse.FromString,
+        self.ListRows = channel.unary_unary(
+                '/jql.JQL/ListRows',
+                request_serializer=jql_dot_jql__pb2.ListRowsRequest.SerializeToString,
+                response_deserializer=jql_dot_jql__pb2.ListRowsResponse.FromString,
                 )
-        self.GetEntry = channel.unary_unary(
-                '/jql.JQL/GetEntry',
-                request_serializer=jql_dot_jql__pb2.GetEntryRequest.SerializeToString,
-                response_deserializer=jql_dot_jql__pb2.GetEntryResponse.FromString,
+        self.GetRow = channel.unary_unary(
+                '/jql.JQL/GetRow',
+                request_serializer=jql_dot_jql__pb2.GetRowRequest.SerializeToString,
+                response_deserializer=jql_dot_jql__pb2.GetRowResponse.FromString,
                 )
-        self.WriteEntry = channel.unary_unary(
-                '/jql.JQL/WriteEntry',
-                request_serializer=jql_dot_jql__pb2.WriteEntryRequest.SerializeToString,
-                response_deserializer=jql_dot_jql__pb2.WriteEntryResponse.FromString,
+        self.WriteRow = channel.unary_unary(
+                '/jql.JQL/WriteRow',
+                request_serializer=jql_dot_jql__pb2.WriteRowRequest.SerializeToString,
+                response_deserializer=jql_dot_jql__pb2.WriteRowResponse.FromString,
                 )
-        self.DeleteEntry = channel.unary_unary(
-                '/jql.JQL/DeleteEntry',
-                request_serializer=jql_dot_jql__pb2.DeleteEntryRequest.SerializeToString,
-                response_deserializer=jql_dot_jql__pb2.DeleteEntryResponse.FromString,
+        self.DeleteRow = channel.unary_unary(
+                '/jql.JQL/DeleteRow',
+                request_serializer=jql_dot_jql__pb2.DeleteRowRequest.SerializeToString,
+                response_deserializer=jql_dot_jql__pb2.DeleteRowResponse.FromString,
                 )
         self.Persist = channel.unary_unary(
                 '/jql.JQL/Persist',
@@ -44,25 +44,25 @@ class JQLStub(object):
 class JQLServicer(object):
     """Missing associated documentation comment in .proto file."""
 
-    def ListEntries(self, request, context):
+    def ListRows(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def GetEntry(self, request, context):
+    def GetRow(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def WriteEntry(self, request, context):
+    def WriteRow(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def DeleteEntry(self, request, context):
+    def DeleteRow(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -77,25 +77,25 @@ class JQLServicer(object):
 
 def add_JQLServicer_to_server(servicer, server):
     rpc_method_handlers = {
-            'ListEntries': grpc.unary_unary_rpc_method_handler(
-                    servicer.ListEntries,
-                    request_deserializer=jql_dot_jql__pb2.ListEntriesRequest.FromString,
-                    response_serializer=jql_dot_jql__pb2.ListEntriesResponse.SerializeToString,
+            'ListRows': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListRows,
+                    request_deserializer=jql_dot_jql__pb2.ListRowsRequest.FromString,
+                    response_serializer=jql_dot_jql__pb2.ListRowsResponse.SerializeToString,
             ),
-            'GetEntry': grpc.unary_unary_rpc_method_handler(
-                    servicer.GetEntry,
-                    request_deserializer=jql_dot_jql__pb2.GetEntryRequest.FromString,
-                    response_serializer=jql_dot_jql__pb2.GetEntryResponse.SerializeToString,
+            'GetRow': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetRow,
+                    request_deserializer=jql_dot_jql__pb2.GetRowRequest.FromString,
+                    response_serializer=jql_dot_jql__pb2.GetRowResponse.SerializeToString,
             ),
-            'WriteEntry': grpc.unary_unary_rpc_method_handler(
-                    servicer.WriteEntry,
-                    request_deserializer=jql_dot_jql__pb2.WriteEntryRequest.FromString,
-                    response_serializer=jql_dot_jql__pb2.WriteEntryResponse.SerializeToString,
+            'WriteRow': grpc.unary_unary_rpc_method_handler(
+                    servicer.WriteRow,
+                    request_deserializer=jql_dot_jql__pb2.WriteRowRequest.FromString,
+                    response_serializer=jql_dot_jql__pb2.WriteRowResponse.SerializeToString,
             ),
-            'DeleteEntry': grpc.unary_unary_rpc_method_handler(
-                    servicer.DeleteEntry,
-                    request_deserializer=jql_dot_jql__pb2.DeleteEntryRequest.FromString,
-                    response_serializer=jql_dot_jql__pb2.DeleteEntryResponse.SerializeToString,
+            'DeleteRow': grpc.unary_unary_rpc_method_handler(
+                    servicer.DeleteRow,
+                    request_deserializer=jql_dot_jql__pb2.DeleteRowRequest.FromString,
+                    response_serializer=jql_dot_jql__pb2.DeleteRowResponse.SerializeToString,
             ),
             'Persist': grpc.unary_unary_rpc_method_handler(
                     servicer.Persist,
@@ -113,7 +113,7 @@ class JQL(object):
     """Missing associated documentation comment in .proto file."""
 
     @staticmethod
-    def ListEntries(request,
+    def ListRows(request,
             target,
             options=(),
             channel_credentials=None,
@@ -123,14 +123,14 @@ class JQL(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_unary(request, target, '/jql.JQL/ListEntries',
-            jql_dot_jql__pb2.ListEntriesRequest.SerializeToString,
-            jql_dot_jql__pb2.ListEntriesResponse.FromString,
+        return grpc.experimental.unary_unary(request, target, '/jql.JQL/ListRows',
+            jql_dot_jql__pb2.ListRowsRequest.SerializeToString,
+            jql_dot_jql__pb2.ListRowsResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
     @staticmethod
-    def GetEntry(request,
+    def GetRow(request,
             target,
             options=(),
             channel_credentials=None,
@@ -140,14 +140,14 @@ class JQL(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_unary(request, target, '/jql.JQL/GetEntry',
-            jql_dot_jql__pb2.GetEntryRequest.SerializeToString,
-            jql_dot_jql__pb2.GetEntryResponse.FromString,
+        return grpc.experimental.unary_unary(request, target, '/jql.JQL/GetRow',
+            jql_dot_jql__pb2.GetRowRequest.SerializeToString,
+            jql_dot_jql__pb2.GetRowResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
     @staticmethod
-    def WriteEntry(request,
+    def WriteRow(request,
             target,
             options=(),
             channel_credentials=None,
@@ -157,14 +157,14 @@ class JQL(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_unary(request, target, '/jql.JQL/WriteEntry',
-            jql_dot_jql__pb2.WriteEntryRequest.SerializeToString,
-            jql_dot_jql__pb2.WriteEntryResponse.FromString,
+        return grpc.experimental.unary_unary(request, target, '/jql.JQL/WriteRow',
+            jql_dot_jql__pb2.WriteRowRequest.SerializeToString,
+            jql_dot_jql__pb2.WriteRowResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
     @staticmethod
-    def DeleteEntry(request,
+    def DeleteRow(request,
             target,
             options=(),
             channel_credentials=None,
@@ -174,9 +174,9 @@ class JQL(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_unary(request, target, '/jql.JQL/DeleteEntry',
-            jql_dot_jql__pb2.DeleteEntryRequest.SerializeToString,
-            jql_dot_jql__pb2.DeleteEntryResponse.FromString,
+        return grpc.experimental.unary_unary(request, target, '/jql.JQL/DeleteRow',
+            jql_dot_jql__pb2.DeleteRowRequest.SerializeToString,
+            jql_dot_jql__pb2.DeleteRowResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 

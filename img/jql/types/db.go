@@ -5,6 +5,7 @@ import (
 	"sort"
 
 	"github.com/ulmenhaus/env/img/jql/storage"
+	"github.com/ulmenhaus/env/proto/jql/jqlpb"
 )
 
 // An Entry is an internal representation of a single column in a
@@ -36,6 +37,10 @@ type Entry interface {
 // the function should return a reasonable default value.
 type FieldValueConstructor func(encoded interface{}, features map[string]interface{}) (Entry, error)
 
+type ColumnMeta struct {
+	Type jqlpb.EntryType
+}
+
 // A Table is a model of an unordered two-dimensional array of data
 type Table struct {
 	Columns []string
@@ -44,11 +49,12 @@ type Table struct {
 	columnsByName    map[string]int
 	primary          int
 	Constructors     map[string]FieldValueConstructor
+	ColumnMeta       map[string]ColumnMeta // TODO add constructors, columns, features to this field and deprecate those
 	featuresByColumn map[string](map[string]interface{})
 }
 
 // NewTable returns a new table given a list of columns
-func NewTable(columns []string, entries map[string][]Entry, primary string, constructors map[string]FieldValueConstructor, featuresByColumn map[string](map[string]interface{})) *Table {
+func NewTable(columns []string, entries map[string][]Entry, primary string, constructors map[string]FieldValueConstructor, featuresByColumn map[string](map[string]interface{}), columnMeta map[string]ColumnMeta) *Table {
 	columnsByName := map[string]int{}
 	for i, col := range columns {
 		columnsByName[col] = i
@@ -62,6 +68,7 @@ func NewTable(columns []string, entries map[string][]Entry, primary string, cons
 		primary:          columnsByName[primary],
 		Constructors:     constructors,
 		featuresByColumn: featuresByColumn,
+		ColumnMeta:       columnMeta,
 	}
 }
 

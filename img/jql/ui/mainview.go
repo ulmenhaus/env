@@ -21,6 +21,10 @@ import (
 	"github.com/ulmenhaus/env/proto/jql/jqlpb"
 )
 
+var (
+	ctx = context.Background()
+)
+
 // MainViewMode is the current mode of the MainView.
 // It determines which subview processes inputs.
 type MainViewMode int
@@ -773,7 +777,7 @@ func (mv *MainView) promptExit(contents string, finish bool, err error) {
 				fields[mv.Table.Columns[col]] = formatted
 			}
 
-			_, err = mv.dbms.WriteEntry(context.Background(), &jqlpb.WriteEntryRequest{
+			_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
 				Table:  mv.tableName,
 				Pk:     newPK,
 				Fields: fields,
@@ -975,18 +979,20 @@ func (mv *MainView) duplicateSelectedRow() error {
 	if err != nil {
 		return err
 	}
-	err = mv.Table.Insert(newKey)
-	if err != nil {
-		return err
-	}
+	fields := map[string]string{}
 	for i, oldValue := range old {
 		if i == primaryIndex {
 			continue
 		}
-		err = mv.Table.Update(newKey, mv.Table.Columns[i], oldValue.Format(""))
-		if err != nil {
-			return err
-		}
+		fields[mv.Table.Columns[i]] = oldValue.Format("")
+	}
+	_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
+		Table:  mv.tableName,
+		Pk:     newKey,
+		Fields: fields,
+	})
+	if err != nil {
+		return err
 	}
 	return nil
 }
@@ -1020,9 +1026,12 @@ func (mv *MainView) copyValue() error {
 
 func (mv *MainView) updateEntryValue(contents string) error {
 	row, column := mv.SelectedEntry()
-	primary := mv.Table.Primary()
-	key := mv.response.Entries[row][primary].Format("")
-	err := mv.Table.Update(key, mv.Table.Columns[column], contents)
+	_, err := mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
+		Table:      mv.tableName,
+		Pk:         mv.response.Entries[row][mv.Table.Primary()].Format(""),
+		Fields:     map[string]string{mv.Table.Columns[column]: contents},
+		UpdateOnly: true,
+	})
 	if err != nil {
 		return err
 	}
@@ -1115,15 +1124,18 @@ func (mv *MainView) cursorUp(g *gocui.Gui, v *gocui.View) error {
 }
 
 func (mv *MainView) runMacro(ch rune) error {
-	macros := mv.OSM.GetDB().Tables[MacroTable]
-
-	entry, ok := macros.Entries[string(ch)]
-	if !ok {
-		return fmt.Errorf("No macro found for: '%s'", string(ch))
+	resp, err := mv.dbms.GetRow(ctx, &jqlpb.GetRowRequest{
+		Table: MacroTable,
+		Pk:    string(ch),
+	})
+	if err != nil {
+		return fmt.Errorf("Macro not found for '%s': %s", string(ch), err)
 	}
-	loc := strings.Split(entry[macros.IndexOfField(MacroLocationCol)].Format(""), " ")
-	reloadIndex := macros.IndexOfField("Reload")
-	isReload := reloadIndex != -1 && entry[reloadIndex].Format("") == "yes"
+	entries := resp.GetRow().GetEntries()
+	locIndex := api.IndexOfField(resp.GetColumns(), MacroLocationCol)
+	loc := strings.Split(entries[locIndex].GetFormatted(), " ")
+	reloadIndex := api.IndexOfField(resp.GetColumns(), "Reload")
+	isReload := reloadIndex != -1 && entries[reloadIndex].GetFormatted() == "yes"
 	var stdout, stderr bytes.Buffer
 	snapshot, err := mv.OSM.GetSnapshot(mv.OSM.GetDB())
 	if err != nil {
