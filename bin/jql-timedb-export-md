@@ -282,6 +282,8 @@ def generate_markdown(snapshot, table, pk):
             key2rel2orobs[rel_pk]["Meta"].append((rel, value["Arg1"]))
         else:
             key2rel2orobs[rel_pk][rel].append((value["Order"], value["Arg1"]))
+
+    simplify_assertions(key2rel2orobs)
     by_relation = key2rel2orobs[full_pk]
     description = by_relation.get("Description", [])
     if "Description" in by_relation:
@@ -448,6 +450,39 @@ def render_pic(src):
     img = '<div style="text-align:center; padding-bottom: 25px;"><img src="/{}" /></div>\n'.format(
         target)
     return img
+
+
+def simplify_assertions(key2rel2orobs):
+    # for predicates that are just lists of references to other entries, we want to display them
+    # as though they are singletons
+    is_ref = lambda entry: entry.startswith("@timedb:") and entry.endswith(
+        ":") and ":" not in entry[len("@timedb:"):-1]
+    is_list_of_refs = lambda orobs: len(orobs) > 1 and all(
+        is_ref(orob[1]) for orob in orobs)
+    chars_per_row = 36
+
+    def simplify_list_of_refs(refs):
+        # To strike a good balance b/w taking up horizantal and vertical space we put
+        # entries on the same line until they take up too much space
+        ret = [refs[0]]
+        for ref in refs[1:]:
+            if len(ret[-1]) > 36:
+                ret[-1] += " -"
+                ret.append(ref)
+            else:
+                ret[-1] += f" - {ref}"
+        return "\n".join(ret)
+
+    for rel2orobs in key2rel2orobs.values():
+        lists_of_refs = [
+            rel for rel, orobs in rel2orobs.items() if is_list_of_refs(orobs)
+        ]
+        for rel in lists_of_refs:
+            orobs = rel2orobs[rel]
+            rel2orobs[pluralize(rel)] = [
+                ("0", simplify_list_of_refs([orob[1] for orob in orobs]))
+            ]
+            del rel2orobs[rel]
 
 
 def resolve_jql_links(base_markdown):
