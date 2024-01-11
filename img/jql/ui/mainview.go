@@ -131,22 +131,19 @@ func (mv *MainView) findTable(t string) (string, error) {
 	return "", fmt.Errorf("unknown table: %s", t)
 }
 
-func (mv *MainView) maxWidths(t *types.Table) ([]int, error) {
-	all, err := t.Query(types.QueryParams{})
+func (mv *MainView) maxWidths(t *types.Table, tName string) ([]int, error) {
+	// TODO can consolidate this into a single request with the main request
+	// once that also uses the dbms interface
+	resp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
+		Table: tName,
+		Limit: 1,
+	})
 	if err != nil {
 		return nil, err
 	}
-	if len(all.Entries) == 0 {
-		return nil, nil
-	}
-	max := make([]int, len(all.Entries[0]))
-	for i := range all.Entries {
-		for j, entry := range all.Entries[i] {
-			chars := len(entry.Format(""))
-			if max[j] < chars {
-				max[j] = chars
-			}
-		}
+	max := make([]int, len(resp.Columns))
+	for i, colMeta := range resp.Columns {
+		max[i] = int(colMeta.MaxLength)
 	}
 	return max, nil
 }
@@ -163,7 +160,7 @@ func (mv *MainView) loadTable(t string) error {
 	columns := []string{}
 	colix := []int{}
 	widths := []int{}
-	max, err := mv.maxWidths(table)
+	max, err := mv.maxWidths(table, tName)
 	if err != nil {
 		return err
 	}
@@ -1141,7 +1138,7 @@ func (mv *MainView) runMacro(ch rune) error {
 	if err != nil {
 		return fmt.Errorf("Could not create snapshot: %s", err)
 	}
-	paramsNoLimit := types.QueryParams{
+	paramsNoLimit := jqlpb.QueryParams{
 		Filters: mv.Params.Filters,
 		OrderBy: mv.Params.OrderBy,
 	}

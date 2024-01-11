@@ -98,7 +98,7 @@ func (osm *ObjectStoreMapper) LoadSnapshot(src io.Reader) error {
 	primariesByTable := map[string]string{}
 	constructorsByTable := map[string](map[string]types.FieldValueConstructor){}
 	featuresByColumnByTable := map[string](map[string](map[string]interface{})){}
-	columnMetaByTable := map[string](map[string]types.ColumnMeta){}
+	columnMetaByTable := map[string](map[string]*types.ColumnMeta){}
 	for name, schema := range schemata {
 		parts := strings.Split(name, ".")
 		if len(parts) != 2 {
@@ -172,7 +172,7 @@ func (osm *ObjectStoreMapper) LoadSnapshot(src io.Reader) error {
 				column: constructor,
 			}
 			featuresByColumnByTable[table] = map[string](map[string]interface{}){}
-			columnMetaByTable[table] = map[string]types.ColumnMeta{
+			columnMetaByTable[table] = map[string]*types.ColumnMeta{
 				column: {
 					Type: entryType,
 				},
@@ -180,7 +180,7 @@ func (osm *ObjectStoreMapper) LoadSnapshot(src io.Reader) error {
 		} else {
 			fieldsByTable[table] = append(byTable, column)
 			constructorsByTable[table][column] = constructor
-			columnMetaByTable[table][column] = types.ColumnMeta{
+			columnMetaByTable[table][column] = &types.ColumnMeta{
 				Type: entryType,
 			}
 		}
@@ -216,15 +216,12 @@ func (osm *ObjectStoreMapper) LoadSnapshot(src io.Reader) error {
 		if !ok {
 			return fmt.Errorf("Unknown table: %s", name)
 		}
-		// TODO use a constructor and Inserts -- that way the able can map
-		// columns by name
-		table := types.NewTable(fieldsByTable[name], map[string][]types.Entry{}, primary, constructorsByTable[name], featuresByColumnByTable[name], columnMetaByTable[name])
 		allFields := fieldsByTable[name]
 
-		db.Tables[name] = table
+		entries := map[string][]types.Entry{}
 		for pk, fields := range encoded {
 			row := make([]types.Entry, len(fieldsByTable[name]))
-			table.Entries[pk] = row
+			entries[pk] = row
 			fields[primary] = pk
 			for _, column := range allFields {
 				value := fields[column]
@@ -242,6 +239,10 @@ func (osm *ObjectStoreMapper) LoadSnapshot(src io.Reader) error {
 				row[index] = typedVal
 			}
 		}
+		// TODO use a constructor and Inserts -- that way the able can map
+		// columns by name
+		table := types.NewTable(fieldsByTable[name], entries, primary, constructorsByTable[name], featuresByColumnByTable[name], columnMetaByTable[name])
+		db.Tables[name] = table
 	}
 	osm.db = db
 	return nil

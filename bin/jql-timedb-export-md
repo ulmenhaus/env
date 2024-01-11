@@ -258,7 +258,6 @@ def generate_markdown(snapshot, table, pk):
         "Cheat Sheet",
         "Command",
         "Conclusion",
-        "Features",
         "Habit",
         "Idea",
         "Implements",
@@ -482,7 +481,8 @@ def simplify_assertions(key2rel2orobs):
             rel2orobs[pluralize(rel)] = [
                 ("0", simplify_list_of_refs([orob[1] for orob in orobs]))
             ]
-            del rel2orobs[rel]
+            if pluralize(rel) != rel:
+                del rel2orobs[rel]
 
 
 def resolve_jql_links(base_markdown):

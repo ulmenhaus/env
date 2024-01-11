@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/ulmenhaus/env/img/jql/osm"
+	"github.com/ulmenhaus/env/img/jql/types"
 	"github.com/ulmenhaus/env/proto/jql/jqlpb"
 	"google.golang.org/grpc"
 )
@@ -30,36 +31,71 @@ func NewLocalDBMS(mapper *osm.ObjectStoreMapper, path string) (*LocalDBMS, error
 }
 
 func (s *LocalDBMS) ListRows(ctx context.Context, in *jqlpb.ListRowsRequest, opts ...grpc.CallOption) (*jqlpb.ListRowsResponse, error) {
-	return nil, errors.New("not implemented")
+	if len(in.Conditions) > 0 {
+		return nil, errors.New("lisiting with conditions is not yet implemented")
+	}
+	table, ok := s.OSM.GetDB().Tables[in.GetTable()]
+	if !ok {
+		return nil, fmt.Errorf("table does not exist: '%s'", in.GetTable())
+	}
+	resp, err := table.Query(types.QueryParams{
+		OrderBy: in.GetOrderBy(),
+		Dec:     in.GetDec(),
+		Offset:  uint(in.GetOffset()),
+		Limit:   uint(in.GetLimit()),
+	})
+	if err != nil {
+		return nil, err
+	}
+	columns, err := s.generateResponseColumns(table)
+	if err != nil {
+		return nil, err
+	}
+	var rows []*jqlpb.Row
+	for _, row := range resp.Entries {
+		var entries []*jqlpb.Entry
+		for _, entry := range row {
+			entries = append(entries, &jqlpb.Entry{
+				Formatted: entry.Format(""),
+			})
+		}
+		rows = append(rows, &jqlpb.Row{
+			Entries: entries,
+		})
+	}
+	return &jqlpb.ListRowsResponse{
+		Columns: columns,
+		Rows:    rows,
+	}, nil
 }
 
-func (s *LocalDBMS) WriteRow(ctx context.Context, r *jqlpb.WriteRowRequest, opts ...grpc.CallOption) (*jqlpb.WriteRowResponse, error) {
+func (s *LocalDBMS) WriteRow(ctx context.Context, in *jqlpb.WriteRowRequest, opts ...grpc.CallOption) (*jqlpb.WriteRowResponse, error) {
 	// NOTE the default behavior is an upsert with explicit fields to enforce inserting/updating
 	// that are not implemented
-	table, ok := s.OSM.GetDB().Tables[r.GetTable()]
+	table, ok := s.OSM.GetDB().Tables[in.GetTable()]
 	if !ok {
-		return nil, fmt.Errorf("table does not exist")
+		return nil, fmt.Errorf("table does not exist: '%s'", in.GetTable())
 	}
-	if r.GetUpdateOnly() {
-		for key, value := range r.GetFields() {
-			if err := table.Update(r.GetPk(), key, value); err != nil {
+	if in.GetUpdateOnly() {
+		for key, value := range in.GetFields() {
+			if err := table.Update(in.GetPk(), key, value); err != nil {
 				return nil, err
 			}
 		}
 	} else {
-		table.InsertWithFields(r.GetPk(), r.GetFields())
+		table.InsertWithFields(in.GetPk(), in.GetFields())
 	}
 	return &jqlpb.WriteRowResponse{}, nil
 }
 
-func (s *LocalDBMS) GetRow(ctx context.Context, r *jqlpb.GetRowRequest, opts ...grpc.CallOption) (*jqlpb.GetRowResponse, error) {
-	table, ok := s.OSM.GetDB().Tables[r.GetTable()]
+func (s *LocalDBMS) GetRow(ctx context.Context, in *jqlpb.GetRowRequest, opts ...grpc.CallOption) (*jqlpb.GetRowResponse, error) {
+	table, ok := s.OSM.GetDB().Tables[in.GetTable()]
 	if !ok {
 		return nil, fmt.Errorf("table does not exist")
 	}
-	row, ok := table.Entries[r.GetPk()]
+	row, ok := table.Entries[in.GetPk()]
 	if !ok {
-		return nil, fmt.Errorf("no such pk '%s' in table '%s'", r.GetPk(), r.GetTable())
+		return nil, fmt.Errorf("no such pk '%s' in table '%s'", in.GetPk(), in.GetTable())
 	}
 	var entries []*jqlpb.Entry
 	for _, entry := range row {
@@ -67,16 +103,9 @@ func (s *LocalDBMS) GetRow(ctx context.Context, r *jqlpb.GetRowRequest, opts ...
 			Formatted: entry.Format(""),
 		})
 	}
-	var columns []*jqlpb.Column
-	for _, colname := range table.Columns {
-		meta, ok := table.ColumnMeta[colname]
-		if !ok {
-			return nil, fmt.Errorf("could not find metadata for column: %s", colname)
-		}
-		columns = append(columns, &jqlpb.Column{
-			Name: colname,
-			Type: meta.Type,
-		})
+	columns, err := s.generateResponseColumns(table)
+	if err != nil {
+		return nil, err
 	}
 	return &jqlpb.GetRowResponse{
 		Columns: columns,
@@ -84,6 +113,22 @@ func (s *LocalDBMS) GetRow(ctx context.Context, r *jqlpb.GetRowRequest, opts ...
 			Entries: entries,
 		},
 	}, nil
+}
+
+func (s *LocalDBMS) generateResponseColumns(table *types.Table) ([]*jqlpb.Column, error) {
+	var columns []*jqlpb.Column
+	for _, colname := range table.Columns {
+		meta, ok := table.ColumnMeta[colname]
+		if !ok {
+			return nil, fmt.Errorf("could not find metadata for column: %s", colname)
+		}
+		columns = append(columns, &jqlpb.Column{
+			Name:      colname,
+			Type:      meta.Type,
+			MaxLength: int32(meta.MaxLength),
+		})
+	}
+	return columns, nil
 }
 
 func (s *LocalDBMS) DeleteRow(ctx context.Context, in *jqlpb.DeleteRowRequest, opts ...grpc.CallOption) (*jqlpb.DeleteRowResponse, error) {

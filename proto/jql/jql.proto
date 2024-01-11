@@ -12,7 +12,53 @@ service JQL {
 	rpc Persist (PersistRequest) returns (PersistResponse);
 }
 
+message EqualMatch {
+	string value = 1;
+}
+
+message LessThanMatch {
+	string value = 1;
+}
+
+message GreaterThanMatch {
+	string value = 1;
+}
+
+message InMatch {
+	repeated string values = 1;
+}
+
+message ContainsMatch {
+	bool exact = 1;
+	string value = 2;
+}
+	
+
+message Filter {
+	bool negated = 1;
+	string column = 2;
+	oneof match {
+		EqualMatch equal_match = 3;
+		LessThanMatch less_than_match = 4;
+		GreaterThanMatch greather_than_match = 5;
+		InMatch in_match = 6;
+		ContainsMatch contains_match = 7;
+	}
+}
+
+message Condition {
+	repeated Filter requires = 1;
+}
+
 message ListRowsRequest {
+	string table = 1;
+	// Use DNF for maximum expressibility. Filtering is an or clause
+	// of and clauses made up of primitive filters.
+	repeated Condition conditions = 2;
+	string order_by = 3;
+	bool dec = 4;
+	uint32 offset = 5;
+	uint32 limit = 6;
 }
 
 enum EntryType {
@@ -30,6 +76,7 @@ enum EntryType {
 message Column {
 	string name = 1;
 	EntryType type = 2;
+	int32 max_length = 3;
 }
 
 message Entry {

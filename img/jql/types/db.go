@@ -38,7 +38,8 @@ type Entry interface {
 type FieldValueConstructor func(encoded interface{}, features map[string]interface{}) (Entry, error)
 
 type ColumnMeta struct {
-	Type jqlpb.EntryType
+	Type      jqlpb.EntryType
+	MaxLength int
 }
 
 // A Table is a model of an unordered two-dimensional array of data
@@ -49,17 +50,17 @@ type Table struct {
 	columnsByName    map[string]int
 	primary          int
 	Constructors     map[string]FieldValueConstructor
-	ColumnMeta       map[string]ColumnMeta // TODO add constructors, columns, features to this field and deprecate those
+	ColumnMeta       map[string]*ColumnMeta // TODO add constructors, columns, features to this field and deprecate those
 	featuresByColumn map[string](map[string]interface{})
 }
 
 // NewTable returns a new table given a list of columns
-func NewTable(columns []string, entries map[string][]Entry, primary string, constructors map[string]FieldValueConstructor, featuresByColumn map[string](map[string]interface{}), columnMeta map[string]ColumnMeta) *Table {
+func NewTable(columns []string, entries map[string][]Entry, primary string, constructors map[string]FieldValueConstructor, featuresByColumn map[string](map[string]interface{}), columnMeta map[string]*ColumnMeta) *Table {
 	columnsByName := map[string]int{}
 	for i, col := range columns {
 		columnsByName[col] = i
 	}
-	return &Table{
+	t := &Table{
 		Columns: columns,
 		Entries: entries,
 
@@ -70,6 +71,11 @@ func NewTable(columns []string, entries map[string][]Entry, primary string, cons
 		featuresByColumn: featuresByColumn,
 		ColumnMeta:       columnMeta,
 	}
+	// TODO we will need to update these on every write. We can do the following:
+	// - for inserts, take the max of the current value and the written value
+	// - for deletes, if the length is the max length, re-run the calculate method and short-circuit if there's a row with the current value
+	t.calculateMaxLengths()
+	return t
 }
 
 // A Database is a collection of named tables
@@ -278,4 +284,14 @@ func (t *Table) IndexOfField(field string) int {
 		return -1
 	}
 	return index
+}
+
+func (t *Table) calculateMaxLengths() {
+	for _, row := range t.Entries {
+		for i, entry := range row {
+			if len(entry.Format("")) > t.ColumnMeta[t.Columns[i]].MaxLength {
+				t.ColumnMeta[t.Columns[i]].MaxLength = len(entry.Format(""))
+			}
+		}
+	}
 }
