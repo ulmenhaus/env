@@ -1138,7 +1138,7 @@ func (mv *MainView) runMacro(ch rune) error {
 	if err != nil {
 		return fmt.Errorf("Could not create snapshot: %s", err)
 	}
-	paramsNoLimit := jqlpb.QueryParams{
+	paramsNoLimit := types.QueryParams{
 		Filters: mv.Params.Filters,
 		OrderBy: mv.Params.OrderBy,
 	}
