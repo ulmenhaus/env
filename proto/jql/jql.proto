@@ -90,6 +90,7 @@ message Row {
 message ListRowsResponse {
 	repeated Column columns = 1;
 	repeated Row rows = 2;
+	uint32 total = 3;
 }
 
 message GetRowRequest {

@@ -31,8 +31,8 @@ func NewLocalDBMS(mapper *osm.ObjectStoreMapper, path string) (*LocalDBMS, error
 }
 
 func (s *LocalDBMS) ListRows(ctx context.Context, in *jqlpb.ListRowsRequest, opts ...grpc.CallOption) (*jqlpb.ListRowsResponse, error) {
-	if len(in.Conditions) > 0 {
-		return nil, errors.New("lisiting with conditions is not yet implemented")
+	if len(in.Conditions) > 1 {
+		return nil, errors.New("lisiting with multiple conditions is not yet implemented")
 	}
 	table, ok := s.OSM.GetDB().Tables[in.GetTable()]
 	if !ok {
@@ -66,6 +66,7 @@ func (s *LocalDBMS) ListRows(ctx context.Context, in *jqlpb.ListRowsRequest, opt
 	return &jqlpb.ListRowsResponse{
 		Columns: columns,
 		Rows:    rows,
+		Total:   uint32(resp.Total),
 	}, nil
 }
 
