@@ -9,6 +9,7 @@ service JQL {
 	rpc GetRow (GetRowRequest) returns (GetRowResponse);
   rpc WriteRow (WriteRowRequest) returns (WriteRowResponse);
 	rpc DeleteRow (DeleteRowRequest) returns (DeleteRowResponse);
+	rpc IncrementEntry (IncrementEntryRequest) returns (IncrementEntryResponse);
 	rpc Persist (PersistRequest) returns (PersistResponse);
 }
 
@@ -77,6 +78,7 @@ message Column {
 	string name = 1;
 	EntryType type = 2;
 	int32 max_length = 3;
+	bool primary = 4;
 }
 
 message Entry {
@@ -90,6 +92,8 @@ message Row {
 message ListRowsResponse {
 	repeated Column columns = 1;
 	repeated Row rows = 2;
+	uint32 total = 3;
+	uint32 all = 4;
 }
 
 message GetRowRequest {
@@ -111,6 +115,16 @@ message WriteRowRequest {
 }
 
 message WriteRowResponse {}
+
+message IncrementEntryRequest {
+	string table = 1;
+	string pk = 2;
+	string column = 3;
+	int32 amount = 4;
+}
+
+message IncrementEntryResponse {
+}
 
 message DeleteRowRequest {
 	string table = 1;

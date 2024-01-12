@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/ulmenhaus/env/img/jql/osm"
 	"github.com/ulmenhaus/env/img/jql/types"
@@ -30,19 +31,49 @@ func NewLocalDBMS(mapper *osm.ObjectStoreMapper, path string) (*LocalDBMS, error
 	}, nil
 }
 
-func (s *LocalDBMS) ListRows(ctx context.Context, in *jqlpb.ListRowsRequest, opts ...grpc.CallOption) (*jqlpb.ListRowsResponse, error) {
-	if len(in.Conditions) > 0 {
-		return nil, errors.New("lisiting with conditions is not yet implemented")
+// findTable takes in a user-provided table name and returns
+// either that table if it's an exact match for a table, or
+// the first table to match the provided prefix, or an error if no
+// table matches
+func (s *LocalDBMS) findTable(t string) (*types.Table, error) {
+	table, ok := s.OSM.GetDB().Tables[t]
+	if ok {
+		return table, nil
 	}
-	table, ok := s.OSM.GetDB().Tables[in.GetTable()]
-	if !ok {
-		return nil, fmt.Errorf("table does not exist: '%s'", in.GetTable())
+	for name, table := range s.OSM.GetDB().Tables {
+		if strings.HasPrefix(name, t) {
+			return table, nil
+		}
+	}
+	return nil, fmt.Errorf("table does not exist: %s", t)
+}
+
+func (s *LocalDBMS) ListRows(ctx context.Context, in *jqlpb.ListRowsRequest, opts ...grpc.CallOption) (*jqlpb.ListRowsResponse, error) {
+	if len(in.Conditions) > 1 {
+		return nil, errors.New("lisiting with multiple conditions is not yet implemented")
+	}
+	table, err := s.findTable(in.GetTable())
+	if err != nil {
+		return nil, err
+	}
+	var filters []types.Filter
+	if len(in.Conditions) == 1 {
+		for _, filter := range in.Conditions[0].Requires {
+			filters = append(filters, &filterShim{
+				filter: filter,
+				colix:  table.IndexOfField(filter.GetColumn()),
+			})
+		}
 	}
 	resp, err := table.Query(types.QueryParams{
 		OrderBy: in.GetOrderBy(),
 		Dec:     in.GetDec(),
 		Offset:  uint(in.GetOffset()),
 		Limit:   uint(in.GetLimit()),
+		// TODO now that we are filtering on the server-side with a fixed set of types
+		// we can support more sophisticated indexing rather than just applying
+		// filters in a linear fashion
+		Filters: filters,
 	})
 	if err != nil {
 		return nil, err
@@ -66,15 +97,17 @@ func (s *LocalDBMS) ListRows(ctx context.Context, in *jqlpb.ListRowsRequest, opt
 	return &jqlpb.ListRowsResponse{
 		Columns: columns,
 		Rows:    rows,
+		Total:   uint32(resp.Total),
+		All:     uint32(len(table.Entries)),
 	}, nil
 }
 
 func (s *LocalDBMS) WriteRow(ctx context.Context, in *jqlpb.WriteRowRequest, opts ...grpc.CallOption) (*jqlpb.WriteRowResponse, error) {
 	// NOTE the default behavior is an upsert with explicit fields to enforce inserting/updating
 	// that are not implemented
-	table, ok := s.OSM.GetDB().Tables[in.GetTable()]
-	if !ok {
-		return nil, fmt.Errorf("table does not exist: '%s'", in.GetTable())
+	table, err := s.findTable(in.GetTable())
+	if err != nil {
+		return nil, err
 	}
 	if in.GetUpdateOnly() {
 		for key, value := range in.GetFields() {
@@ -89,9 +122,9 @@ func (s *LocalDBMS) WriteRow(ctx context.Context, in *jqlpb.WriteRowRequest, opt
 }
 
 func (s *LocalDBMS) GetRow(ctx context.Context, in *jqlpb.GetRowRequest, opts ...grpc.CallOption) (*jqlpb.GetRowResponse, error) {
-	table, ok := s.OSM.GetDB().Tables[in.GetTable()]
-	if !ok {
-		return nil, fmt.Errorf("table does not exist")
+	table, err := s.findTable(in.GetTable())
+	if err != nil {
+		return nil, err
 	}
 	row, ok := table.Entries[in.GetPk()]
 	if !ok {
@@ -117,7 +150,7 @@ func (s *LocalDBMS) GetRow(ctx context.Context, in *jqlpb.GetRowRequest, opts ..
 
 func (s *LocalDBMS) generateResponseColumns(table *types.Table) ([]*jqlpb.Column, error) {
 	var columns []*jqlpb.Column
-	for _, colname := range table.Columns {
+	for i, colname := range table.Columns {
 		meta, ok := table.ColumnMeta[colname]
 		if !ok {
 			return nil, fmt.Errorf("could not find metadata for column: %s", colname)
@@ -126,13 +159,63 @@ func (s *LocalDBMS) generateResponseColumns(table *types.Table) ([]*jqlpb.Column
 			Name:      colname,
 			Type:      meta.Type,
 			MaxLength: int32(meta.MaxLength),
+			Primary:   table.Primary() == i,
 		})
 	}
 	return columns, nil
 }
 
 func (s *LocalDBMS) DeleteRow(ctx context.Context, in *jqlpb.DeleteRowRequest, opts ...grpc.CallOption) (*jqlpb.DeleteRowResponse, error) {
-	return nil, errors.New("not implemented")
+	table, err := s.findTable(in.GetTable())
+	if err != nil {
+		return nil, err
+	}
+	return &jqlpb.DeleteRowResponse{}, table.Delete(in.GetPk())
+}
+
+func (s *LocalDBMS) IncrementEntry(ctx context.Context, in *jqlpb.IncrementEntryRequest, opts ...grpc.CallOption) (*jqlpb.IncrementEntryResponse, error) {
+	table, err := s.findTable(in.GetTable())
+	if err != nil {
+		return nil, err
+	}
+	row, ok := table.Entries[in.GetPk()]
+	if !ok {
+		return nil, fmt.Errorf("no such pk '%s' in table '%s'", in.GetPk(), in.GetTable())
+	}
+	colix := table.IndexOfField(in.GetColumn())
+	if colix == -1 {
+		return nil, fmt.Errorf("no such column '%s' in table '%s'", in.GetColumn(), in.GetTable())
+	}
+	entry := row[colix]
+	// TODO leaky abstraction
+	switch typed := entry.(type) {
+	case types.ForeignKey:
+		ftable := s.OSM.GetDB().Tables[typed.Table]
+		// TODO not cache mapping
+		fresp, err := ftable.Query(types.QueryParams{
+			OrderBy: ftable.Columns[ftable.Primary()],
+		})
+		if err != nil {
+			return nil, err
+		}
+		index := map[string]int{}
+		for i, fentry := range fresp.Entries {
+			index[fentry[ftable.Primary()].Format("")] = i
+		}
+		next := (index[entry.Format("")] + 1) % len(fresp.Entries)
+		err = table.Update(in.GetPk(), in.GetColumn(), fresp.Entries[next][ftable.Primary()].Format(""))
+		if err != nil {
+			return nil, err
+		}
+	default:
+		// TODO should use an Update so table can modify any necessary internals
+		new, err := entry.Add(int(in.Amount))
+		if err != nil {
+			return nil, err
+		}
+		row[colix] = new
+	}
+	return &jqlpb.IncrementEntryResponse{}, nil
 }
 
 func (s *LocalDBMS) Persist(ctx context.Context, r *jqlpb.PersistRequest, opts ...grpc.CallOption) (*jqlpb.PersistResponse, error) {
@@ -181,6 +264,15 @@ func (s *DBMSShim) Persist(ctx context.Context, in *jqlpb.PersistRequest) (*jqlp
 func IndexOfField(columns []*jqlpb.Column, fieldName string) int {
 	for i, col := range columns {
 		if col.GetName() == fieldName {
+			return i
+		}
+	}
+	return -1
+}
+
+func GetPrimary(columns []*jqlpb.Column) int {
+	for i, col := range columns {
+		if col.GetPrimary() {
 			return i
 		}
 	}

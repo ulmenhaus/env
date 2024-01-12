@@ -34,6 +34,11 @@ class JQLStub(object):
                 request_serializer=jql_dot_jql__pb2.DeleteRowRequest.SerializeToString,
                 response_deserializer=jql_dot_jql__pb2.DeleteRowResponse.FromString,
                 )
+        self.IncrementEntry = channel.unary_unary(
+                '/jql.JQL/IncrementEntry',
+                request_serializer=jql_dot_jql__pb2.IncrementEntryRequest.SerializeToString,
+                response_deserializer=jql_dot_jql__pb2.IncrementEntryResponse.FromString,
+                )
         self.Persist = channel.unary_unary(
                 '/jql.JQL/Persist',
                 request_serializer=jql_dot_jql__pb2.PersistRequest.SerializeToString,
@@ -68,6 +73,12 @@ class JQLServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def IncrementEntry(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def Persist(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -96,6 +107,11 @@ def add_JQLServicer_to_server(servicer, server):
                     servicer.DeleteRow,
                     request_deserializer=jql_dot_jql__pb2.DeleteRowRequest.FromString,
                     response_serializer=jql_dot_jql__pb2.DeleteRowResponse.SerializeToString,
+            ),
+            'IncrementEntry': grpc.unary_unary_rpc_method_handler(
+                    servicer.IncrementEntry,
+                    request_deserializer=jql_dot_jql__pb2.IncrementEntryRequest.FromString,
+                    response_serializer=jql_dot_jql__pb2.IncrementEntryResponse.SerializeToString,
             ),
             'Persist': grpc.unary_unary_rpc_method_handler(
                     servicer.Persist,
@@ -177,6 +193,23 @@ class JQL(object):
         return grpc.experimental.unary_unary(request, target, '/jql.JQL/DeleteRow',
             jql_dot_jql__pb2.DeleteRowRequest.SerializeToString,
             jql_dot_jql__pb2.DeleteRowResponse.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def IncrementEntry(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/jql.JQL/IncrementEntry',
+            jql_dot_jql__pb2.IncrementEntryRequest.SerializeToString,
+            jql_dot_jql__pb2.IncrementEntryResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 

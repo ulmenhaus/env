@@ -8,7 +8,6 @@ import (
 	"io/ioutil"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -83,22 +82,17 @@ type MainView struct {
 	path string
 	dbms api.JQL_DBMS
 
-	OSM     *osm.ObjectStoreMapper
-	Table   *types.Table
-	Params  types.QueryParams
-	columns []string
-	colix   []int
-	// TODO map[string]types.Entry and []types.Entry could both
-	// be higher-level types (e.g. VerboseRow and Row)
-	response *types.Response
-
+	OSM       *osm.ObjectStoreMapper
 	TableView *TableView
 	Mode      MainViewMode
+
+	request     jqlpb.ListRowsRequest
+	response    *types.Response
+	tmpResponse *jqlpb.ListRowsResponse
 
 	switching     bool // on when transitioning modes has not yet been acknowleged by Layout
 	alert         string
 	promptText    string
-	tableName     string
 	searchText    string
 	searchAll     bool // indicates if we search all fields or just this one
 	selectOptions []string
@@ -114,82 +108,12 @@ func NewMainView(path, start string, mapper *osm.ObjectStoreMapper, dbms api.JQL
 	return mv, mv.loadTable(start)
 }
 
-// findTable takes in a user-provided table name and returns
-// either that name if it's an exact match for a table, or
-// the first table to match the provided prefix, or an error if no
-// table matches
-func (mv *MainView) findTable(t string) (string, error) {
-	_, ok := mv.OSM.GetDB().Tables[t]
-	if ok {
-		return t, nil
-	}
-	for name, _ := range mv.OSM.GetDB().Tables {
-		if strings.HasPrefix(name, t) {
-			return name, nil
-		}
-	}
-	return "", fmt.Errorf("unknown table: %s", t)
-}
-
-func (mv *MainView) maxWidths(t *types.Table, tName string) ([]int, error) {
-	// TODO can consolidate this into a single request with the main request
-	// once that also uses the dbms interface
-	resp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
-		Table: tName,
-		Limit: 1,
-	})
-	if err != nil {
-		return nil, err
-	}
-	max := make([]int, len(resp.Columns))
-	for i, colMeta := range resp.Columns {
-		max[i] = int(colMeta.MaxLength)
-	}
-	return max, nil
-}
-
 // loadTable displays the named table in the main table view
 func (mv *MainView) loadTable(t string) error {
-	tName, err := mv.findTable(t)
-	if err != nil {
-		return err
+	mv.request = jqlpb.ListRowsRequest{
+		Table:      t,
+		Conditions: []*jqlpb.Condition{{}},
 	}
-	table := mv.OSM.GetDB().Tables[tName]
-	mv.Table = table
-	mv.tableName = tName
-	columns := []string{}
-	colix := []int{}
-	widths := []int{}
-	max, err := mv.maxWidths(table, tName)
-	if err != nil {
-		return err
-	}
-	for i, column := range table.Columns {
-		columns = append(columns, column)
-		if strings.HasPrefix(column, "_") {
-			continue
-		}
-		width := 40
-		if max != nil && max[i] < width {
-			width = max[i]
-		}
-		widths = append(widths, width)
-		colix = append(colix, i)
-	}
-	mv.TableView = &TableView{
-		Values: [][]string{},
-		Widths: widths,
-		Selections: SelectionSet{
-			Secondary: make(map[Coordinate]bool),
-			Tertiary:  make(map[Coordinate]bool),
-		},
-	}
-	mv.columns = columns
-	mv.colix = colix
-	// TODO would be good to preserve params per table
-	mv.Params.OrderBy = mv.columns[0]
-	mv.Params.Filters = []types.Filter{}
-	mv.Params.Offset = uint(0)
 	return mv.updateTableViewContents()
 }
 
@@ -216,9 +140,9 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 	// TODO hide prompt and header if not in prompt mode or alert mode
 	maxX, maxY := g.Size()
 	// HACK maxY - 8 is the max number of visible rows when header and prompt are present
-	maxRows := uint(maxY - 8)
-	if mv.Params.Limit != maxRows {
-		mv.Params.Limit = maxRows
+	maxRows := uint32(maxY - 8)
+	if mv.request.Limit != maxRows {
+		mv.request.Limit = maxRows
 		if err := mv.updateTableViewContents(); err != nil {
 			return err
 		}
@@ -260,12 +184,11 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 	}
 	location.Clear()
 	row, col := mv.SelectedEntry()
-	var primarySelection types.Entry
-	primarySelection = types.String("")
-	if row < len(mv.response.Entries) {
-		primarySelection = mv.response.Entries[row][mv.Table.Primary()]
+	primarySelection := &jqlpb.Entry{}
+	if row < len(mv.tmpResponse.Rows) {
+		primarySelection = mv.tmpResponse.Rows[row].Entries[api.GetPrimary(mv.tmpResponse.Columns)]
 	}
-	location.Write([]byte(fmt.Sprintf("    L%d C%d           %s", row, col, primarySelection.Format(""))))
+	location.Write([]byte(fmt.Sprintf("    L%d C%d           %s", row, col, primarySelection.Formatted)))
 	if mv.Mode == MainViewModeSelectBox {
 		selectBox, err := g.SetView("selectBox", maxX/2-30, maxY/2-10, maxX/2+30, maxY/2+10)
 		if err != nil {
@@ -370,8 +293,8 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 func (mv *MainView) newEntry(prefill bool) error {
 	sample := ""
 	if prefill {
-		for _, filter := range mv.Params.Filters {
-			suggestion, yes := filter.PrimarySuggestion()
+		for _, filter := range mv.request.Conditions[0].Requires {
+			suggestion, yes := api.PrimarySuggestion(filter)
 			if !yes {
 				continue
 			}
@@ -440,20 +363,17 @@ func (mv *MainView) handleSearchInput(v *gocui.View, key gocui.Key, ch rune, mod
 		mv.searchText += string(ch)
 	}
 	// when we start search pagination should be reset
-	mv.Params.Offset = uint(0)
+	mv.request.Offset = uint32(0)
 	// When switching into search mode, the last filter added is the working
 	// search filter
 
-	col := mv.TableView.Selections.Primary.Column
-	field := mv.Table.Columns[mv.TableView.Selections.Primary.Column]
+	field := mv.tmpResponse.Columns[mv.TableView.Selections.Primary.Column].Name
 	if mv.searchAll {
-		col = -1
 		field = "Any field"
 	}
-	mv.Params.Filters[len(mv.Params.Filters)-1] = &ContainsFilter{
-		Field:     field,
-		Col:       col,
-		Formatted: mv.searchText,
+	mv.request.Conditions[0].Requires[len(mv.request.Conditions[0].Requires)-1] = &jqlpb.Filter{
+		Column: field,
+		Match:  &jqlpb.Filter_ContainsMatch{ContainsMatch: &jqlpb.ContainsMatch{Value: mv.searchText}},
 	}
 	return mv.updateTableViewContents()
 }
@@ -522,13 +442,13 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		mv.TableView.SelectNone()
 	case gocui.KeyPgdn:
 		next := mv.nextPageStart()
-		if next >= mv.response.Total {
+		if next >= uint(mv.tmpResponse.Total) {
 			return
 		}
-		mv.Params.Offset = next
+		mv.request.Offset = uint32(next)
 		err = mv.updateTableViewContents()
 	case gocui.KeyPgup:
-		mv.Params.Offset = mv.prevPageStart()
+		mv.request.Offset = uint32(mv.prevPageStart())
 		err = mv.updateTableViewContents()
 	}
 
@@ -552,7 +472,7 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 	case 'g', 'u':
 		tables := map[string]*types.Table{}
 		for tableName, table := range mv.OSM.GetDB().Tables {
-			if (tableName == mv.tableName) == (ch == 'u') {
+			if (tableName == mv.request.Table) == (ch == 'u') {
 				tables[tableName] = table
 			}
 		}
@@ -560,28 +480,27 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 	case 'G', 'U':
 		tables := map[string]*types.Table{}
 		for tableName, table := range mv.OSM.GetDB().Tables {
-			if (tableName == mv.tableName) == (ch == 'U') {
+			if (tableName == mv.request.Table) == (ch == 'U') {
 				tables[tableName] = table
 			}
 		}
 		err = mv.goFromSelectedValue(tables)
 	case 'f', 'F':
 		row, col := mv.SelectedEntry()
-		filterTarget := mv.response.Entries[row][col].Format("")
-		mv.Params.Filters = append(mv.Params.Filters, &EqualFilter{
-			Field:     mv.Table.Columns[col],
-			Col:       col,
-			Formatted: filterTarget,
-			Not:       ch == 'F',
+		filterTarget := mv.tmpResponse.Rows[row].Entries[col].Formatted
+		mv.request.Conditions[0].Requires = append(mv.request.Conditions[0].Requires, &jqlpb.Filter{
+			Negated: ch == 'F',
+			Column:  mv.tmpResponse.Columns[col].Name,
+			Match:   &jqlpb.Filter_EqualMatch{EqualMatch: &jqlpb.EqualMatch{Value: filterTarget}},
 		})
 		err = mv.updateTableViewContents()
 	case 'q':
-		if len(mv.Params.Filters) > 0 {
-			mv.Params.Filters = mv.Params.Filters[:len(mv.Params.Filters)-1]
+		if len(mv.request.Conditions[0].Requires) > 0 {
+			mv.request.Conditions[0].Requires = mv.request.Conditions[0].Requires[:len(mv.request.Conditions[0].Requires)-1]
 		}
 		err = mv.updateTableViewContents()
 	case 'Q':
-		mv.Params.Filters = []types.Filter{}
+		mv.request.Conditions = []*jqlpb.Condition{{}}
 		err = mv.updateTableViewContents()
 	case 'd':
 		err = mv.deleteSelectedRow()
@@ -602,37 +521,35 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		mv.switchMode(MainViewModePrompt)
 	case '?':
 		mv.searchAll = true
-		mv.Params.Filters = append(mv.Params.Filters, &ContainsFilter{
-			Field:     "Any field",
-			Col:       -1,
-			Formatted: "",
+		mv.request.Conditions[0].Requires = append(mv.request.Conditions[0].Requires, &jqlpb.Filter{
+			Column: "",
+			Match:  &jqlpb.Filter_ContainsMatch{ContainsMatch: &jqlpb.ContainsMatch{Value: ""}},
 		})
 		mv.switchMode(MainViewModeSearch)
 	case '/':
 		mv.searchAll = false
-		mv.Params.Filters = append(mv.Params.Filters, &ContainsFilter{
-			Field:     mv.Table.Columns[mv.TableView.Selections.Primary.Column],
-			Col:       mv.TableView.Selections.Primary.Column,
-			Formatted: "",
+		mv.request.Conditions[0].Requires = append(mv.request.Conditions[0].Requires, &jqlpb.Filter{
+			Column: mv.tmpResponse.Columns[mv.TableView.Selections.Primary.Column].Name,
+			Match:  &jqlpb.Filter_ContainsMatch{ContainsMatch: &jqlpb.ContainsMatch{Value: ""}},
 		})
 		mv.switchMode(MainViewModeSearch)
 	case 'o':
 		_, col := mv.SelectedEntry()
-		mv.Params.OrderBy = mv.columns[col]
-		mv.Params.Dec = false
+		mv.request.OrderBy = mv.tmpResponse.Columns[col].Name
+		mv.request.Dec = false
 		err = mv.updateTableViewContents()
 	case 'O':
 		_, col := mv.SelectedEntry()
-		mv.Params.OrderBy = mv.columns[col]
-		mv.Params.Dec = true
+		mv.request.OrderBy = mv.tmpResponse.Columns[col].Name
+		mv.request.Dec = true
 		err = mv.updateTableViewContents()
 	case 'p':
-		mv.Params.OrderBy = mv.columns[mv.Table.Primary()]
-		mv.Params.Dec = false
+		mv.request.OrderBy = mv.tmpResponse.Columns[api.GetPrimary(mv.tmpResponse.Columns)].Name
+		mv.request.Dec = false
 		err = mv.updateTableViewContents()
 	case 'P':
-		mv.Params.OrderBy = mv.columns[mv.Table.Primary()]
-		mv.Params.Dec = true
+		mv.request.OrderBy = mv.tmpResponse.Columns[api.GetPrimary(mv.tmpResponse.Columns)].Name
+		mv.request.Dec = true
 		err = mv.updateTableViewContents()
 	case 'i':
 		err = mv.incrementSelected(1)
@@ -668,56 +585,107 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 }
 
 func (mv *MainView) nextPageStart() uint {
-	return types.IntMin(mv.Params.Offset+mv.Params.Limit, mv.Params.Offset+uint(len(mv.response.Entries)))
+	return types.IntMin(uint(mv.request.Offset+mv.request.Limit), uint(mv.request.Offset)+uint(len(mv.tmpResponse.Rows)))
 }
 
 func (mv *MainView) prevPageStart() uint {
-	if mv.Params.Offset < mv.Params.Limit {
+	if mv.request.Offset < mv.request.Limit {
 		return 0
 	}
-	return mv.Params.Offset - mv.Params.Limit
+	return uint(mv.request.Offset - mv.request.Limit)
 }
 
 func (mv *MainView) headerContents() []byte {
 	// Actual params are 0-indexed but displayed as 1-indexed
 	l1 := fmt.Sprintf("Table: %s\t\t\t Entries %d - %d of %d (%d total)",
-		mv.tableName, mv.Params.Offset+1, mv.nextPageStart(), mv.response.Total, len(mv.Table.Entries))
-	subqs := make([]string, len(mv.Params.Filters))
-	for i, filter := range mv.Params.Filters {
-		subqs[i] = filter.Description()
+		mv.request.Table, mv.request.Offset+1, mv.nextPageStart(), mv.tmpResponse.Total, mv.tmpResponse.All)
+	subqs := make([]string, len(mv.request.Conditions[0].Requires))
+	for i, filter := range mv.request.Conditions[0].Requires {
+		subqs[i] = api.Description(filter)
 	}
 	l2 := fmt.Sprintf("Query: %s", strings.Join(subqs, ", "))
 	return []byte(fmt.Sprintf("%s\n%s", l1, l2))
 }
 
-func (mv *MainView) updateTableViewContents() error {
-	mv.TableView.Values = [][]string{}
-	// NOTE putting this here to support swapping columns later
-	header := []string{}
-	for _, i := range mv.colix {
-		col := mv.columns[i]
-		if mv.Params.OrderBy == col {
-			if mv.Params.Dec {
-				col += " ^"
-			} else {
-				col += " v"
-			}
+func (mv *MainView) getColumnIndices() []int {
+	var indices []int
+	for i, col := range mv.tmpResponse.Columns {
+		if !strings.HasPrefix(col.Name, "_") {
+			indices = append(indices, i)
 		}
-		header = append(header, col)
 	}
-	mv.TableView.Header = header
+	return indices
+}
 
-	response, err := mv.Table.Query(mv.Params)
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func sameColumns(respA, respB *jqlpb.ListRowsResponse) bool {
+	colsA := respA.GetColumns()
+	colsB := respB.GetColumns()
+	if len(colsA) != len(colsB) {
+		return false
+	}
+	for i := range colsA {
+		if colsA[i].Name != colsB[i].Name {
+			return false
+		}
+	}
+	return true
+}
+
+func (mv *MainView) updateTableViewContents() error {
+	response, err := mv.dbms.ListRows(ctx, &mv.request)
 	if err != nil {
 		return err
 	}
-	mv.response = response
-	for _, row := range mv.response.Entries {
+	selectedCol := 0
+	if sameColumns(response, mv.tmpResponse) {
+		// If after changing the contents, we're still looking at the
+		// same columns, then keep the pointer in that column
+		selectedCol = mv.TableView.Selections.Primary.Column
+	}
+	mv.tmpResponse = response
+
+	var header []string
+	var widths []int
+	for _, i := range mv.getColumnIndices() {
+		col := mv.tmpResponse.Columns[i]
+		name := col.Name
+		if mv.request.OrderBy == name {
+			if mv.request.Dec {
+				name += " ^"
+			} else {
+				name += " v"
+			}
+		}
+		header = append(header, name)
+		widths = append(widths, minInt(int(col.MaxLength), 40))
+	}
+	mv.TableView = &TableView{
+		Header: header,
+		Values: [][]string{},
+		Widths: widths,
+		Selections: SelectionSet{
+			Primary: Coordinate{
+				Column: selectedCol,
+			},
+			Secondary: make(map[Coordinate]bool),
+			Tertiary:  make(map[Coordinate]bool),
+		},
+	}
+
+	// NOTE putting this here to support swapping columns later
+	for _, row := range mv.tmpResponse.Rows {
 		formatted := []string{}
-		for _, i := range mv.colix {
-			entry := row[i]
+		for _, i := range mv.getColumnIndices() {
+			entry := row.Entries[i]
 			// TODO extract actual formatting
-			formatted = append(formatted, entry.Format(""))
+			formatted = append(formatted, entry.Formatted)
 		}
 		mv.TableView.Values = append(mv.TableView.Values, formatted)
 	}
@@ -765,17 +733,17 @@ func (mv *MainView) promptExit(contents string, finish bool, err error) {
 			}
 			newPK := strings.Join(parts[1:], " ")
 			fields := map[string]string{}
-			for _, filter := range mv.Params.Filters {
-				col, formatted := filter.Example()
+			for _, filter := range mv.request.Conditions[0].Requires {
+				col, formatted := api.Example(filter)
 				if col == -1 {
 					// TODO should unapply all filters here
 					continue
 				}
-				fields[mv.Table.Columns[col]] = formatted
+				fields[mv.tmpResponse.Columns[col].Name] = formatted
 			}
 
 			_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
-				Table:  mv.tableName,
+				Table:  mv.request.Table,
 				Pk:     newPK,
 				Fields: fields,
 			})
@@ -824,58 +792,53 @@ loop:
 		return err
 	}
 	primary := mv.OSM.GetDB().Tables[table].Primary()
-	var filter types.Filter
+	var filter *jqlpb.Filter
 	if len(keys) == 1 {
-		filter = &EqualFilter{
-			Field:     mv.Table.Columns[primary],
-			Col:       primary,
-			Formatted: keys[0],
+		filter = &jqlpb.Filter{
+			Column: mv.tmpResponse.Columns[primary].Name,
+			Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: keys[0]}},
 		}
 	} else {
-		filter = &InFilter{
-			Field:     mv.Table.Columns[primary],
-			Col:       primary,
-			Formatted: slice2map(keys),
+		filter = &jqlpb.Filter{
+			Column: mv.tmpResponse.Columns[primary].Name,
+			Match:  &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: keys}},
 		}
 	}
-	mv.Params.Filters = []types.Filter{filter}
+	mv.request.Conditions[0].Requires = []*jqlpb.Filter{filter}
 	return mv.updateTableViewContents()
 }
 
 func (mv *MainView) goFromSelectedValue(tables map[string]*types.Table) error {
 	row, _ := mv.SelectedEntry()
-	selected := mv.response.Entries[row][mv.Table.Primary()]
+	selected := mv.response.Entries[row][api.GetPrimary(mv.tmpResponse.Columns)]
 	for name, table := range tables {
-		col := table.HasForeign(mv.tableName, selected.Format(""))
+		col := table.HasForeign(mv.request.Table, selected.Format(""))
 		if col == -1 {
 			continue
 		}
 		secondary := mv.TableView.Selections.Secondary
 
-		var filters []types.Filter
+		var filters []*jqlpb.Filter
 
 		if len(secondary) == 0 {
-			filters = []types.Filter{
-				&ContainsFilter{
-					Field:     fmt.Sprintf("%s.%s", table.Columns[col], mv.Table.Columns[mv.Table.Primary()]),
-					Col:       col,
-					Formatted: selected.Format(""),
-					Exact:     true,
+			filters = []*jqlpb.Filter{
+				{
+					Column: mv.tmpResponse.Columns[col].Name,
+					Match:  &jqlpb.Filter_ContainsMatch{ContainsMatch: &jqlpb.ContainsMatch{Value: selected.Format(""), Exact: true}},
 				},
 			}
 		} else {
 			// NOTE multiple selections will not work for foreign lists
 			// A better solution that also would remove some hackiness in the ContainsFilter would be
 			// to add a method on Entries to get their subentries
-			selections := map[string]bool{selected.Format(""): true}
+			selections := []string{selected.Format("")}
 			for coordinate, _ := range secondary {
-				selections[mv.response.Entries[coordinate.Row][mv.Table.Primary()].Format("")] = true
+				selections = append(selections, mv.response.Entries[coordinate.Row][api.GetPrimary(mv.tmpResponse.Columns)].Format(""))
 			}
-			filters = []types.Filter{
-				&InFilter{
-					Field:     fmt.Sprintf("%s.%s", table.Columns[col], mv.Table.Columns[mv.Table.Primary()]),
-					Col:       col,
-					Formatted: selections,
+			filters = []*jqlpb.Filter{
+				{
+					Column: mv.tmpResponse.Columns[col].Name,
+					Match:  &jqlpb.Filter_InMatch{InMatch: &jqlpb.InMatch{Values: selections}},
 				},
 			}
 		}
@@ -883,7 +846,7 @@ func (mv *MainView) goFromSelectedValue(tables map[string]*types.Table) error {
 		if err != nil {
 			return err
 		}
-		mv.Params.Filters = filters
+		mv.request.Conditions[0].Requires = filters
 		return mv.updateTableViewContents()
 	}
 	return fmt.Errorf("no tables found with corresponding foreign key: %s", selected)
@@ -891,50 +854,32 @@ func (mv *MainView) goFromSelectedValue(tables map[string]*types.Table) error {
 
 func (mv *MainView) incrementSelected(amt int) error {
 	row, col := mv.SelectedEntry()
-	entry := mv.response.Entries[row][col]
-	key := mv.response.Entries[row][mv.Table.Primary()].Format("")
-	// TODO leaky abstraction
-	switch typed := entry.(type) {
-	case types.ForeignKey:
-		ftable := mv.OSM.GetDB().Tables[typed.Table]
-		// TODO not cache mapping
-		fresp, err := ftable.Query(types.QueryParams{
-			OrderBy: ftable.Columns[ftable.Primary()],
-		})
-		if err != nil {
-			return err
-		}
-		index := map[string]int{}
-		for i, fentry := range fresp.Entries {
-			index[fentry[ftable.Primary()].Format("")] = i
-		}
-		next := (index[entry.Format("")] + 1) % len(fresp.Entries)
-		err = mv.Table.Update(key, mv.Table.Columns[col], fresp.Entries[next][ftable.Primary()].Format(""))
-		if err != nil {
-			return err
-		}
-	default:
-		// TODO should use an Update so table can modify any necessary internals
-		new, err := mv.Table.Entries[key][col].Add(amt)
-		if err != nil {
-			return err
-		}
-		mv.Table.Entries[key][col] = new
+	_, err := mv.dbms.IncrementEntry(ctx, &jqlpb.IncrementEntryRequest{
+		Table:  mv.request.Table,
+		Pk:     mv.tmpResponse.Rows[row].Entries[api.GetPrimary(mv.tmpResponse.Columns)].Formatted,
+		Amount: int32(amt),
+		Column: mv.tmpResponse.Columns[col].Name,
+	})
+	if err != nil {
+		return err
 	}
 	return mv.updateTableViewContents()
 }
 
 func (mv *MainView) openCellInWindow() error {
 	row, col := mv.SelectedEntry()
-	entry := mv.response.Entries[row][col]
-	cmd := exec.Command("txtopen", entry.Format(""))
+	entry := mv.tmpResponse.Rows[row].Entries[col]
+	cmd := exec.Command("txtopen", entry.Formatted)
 	return cmd.Run()
 }
 
 func (mv *MainView) deleteSelectedRow() error {
 	row, _ := mv.SelectedEntry()
-	key := mv.response.Entries[row][mv.Table.Primary()].Format("")
-	return mv.Table.Delete(key)
+	_, err := mv.dbms.DeleteRow(ctx, &jqlpb.DeleteRowRequest{
+		Table: mv.request.Table,
+		Pk:    mv.tmpResponse.Rows[row].Entries[api.GetPrimary(mv.tmpResponse.Columns)].Formatted,
+	})
+	return err
 }
 
 func (mv *MainView) nextAvailablePrimaryFromPattern(key string) (string, error) {
@@ -960,7 +905,13 @@ func (mv *MainView) nextAvailablePrimaryFromPattern(key string) (string, error) 
 			padding := strconv.Itoa((used[1] - 1) - (used[0] + 1))
 			newKey = fmt.Sprintf("%s%0"+padding+"d%s", key[:used[0]+1], ordinal, key[used[1]-1:])
 		}
-		if _, ok := mv.Table.Entries[newKey]; !ok {
+		_, err := mv.dbms.GetRow(ctx, &jqlpb.GetRowRequest{
+			Table: mv.request.Table,
+			Pk:    newKey,
+		})
+		if err != nil {
+			// we found a key that does not exist
+			// TODO would be nice to test this is specifically a not found error
 			break
 		}
 	}
@@ -969,9 +920,9 @@ func (mv *MainView) nextAvailablePrimaryFromPattern(key string) (string, error) 
 
 func (mv *MainView) duplicateSelectedRow() error {
 	row, _ := mv.SelectedEntry()
-	primaryIndex := mv.Table.Primary()
-	old := mv.response.Entries[row]
-	key := old[primaryIndex].Format("")
+	primaryIndex := api.GetPrimary(mv.tmpResponse.Columns)
+	old := mv.tmpResponse.Rows[row].Entries
+	key := old[primaryIndex].Formatted
 	newKey, err := mv.nextAvailablePrimaryFromPattern(key)
 	if err != nil {
 		return err
@@ -981,10 +932,10 @@ func (mv *MainView) duplicateSelectedRow() error {
 		if i == primaryIndex {
 			continue
 		}
-		fields[mv.Table.Columns[i]] = oldValue.Format("")
+		fields[mv.tmpResponse.Columns[i].Name] = oldValue.Formatted
 	}
 	_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
-		Table:  mv.tableName,
+		Table:  mv.request.Table,
 		Pk:     newKey,
 		Fields: fields,
 	})
@@ -1024,9 +975,9 @@ func (mv *MainView) copyValue() error {
 func (mv *MainView) updateEntryValue(contents string) error {
 	row, column := mv.SelectedEntry()
 	_, err := mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
-		Table:      mv.tableName,
-		Pk:         mv.response.Entries[row][mv.Table.Primary()].Format(""),
-		Fields:     map[string]string{mv.Table.Columns[column]: contents},
+		Table:      mv.request.Table,
+		Pk:         mv.tmpResponse.Rows[row].Entries[api.GetPrimary(mv.tmpResponse.Columns)].Formatted,
+		Fields:     map[string]string{mv.tmpResponse.Columns[column].Name: contents},
 		UpdateOnly: true,
 	})
 	if err != nil {
@@ -1046,22 +997,6 @@ func (mv *MainView) pasteValue() error {
 		return err
 	}
 	return mv.updateEntryValue(strings.TrimSpace(string(out)))
-}
-
-func (mv *MainView) editWorkspace() error {
-	row, col := mv.SelectedEntry()
-	val := mv.response.Entries[row][col].Format("")
-	ws := os.Getenv("JQL_WORKSPACE")
-	dir := filepath.Join(ws, val)
-	err := os.MkdirAll(dir, os.ModePerm)
-	if err != nil {
-		return err
-	}
-	args := strings.Split(os.Getenv("JQL_EDITOR"), " ")
-	args = append(args, filepath.Join(dir, "README.md"))
-	cmd := exec.Command(args[0], args[1:]...)
-	// command should run async in the background
-	return cmd.Start()
 }
 
 // switchView changes to another tool for viewing the current jql db
@@ -1138,25 +1073,25 @@ func (mv *MainView) runMacro(ch rune) error {
 	if err != nil {
 		return fmt.Errorf("Could not create snapshot: %s", err)
 	}
-	paramsNoLimit := types.QueryParams{
-		Filters: mv.Params.Filters,
-		OrderBy: mv.Params.OrderBy,
+	requestNoLimit := &jqlpb.ListRowsRequest{
+		Conditions: mv.request.Conditions,
+		OrderBy:    mv.request.OrderBy,
 	}
-	response, err := mv.Table.Query(paramsNoLimit)
+	response, err := mv.dbms.ListRows(ctx, requestNoLimit)
 	if err != nil {
 		return err
 	}
 	pks := []string{}
-	for _, entry := range response.Entries {
-		pks = append(pks, entry[mv.Table.Primary()].Format(""))
+	for _, row := range response.Rows {
+		pks = append(pks, row.Entries[api.GetPrimary(mv.tmpResponse.Columns)].Formatted)
 	}
 	row, _ := mv.SelectedEntry()
-	primarySelection := mv.response.Entries[row][mv.Table.Primary()]
+	primarySelection := mv.response.Entries[row][api.GetPrimary(mv.tmpResponse.Columns)]
 
 	input := MacroInterface{
 		Snapshot: snapshot,
 		CurrentView: MacroCurrentView{
-			Table:            mv.tableName,
+			Table:            mv.request.Table,
 			PKs:              pks,
 			PrimarySelection: primarySelection.Format(""),
 		},
@@ -1198,32 +1133,35 @@ func (mv *MainView) runMacro(ch rune) error {
 	if err != nil {
 		return fmt.Errorf("Could not load database from macro: %s", err)
 	}
-	tableSwitch := mv.tableName != output.CurrentView.Table
-	params := mv.Params
+	tableSwitch := mv.request.Table != output.CurrentView.Table
+	request := mv.request
 	err = mv.loadTable(output.CurrentView.Table)
 	if err != nil {
 		return fmt.Errorf("Could not load table after macro: %s", err)
 	}
 	if !tableSwitch {
-		mv.Params = params
+		mv.request = request
 	}
 	filterField := output.CurrentView.Filter.Field
 	if filterField != "" {
 		// The macro is updating our table query with a basic filter
 		// For now this only supports a single equal filter
 		// TODO figure out why the Query in the header doesn't update until after another button push
-		mv.Params.Filters = []types.Filter{
-			&EqualFilter{
-				Field:     filterField,
-				Col:       mv.Table.IndexOfField(filterField),
-				Formatted: output.CurrentView.Filter.Formatted,
+		mv.request.Conditions = []*jqlpb.Condition{
+			{
+				Requires: []*jqlpb.Filter{
+					{
+						Column: filterField,
+						Match:  &jqlpb.Filter_EqualMatch{EqualMatch: &jqlpb.EqualMatch{Value: output.CurrentView.Filter.Formatted}},
+					},
+				},
 			},
 		}
 	}
 	orderBy := output.CurrentView.OrderBy
 	if orderBy != "" {
-		mv.Params.OrderBy = orderBy
-		mv.Params.Dec = output.CurrentView.OrderDec
+		mv.request.OrderBy = orderBy
+		mv.request.Dec = output.CurrentView.OrderDec
 	}
 	err = mv.updateTableViewContents()
 	if err != nil {
@@ -1234,17 +1172,18 @@ func (mv *MainView) runMacro(ch rune) error {
 
 func (mv *MainView) SelectedEntry() (int, int) {
 	row, col := mv.TableView.PrimarySelection()
-	return row, mv.colix[col]
+	return row, mv.getColumnIndices()[col]
 }
 
 func (mv *MainView) GoToPrimaryKey(pk string) error {
-	primary := mv.Table.Primary()
-	field := mv.Table.Columns[primary]
-	mv.Params.Filters = []types.Filter{
-		&EqualFilter{
-			Field:     field,
-			Col:       primary,
-			Formatted: pk,
+	mv.request.Conditions = []*jqlpb.Condition{
+		{
+			Requires: []*jqlpb.Filter{
+				{
+					Column: mv.tmpResponse.Columns[api.GetPrimary(mv.tmpResponse.Columns)].Name,
+					Match:  &jqlpb.Filter_EqualMatch{EqualMatch: &jqlpb.EqualMatch{Value: pk}},
+				},
+			},
 		},
 	}
 	return mv.updateTableViewContents()

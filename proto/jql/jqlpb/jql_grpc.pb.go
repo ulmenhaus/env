@@ -19,11 +19,12 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	JQL_ListRows_FullMethodName  = "/jql.JQL/ListRows"
-	JQL_GetRow_FullMethodName    = "/jql.JQL/GetRow"
-	JQL_WriteRow_FullMethodName  = "/jql.JQL/WriteRow"
-	JQL_DeleteRow_FullMethodName = "/jql.JQL/DeleteRow"
-	JQL_Persist_FullMethodName   = "/jql.JQL/Persist"
+	JQL_ListRows_FullMethodName       = "/jql.JQL/ListRows"
+	JQL_GetRow_FullMethodName         = "/jql.JQL/GetRow"
+	JQL_WriteRow_FullMethodName       = "/jql.JQL/WriteRow"
+	JQL_DeleteRow_FullMethodName      = "/jql.JQL/DeleteRow"
+	JQL_IncrementEntry_FullMethodName = "/jql.JQL/IncrementEntry"
+	JQL_Persist_FullMethodName        = "/jql.JQL/Persist"
 )
 
 // JQLClient is the client API for JQL service.
@@ -34,6 +35,7 @@ type JQLClient interface {
 	GetRow(ctx context.Context, in *GetRowRequest, opts ...grpc.CallOption) (*GetRowResponse, error)
 	WriteRow(ctx context.Context, in *WriteRowRequest, opts ...grpc.CallOption) (*WriteRowResponse, error)
 	DeleteRow(ctx context.Context, in *DeleteRowRequest, opts ...grpc.CallOption) (*DeleteRowResponse, error)
+	IncrementEntry(ctx context.Context, in *IncrementEntryRequest, opts ...grpc.CallOption) (*IncrementEntryResponse, error)
 	Persist(ctx context.Context, in *PersistRequest, opts ...grpc.CallOption) (*PersistResponse, error)
 }
 
@@ -81,6 +83,15 @@ func (c *jQLClient) DeleteRow(ctx context.Context, in *DeleteRowRequest, opts ..
 	return out, nil
 }
 
+func (c *jQLClient) IncrementEntry(ctx context.Context, in *IncrementEntryRequest, opts ...grpc.CallOption) (*IncrementEntryResponse, error) {
+	out := new(IncrementEntryResponse)
+	err := c.cc.Invoke(ctx, JQL_IncrementEntry_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *jQLClient) Persist(ctx context.Context, in *PersistRequest, opts ...grpc.CallOption) (*PersistResponse, error) {
 	out := new(PersistResponse)
 	err := c.cc.Invoke(ctx, JQL_Persist_FullMethodName, in, out, opts...)
@@ -98,6 +109,7 @@ type JQLServer interface {
 	GetRow(context.Context, *GetRowRequest) (*GetRowResponse, error)
 	WriteRow(context.Context, *WriteRowRequest) (*WriteRowResponse, error)
 	DeleteRow(context.Context, *DeleteRowRequest) (*DeleteRowResponse, error)
+	IncrementEntry(context.Context, *IncrementEntryRequest) (*IncrementEntryResponse, error)
 	Persist(context.Context, *PersistRequest) (*PersistResponse, error)
 	mustEmbedUnimplementedJQLServer()
 }
@@ -117,6 +129,9 @@ func (UnimplementedJQLServer) WriteRow(context.Context, *WriteRowRequest) (*Writ
 }
 func (UnimplementedJQLServer) DeleteRow(context.Context, *DeleteRowRequest) (*DeleteRowResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteRow not implemented")
+}
+func (UnimplementedJQLServer) IncrementEntry(context.Context, *IncrementEntryRequest) (*IncrementEntryResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method IncrementEntry not implemented")
 }
 func (UnimplementedJQLServer) Persist(context.Context, *PersistRequest) (*PersistResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Persist not implemented")
@@ -206,6 +221,24 @@ func _JQL_DeleteRow_Handler(srv interface{}, ctx context.Context, dec func(inter
 	return interceptor(ctx, in, info, handler)
 }
 
+func _JQL_IncrementEntry_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(IncrementEntryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(JQLServer).IncrementEntry(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: JQL_IncrementEntry_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(JQLServer).IncrementEntry(ctx, req.(*IncrementEntryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _JQL_Persist_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(PersistRequest)
 	if err := dec(in); err != nil {
@@ -246,6 +279,10 @@ var JQL_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteRow",
 			Handler:    _JQL_DeleteRow_Handler,
+		},
+		{
+			MethodName: "IncrementEntry",
+			Handler:    _JQL_IncrementEntry_Handler,
 		},
 		{
 			MethodName: "Persist",
