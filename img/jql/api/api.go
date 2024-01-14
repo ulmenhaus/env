@@ -272,6 +272,10 @@ func NewDBMSShim(api JQL_DBMS) *DBMSShim {
 	}
 }
 
+func (s *DBMSShim) ListTables(ctx context.Context, in *jqlpb.ListTablesRequest) (*jqlpb.ListTablesResponse, error) {
+	return s.api.ListTables(ctx, in)
+}
+
 func (s *DBMSShim) ListRows(ctx context.Context, in *jqlpb.ListRowsRequest) (*jqlpb.ListRowsResponse, error) {
 	return s.api.ListRows(ctx, in)
 }
@@ -286,6 +290,10 @@ func (s *DBMSShim) WriteRow(ctx context.Context, in *jqlpb.WriteRowRequest) (*jq
 
 func (s *DBMSShim) DeleteRow(ctx context.Context, in *jqlpb.DeleteRowRequest) (*jqlpb.DeleteRowResponse, error) {
 	return s.api.DeleteRow(ctx, in)
+}
+
+func (s *DBMSShim) IncrementEntry(ctx context.Context, in *jqlpb.IncrementEntryRequest) (*jqlpb.IncrementEntryResponse, error) {
+	return s.api.IncrementEntry(ctx, in)
 }
 
 func (s *DBMSShim) Persist(ctx context.Context, in *jqlpb.PersistRequest) (*jqlpb.PersistResponse, error) {

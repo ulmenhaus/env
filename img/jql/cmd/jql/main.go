@@ -57,18 +57,28 @@ func runCLI() error {
 }
 
 func runJQL(cfg jqlConfig) error {
-	dbms, mapper, err := runDatabse(cfg.path)
-	if err != nil {
-		return err
-	}
 	// TODO path should be hidden behind the OSM and never used directly by any of these components
 	switch cfg.mode {
 	case "standalone":
-		return runStandalone(cfg.path, cfg.table, mapper, dbms)
+		dbms, mapper, err := runDatabse(cfg.path)
+		if err != nil {
+			return err
+		}
+		return runUI(cfg.path, cfg.table, mapper, dbms)
 	case "daemon":
+		dbms, mapper, err := runDatabse(cfg.path)
+		if err != nil {
+			return err
+		}
 		return runDaemon(cfg.path, cfg.table, mapper, cfg.addr, dbms)
 	case "client":
-		return runClient(dbms)
+		conn, err := grpc.Dial(cfg.addr, grpc.WithInsecure())
+    if err != nil {
+			return err
+    }
+    defer conn.Close()
+		dbms := jqlpb.NewJQLClient(conn)
+		return runUI(cfg.path, cfg.table, nil, dbms)
 	default:
 		return fmt.Errorf("Unknown mode: %v", cfg.mode)
 	}
@@ -88,11 +98,7 @@ func runDaemon(dbPath, tableName string, mapper *osm.ObjectStoreMapper, addr str
 	return nil
 }
 
-func runClient(dbms api.JQL_DBMS) error {
-	return fmt.Errorf("Client mode not yet implemented")
-}
-
-func runStandalone(dbPath, tableName string, mapper *osm.ObjectStoreMapper, dbms api.JQL_DBMS) error {
+func runUI(dbPath, tableName string, mapper *osm.ObjectStoreMapper, dbms api.JQL_DBMS) error {
 	mv, err := ui.NewMainView(dbPath, tableName, mapper, dbms)
 	if err != nil {
 		return err
