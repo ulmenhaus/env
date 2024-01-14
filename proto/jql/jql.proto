@@ -5,12 +5,24 @@ option go_package = "jql/jqlpb";
 package jql;
 
 service JQL {
+	rpc ListTables (ListTablesRequest) returns (ListTablesResponse);
 	rpc ListRows (ListRowsRequest) returns (ListRowsResponse);
 	rpc GetRow (GetRowRequest) returns (GetRowResponse);
   rpc WriteRow (WriteRowRequest) returns (WriteRowResponse);
 	rpc DeleteRow (DeleteRowRequest) returns (DeleteRowResponse);
 	rpc IncrementEntry (IncrementEntryRequest) returns (IncrementEntryResponse);
 	rpc Persist (PersistRequest) returns (PersistResponse);
+}
+
+message ListTablesRequest {}
+
+message TableMeta {
+	string name = 1;
+	repeated Column columns = 2;
+}
+
+message ListTablesResponse {
+	repeated TableMeta tables = 1;
 }
 
 message EqualMatch {
@@ -79,6 +91,9 @@ message Column {
 	EntryType type = 2;
 	int32 max_length = 3;
 	bool primary = 4;
+
+	// Type-specific fields
+	string foreign_table = 5;
 }
 
 message Entry {

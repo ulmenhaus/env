@@ -48,6 +48,24 @@ func (s *LocalDBMS) findTable(t string) (*types.Table, error) {
 	return nil, fmt.Errorf("table does not exist: %s", t)
 }
 
+func (s *LocalDBMS) ListTables(ctx context.Context, in *jqlpb.ListTablesRequest, opts ...grpc.CallOption) (*jqlpb.ListTablesResponse, error) {
+	var tables []*jqlpb.TableMeta
+
+	for name, table := range s.OSM.GetDB().Tables {
+		columns, err := s.generateResponseColumns(table)
+		if err != nil {
+			return nil, err
+		}
+		tables = append(tables, &jqlpb.TableMeta{
+			Name:    name,
+			Columns: columns,
+		})
+	}
+	return &jqlpb.ListTablesResponse{
+		Tables: tables,
+	}, nil
+}
+
 func (s *LocalDBMS) ListRows(ctx context.Context, in *jqlpb.ListRowsRequest, opts ...grpc.CallOption) (*jqlpb.ListRowsResponse, error) {
 	if len(in.Conditions) > 1 {
 		return nil, errors.New("lisiting with multiple conditions is not yet implemented")
@@ -156,10 +174,11 @@ func (s *LocalDBMS) generateResponseColumns(table *types.Table) ([]*jqlpb.Column
 			return nil, fmt.Errorf("could not find metadata for column: %s", colname)
 		}
 		columns = append(columns, &jqlpb.Column{
-			Name:      colname,
-			Type:      meta.Type,
-			MaxLength: int32(meta.MaxLength),
-			Primary:   table.Primary() == i,
+			Name:         colname,
+			Type:         meta.Type,
+			MaxLength:    int32(meta.MaxLength),
+			Primary:      table.Primary() == i,
+			ForeignTable: meta.ForeignTable,
 		})
 	}
 	return columns, nil
@@ -273,6 +292,17 @@ func IndexOfField(columns []*jqlpb.Column, fieldName string) int {
 func GetPrimary(columns []*jqlpb.Column) int {
 	for i, col := range columns {
 		if col.GetPrimary() {
+			return i
+		}
+	}
+	return -1
+}
+
+// HasForeign returns the index of the column that is a foriegn key to the
+// provided table or -1 if there is no such column
+func HasForeign(columns []*jqlpb.Column, table string) int {
+	for i, column := range columns {
+		if column.ForeignTable == table {
 			return i
 		}
 	}

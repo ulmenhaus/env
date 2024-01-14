@@ -14,6 +14,11 @@ class JQLStub(object):
         Args:
             channel: A grpc.Channel.
         """
+        self.ListTables = channel.unary_unary(
+                '/jql.JQL/ListTables',
+                request_serializer=jql_dot_jql__pb2.ListTablesRequest.SerializeToString,
+                response_deserializer=jql_dot_jql__pb2.ListTablesResponse.FromString,
+                )
         self.ListRows = channel.unary_unary(
                 '/jql.JQL/ListRows',
                 request_serializer=jql_dot_jql__pb2.ListRowsRequest.SerializeToString,
@@ -48,6 +53,12 @@ class JQLStub(object):
 
 class JQLServicer(object):
     """Missing associated documentation comment in .proto file."""
+
+    def ListTables(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
 
     def ListRows(self, request, context):
         """Missing associated documentation comment in .proto file."""
@@ -88,6 +99,11 @@ class JQLServicer(object):
 
 def add_JQLServicer_to_server(servicer, server):
     rpc_method_handlers = {
+            'ListTables': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListTables,
+                    request_deserializer=jql_dot_jql__pb2.ListTablesRequest.FromString,
+                    response_serializer=jql_dot_jql__pb2.ListTablesResponse.SerializeToString,
+            ),
             'ListRows': grpc.unary_unary_rpc_method_handler(
                     servicer.ListRows,
                     request_deserializer=jql_dot_jql__pb2.ListRowsRequest.FromString,
@@ -127,6 +143,23 @@ def add_JQLServicer_to_server(servicer, server):
  # This class is part of an EXPERIMENTAL API.
 class JQL(object):
     """Missing associated documentation comment in .proto file."""
+
+    @staticmethod
+    def ListTables(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/jql.JQL/ListTables',
+            jql_dot_jql__pb2.ListTablesRequest.SerializeToString,
+            jql_dot_jql__pb2.ListTablesResponse.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
     @staticmethod
     def ListRows(request,

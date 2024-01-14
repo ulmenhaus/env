@@ -478,10 +478,15 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		}
 		err = mv.goToSelectedValue(tables)
 	case 'G', 'U':
-		tables := map[string]*types.Table{}
-		for tableName, table := range mv.OSM.GetDB().Tables {
-			if (tableName == mv.request.Table) == (ch == 'U') {
-				tables[tableName] = table
+		var resp *jqlpb.ListTablesResponse
+		resp, err = mv.dbms.ListTables(ctx, &jqlpb.ListTablesRequest{})
+		if err != nil {
+			return
+		}
+		var tables []*jqlpb.TableMeta
+		for _, table := range resp.Tables {
+			if (table.Name == mv.request.Table) == (ch == 'U') {
+				tables = append(tables, table)
 			}
 		}
 		err = mv.goFromSelectedValue(tables)
@@ -760,24 +765,23 @@ func (mv *MainView) promptExit(contents string, finish bool, err error) {
 
 func (mv *MainView) goToSelectedValue(tables map[string]*types.Table) error {
 	row, col := mv.SelectedEntry()
-	// TODO leaky abstraction. Maybe better to support
-	// an interface method for detecting foreigns
 	var table string
 	var keys []string
 	// Look for the first column, starting at the primary
 	// selection that is a foreign key
 loop:
 	for {
-		switch f := mv.response.Entries[row][col].(type) {
-		case types.ForeignKey:
-			table = f.Table
-			keys = []string{f.Key}
+		meta := mv.tmpResponse.Columns[col]
+		switch meta.Type {
+		case jqlpb.EntryType_FOREIGN:
+			table = meta.ForeignTable
+			keys = []string{mv.tmpResponse.Rows[row].Entries[col].Formatted}
 			if tables[table] != nil {
 				break loop
 			}
-		case types.ForeignList:
-			table = f.Table
-			keys = f.Keys
+		case jqlpb.EntryType_FOREIGNS:
+			table = meta.ForeignTable
+			keys = strings.Split(mv.tmpResponse.Rows[row].Entries[col].Formatted, "\n")
 			if tables[table] != nil {
 				break loop
 			}
@@ -808,11 +812,11 @@ loop:
 	return mv.updateTableViewContents()
 }
 
-func (mv *MainView) goFromSelectedValue(tables map[string]*types.Table) error {
+func (mv *MainView) goFromSelectedValue(tables []*jqlpb.TableMeta) error {
 	row, _ := mv.SelectedEntry()
-	selected := mv.response.Entries[row][api.GetPrimary(mv.tmpResponse.Columns)]
-	for name, table := range tables {
-		col := table.HasForeign(mv.request.Table, selected.Format(""))
+	selected := mv.tmpResponse.Rows[row].Entries[api.GetPrimary(mv.tmpResponse.Columns)]
+	for _, table := range tables {
+		col := api.HasForeign(table.Columns, mv.request.Table)
 		if col == -1 {
 			continue
 		}
@@ -823,26 +827,26 @@ func (mv *MainView) goFromSelectedValue(tables map[string]*types.Table) error {
 		if len(secondary) == 0 {
 			filters = []*jqlpb.Filter{
 				{
-					Column: mv.tmpResponse.Columns[col].Name,
-					Match:  &jqlpb.Filter_ContainsMatch{ContainsMatch: &jqlpb.ContainsMatch{Value: selected.Format(""), Exact: true}},
+					Column: table.Columns[col].Name,
+					Match:  &jqlpb.Filter_ContainsMatch{ContainsMatch: &jqlpb.ContainsMatch{Value: selected.Formatted, Exact: true}},
 				},
 			}
 		} else {
 			// NOTE multiple selections will not work for foreign lists
 			// A better solution that also would remove some hackiness in the ContainsFilter would be
 			// to add a method on Entries to get their subentries
-			selections := []string{selected.Format("")}
+			selections := []string{selected.Formatted}
 			for coordinate, _ := range secondary {
-				selections = append(selections, mv.response.Entries[coordinate.Row][api.GetPrimary(mv.tmpResponse.Columns)].Format(""))
+				selections = append(selections, mv.tmpResponse.Rows[coordinate.Row].Entries[api.GetPrimary(mv.tmpResponse.Columns)].Formatted)
 			}
 			filters = []*jqlpb.Filter{
 				{
-					Column: mv.tmpResponse.Columns[col].Name,
+					Column: table.Columns[col].Name,
 					Match:  &jqlpb.Filter_InMatch{InMatch: &jqlpb.InMatch{Values: selections}},
 				},
 			}
 		}
-		err := mv.loadTable(name)
+		err := mv.loadTable(table.Name)
 		if err != nil {
 			return err
 		}
@@ -947,7 +951,7 @@ func (mv *MainView) duplicateSelectedRow() error {
 
 func (mv *MainView) copyValue() error {
 	row, col := mv.SelectedEntry()
-	value := mv.response.Entries[row][col].Format("")
+	value := mv.tmpResponse.Rows[row].Entries[col].Formatted
 	path, err := exec.LookPath("txtcopy")
 	if err != nil {
 		return err

@@ -19,6 +19,7 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
+	JQL_ListTables_FullMethodName     = "/jql.JQL/ListTables"
 	JQL_ListRows_FullMethodName       = "/jql.JQL/ListRows"
 	JQL_GetRow_FullMethodName         = "/jql.JQL/GetRow"
 	JQL_WriteRow_FullMethodName       = "/jql.JQL/WriteRow"
@@ -31,6 +32,7 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type JQLClient interface {
+	ListTables(ctx context.Context, in *ListTablesRequest, opts ...grpc.CallOption) (*ListTablesResponse, error)
 	ListRows(ctx context.Context, in *ListRowsRequest, opts ...grpc.CallOption) (*ListRowsResponse, error)
 	GetRow(ctx context.Context, in *GetRowRequest, opts ...grpc.CallOption) (*GetRowResponse, error)
 	WriteRow(ctx context.Context, in *WriteRowRequest, opts ...grpc.CallOption) (*WriteRowResponse, error)
@@ -45,6 +47,15 @@ type jQLClient struct {
 
 func NewJQLClient(cc grpc.ClientConnInterface) JQLClient {
 	return &jQLClient{cc}
+}
+
+func (c *jQLClient) ListTables(ctx context.Context, in *ListTablesRequest, opts ...grpc.CallOption) (*ListTablesResponse, error) {
+	out := new(ListTablesResponse)
+	err := c.cc.Invoke(ctx, JQL_ListTables_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *jQLClient) ListRows(ctx context.Context, in *ListRowsRequest, opts ...grpc.CallOption) (*ListRowsResponse, error) {
@@ -105,6 +116,7 @@ func (c *jQLClient) Persist(ctx context.Context, in *PersistRequest, opts ...grp
 // All implementations must embed UnimplementedJQLServer
 // for forward compatibility
 type JQLServer interface {
+	ListTables(context.Context, *ListTablesRequest) (*ListTablesResponse, error)
 	ListRows(context.Context, *ListRowsRequest) (*ListRowsResponse, error)
 	GetRow(context.Context, *GetRowRequest) (*GetRowResponse, error)
 	WriteRow(context.Context, *WriteRowRequest) (*WriteRowResponse, error)
@@ -118,6 +130,9 @@ type JQLServer interface {
 type UnimplementedJQLServer struct {
 }
 
+func (UnimplementedJQLServer) ListTables(context.Context, *ListTablesRequest) (*ListTablesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListTables not implemented")
+}
 func (UnimplementedJQLServer) ListRows(context.Context, *ListRowsRequest) (*ListRowsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListRows not implemented")
 }
@@ -147,6 +162,24 @@ type UnsafeJQLServer interface {
 
 func RegisterJQLServer(s grpc.ServiceRegistrar, srv JQLServer) {
 	s.RegisterService(&JQL_ServiceDesc, srv)
+}
+
+func _JQL_ListTables_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListTablesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(JQLServer).ListTables(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: JQL_ListTables_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(JQLServer).ListTables(ctx, req.(*ListTablesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _JQL_ListRows_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -264,6 +297,10 @@ var JQL_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "jql.JQL",
 	HandlerType: (*JQLServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "ListTables",
+			Handler:    _JQL_ListTables_Handler,
+		},
 		{
 			MethodName: "ListRows",
 			Handler:    _JQL_ListRows_Handler,
