@@ -94,6 +94,7 @@ message Column {
 
 	// Type-specific fields
 	string foreign_table = 5;
+	repeated string values = 6;
 }
 
 message Entry {
@@ -105,10 +106,11 @@ message Row {
 }
 
 message ListRowsResponse {
-	repeated Column columns = 1;
-	repeated Row rows = 2;
-	uint32 total = 3;
-	uint32 all = 4;
+	string table = 1;
+	repeated Column columns = 2;
+	repeated Row rows = 3;
+	uint32 total = 4;
+	uint32 all = 5;
 }
 
 message GetRowRequest {
@@ -117,8 +119,9 @@ message GetRowRequest {
 }
 
 message GetRowResponse {
-	repeated Column columns = 1;
-	Row row = 2;
+	string table = 1;
+	repeated Column columns = 2;
+	Row row = 3;
 }
 
 message WriteRowRequest {

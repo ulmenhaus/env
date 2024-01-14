@@ -35,17 +35,17 @@ func NewLocalDBMS(mapper *osm.ObjectStoreMapper, path string) (*LocalDBMS, error
 // either that table if it's an exact match for a table, or
 // the first table to match the provided prefix, or an error if no
 // table matches
-func (s *LocalDBMS) findTable(t string) (*types.Table, error) {
+func (s *LocalDBMS) findTable(t string) (string, *types.Table, error) {
 	table, ok := s.OSM.GetDB().Tables[t]
 	if ok {
-		return table, nil
+		return t, table, nil
 	}
 	for name, table := range s.OSM.GetDB().Tables {
 		if strings.HasPrefix(name, t) {
-			return table, nil
+			return name, table, nil
 		}
 	}
-	return nil, fmt.Errorf("table does not exist: %s", t)
+	return "", nil, fmt.Errorf("table does not exist: %s", t)
 }
 
 func (s *LocalDBMS) ListTables(ctx context.Context, in *jqlpb.ListTablesRequest, opts ...grpc.CallOption) (*jqlpb.ListTablesResponse, error) {
@@ -70,7 +70,7 @@ func (s *LocalDBMS) ListRows(ctx context.Context, in *jqlpb.ListRowsRequest, opt
 	if len(in.Conditions) > 1 {
 		return nil, errors.New("lisiting with multiple conditions is not yet implemented")
 	}
-	table, err := s.findTable(in.GetTable())
+	name, table, err := s.findTable(in.GetTable())
 	if err != nil {
 		return nil, err
 	}
@@ -113,6 +113,7 @@ func (s *LocalDBMS) ListRows(ctx context.Context, in *jqlpb.ListRowsRequest, opt
 		})
 	}
 	return &jqlpb.ListRowsResponse{
+		Table:   name,
 		Columns: columns,
 		Rows:    rows,
 		Total:   uint32(resp.Total),
@@ -123,7 +124,7 @@ func (s *LocalDBMS) ListRows(ctx context.Context, in *jqlpb.ListRowsRequest, opt
 func (s *LocalDBMS) WriteRow(ctx context.Context, in *jqlpb.WriteRowRequest, opts ...grpc.CallOption) (*jqlpb.WriteRowResponse, error) {
 	// NOTE the default behavior is an upsert with explicit fields to enforce inserting/updating
 	// that are not implemented
-	table, err := s.findTable(in.GetTable())
+	_, table, err := s.findTable(in.GetTable())
 	if err != nil {
 		return nil, err
 	}
@@ -140,7 +141,7 @@ func (s *LocalDBMS) WriteRow(ctx context.Context, in *jqlpb.WriteRowRequest, opt
 }
 
 func (s *LocalDBMS) GetRow(ctx context.Context, in *jqlpb.GetRowRequest, opts ...grpc.CallOption) (*jqlpb.GetRowResponse, error) {
-	table, err := s.findTable(in.GetTable())
+	name, table, err := s.findTable(in.GetTable())
 	if err != nil {
 		return nil, err
 	}
@@ -159,6 +160,7 @@ func (s *LocalDBMS) GetRow(ctx context.Context, in *jqlpb.GetRowRequest, opts ..
 		return nil, err
 	}
 	return &jqlpb.GetRowResponse{
+		Table:   name,
 		Columns: columns,
 		Row: &jqlpb.Row{
 			Entries: entries,
@@ -173,19 +175,29 @@ func (s *LocalDBMS) generateResponseColumns(table *types.Table) ([]*jqlpb.Column
 		if !ok {
 			return nil, fmt.Errorf("could not find metadata for column: %s", colname)
 		}
-		columns = append(columns, &jqlpb.Column{
+		col := &jqlpb.Column{
 			Name:         colname,
 			Type:         meta.Type,
 			MaxLength:    int32(meta.MaxLength),
 			Primary:      table.Primary() == i,
 			ForeignTable: meta.ForeignTable,
-		})
+		}
+		// TODO not a great interface. It'd be better to have the enum values as a field on the column metadata
+		// Instead we pick a row if it exists and try to get the values from it
+		for _, row := range table.Entries {
+			enum, ok := row[i].(types.Enum)
+			if ok {
+				col.Values = enum.Values()
+			}
+			break
+		}
+		columns = append(columns, col)
 	}
 	return columns, nil
 }
 
 func (s *LocalDBMS) DeleteRow(ctx context.Context, in *jqlpb.DeleteRowRequest, opts ...grpc.CallOption) (*jqlpb.DeleteRowResponse, error) {
-	table, err := s.findTable(in.GetTable())
+	_, table, err := s.findTable(in.GetTable())
 	if err != nil {
 		return nil, err
 	}
@@ -193,7 +205,7 @@ func (s *LocalDBMS) DeleteRow(ctx context.Context, in *jqlpb.DeleteRowRequest, o
 }
 
 func (s *LocalDBMS) IncrementEntry(ctx context.Context, in *jqlpb.IncrementEntryRequest, opts ...grpc.CallOption) (*jqlpb.IncrementEntryResponse, error) {
-	table, err := s.findTable(in.GetTable())
+	_, table, err := s.findTable(in.GetTable())
 	if err != nil {
 		return nil, err
 	}

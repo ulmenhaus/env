@@ -87,8 +87,7 @@ type MainView struct {
 	Mode      MainViewMode
 
 	request     jqlpb.ListRowsRequest
-	response    *types.Response
-	tmpResponse *jqlpb.ListRowsResponse
+	response *jqlpb.ListRowsResponse
 
 	switching     bool // on when transitioning modes has not yet been acknowleged by Layout
 	alert         string
@@ -185,8 +184,8 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 	location.Clear()
 	row, col := mv.SelectedEntry()
 	primarySelection := &jqlpb.Entry{}
-	if row < len(mv.tmpResponse.Rows) {
-		primarySelection = mv.tmpResponse.Rows[row].Entries[api.GetPrimary(mv.tmpResponse.Columns)]
+	if row < len(mv.response.Rows) {
+		primarySelection = mv.response.Rows[row].Entries[api.GetPrimary(mv.response.Columns)]
 	}
 	location.Write([]byte(fmt.Sprintf("    L%d C%d           %s", row, col, primarySelection.Formatted)))
 	if mv.Mode == MainViewModeSelectBox {
@@ -367,7 +366,7 @@ func (mv *MainView) handleSearchInput(v *gocui.View, key gocui.Key, ch rune, mod
 	// When switching into search mode, the last filter added is the working
 	// search filter
 
-	field := mv.tmpResponse.Columns[mv.TableView.Selections.Primary.Column].Name
+	field := mv.response.Columns[mv.TableView.Selections.Primary.Column].Name
 	if mv.searchAll {
 		field = "Any field"
 	}
@@ -380,24 +379,22 @@ func (mv *MainView) handleSearchInput(v *gocui.View, key gocui.Key, ch rune, mod
 
 func (mv *MainView) triggerEdit() error {
 	row, col := mv.SelectedEntry()
-	// TODO leaky abstraction. Maybe better to support
-	// an interface method for detecting possible values
-	switch f := mv.response.Entries[row][col].(type) {
-	case types.Enum:
-		mv.selectOptions = f.Values()
+	meta := mv.response.Columns[col]
+	switch meta.Type {
+	case jqlpb.EntryType_ENUM:
+		mv.selectOptions = meta.Values
 		mv.switchMode(MainViewModeSelectBox)
-	case types.ForeignKey:
-		ftable := mv.OSM.GetDB().Tables[f.Table]
-		// TODO not cache mapping
-		fresp, err := ftable.Query(types.QueryParams{
-			OrderBy: ftable.Columns[ftable.Primary()],
+	case jqlpb.EntryType_FOREIGN:
+		resp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
+			Table: meta.ForeignTable,
 		})
 		if err != nil {
 			return err
 		}
 		values := []string{}
-		for _, frow := range fresp.Entries {
-			values = append(values, frow[ftable.Primary()].Format(""))
+		primary := api.GetPrimary(resp.Columns)
+		for _, row := range resp.Rows {
+			values = append(values, row.Entries[primary].Formatted)
 		}
 		mv.selectOptions = values
 		mv.switchMode(MainViewModeSelectBox)
@@ -442,7 +439,7 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		mv.TableView.SelectNone()
 	case gocui.KeyPgdn:
 		next := mv.nextPageStart()
-		if next >= uint(mv.tmpResponse.Total) {
+		if next >= uint(mv.response.Total) {
 			return
 		}
 		mv.request.Offset = uint32(next)
@@ -470,10 +467,15 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 	case 'j':
 		mv.TableView.Move(DirectionDown)
 	case 'g', 'u':
-		tables := map[string]*types.Table{}
-		for tableName, table := range mv.OSM.GetDB().Tables {
-			if (tableName == mv.request.Table) == (ch == 'u') {
-				tables[tableName] = table
+		var resp *jqlpb.ListTablesResponse
+		resp, err = mv.dbms.ListTables(ctx, &jqlpb.ListTablesRequest{})
+		if err != nil {
+			return
+		}
+		tables := map[string]*jqlpb.TableMeta{}
+		for _, table := range resp.Tables {
+			if (table.Name == mv.request.Table) == (ch == 'u') {
+				tables[table.Name] = table
 			}
 		}
 		err = mv.goToSelectedValue(tables)
@@ -492,10 +494,10 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		err = mv.goFromSelectedValue(tables)
 	case 'f', 'F':
 		row, col := mv.SelectedEntry()
-		filterTarget := mv.tmpResponse.Rows[row].Entries[col].Formatted
+		filterTarget := mv.response.Rows[row].Entries[col].Formatted
 		mv.request.Conditions[0].Requires = append(mv.request.Conditions[0].Requires, &jqlpb.Filter{
 			Negated: ch == 'F',
-			Column:  mv.tmpResponse.Columns[col].Name,
+			Column:  mv.response.Columns[col].Name,
 			Match:   &jqlpb.Filter_EqualMatch{EqualMatch: &jqlpb.EqualMatch{Value: filterTarget}},
 		})
 		err = mv.updateTableViewContents()
@@ -534,26 +536,26 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 	case '/':
 		mv.searchAll = false
 		mv.request.Conditions[0].Requires = append(mv.request.Conditions[0].Requires, &jqlpb.Filter{
-			Column: mv.tmpResponse.Columns[mv.TableView.Selections.Primary.Column].Name,
+			Column: mv.response.Columns[mv.TableView.Selections.Primary.Column].Name,
 			Match:  &jqlpb.Filter_ContainsMatch{ContainsMatch: &jqlpb.ContainsMatch{Value: ""}},
 		})
 		mv.switchMode(MainViewModeSearch)
 	case 'o':
 		_, col := mv.SelectedEntry()
-		mv.request.OrderBy = mv.tmpResponse.Columns[col].Name
+		mv.request.OrderBy = mv.response.Columns[col].Name
 		mv.request.Dec = false
 		err = mv.updateTableViewContents()
 	case 'O':
 		_, col := mv.SelectedEntry()
-		mv.request.OrderBy = mv.tmpResponse.Columns[col].Name
+		mv.request.OrderBy = mv.response.Columns[col].Name
 		mv.request.Dec = true
 		err = mv.updateTableViewContents()
 	case 'p':
-		mv.request.OrderBy = mv.tmpResponse.Columns[api.GetPrimary(mv.tmpResponse.Columns)].Name
+		mv.request.OrderBy = mv.response.Columns[api.GetPrimary(mv.response.Columns)].Name
 		mv.request.Dec = false
 		err = mv.updateTableViewContents()
 	case 'P':
-		mv.request.OrderBy = mv.tmpResponse.Columns[api.GetPrimary(mv.tmpResponse.Columns)].Name
+		mv.request.OrderBy = mv.response.Columns[api.GetPrimary(mv.response.Columns)].Name
 		mv.request.Dec = true
 		err = mv.updateTableViewContents()
 	case 'i':
@@ -590,7 +592,7 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 }
 
 func (mv *MainView) nextPageStart() uint {
-	return types.IntMin(uint(mv.request.Offset+mv.request.Limit), uint(mv.request.Offset)+uint(len(mv.tmpResponse.Rows)))
+	return types.IntMin(uint(mv.request.Offset+mv.request.Limit), uint(mv.request.Offset)+uint(len(mv.response.Rows)))
 }
 
 func (mv *MainView) prevPageStart() uint {
@@ -603,7 +605,7 @@ func (mv *MainView) prevPageStart() uint {
 func (mv *MainView) headerContents() []byte {
 	// Actual params are 0-indexed but displayed as 1-indexed
 	l1 := fmt.Sprintf("Table: %s\t\t\t Entries %d - %d of %d (%d total)",
-		mv.request.Table, mv.request.Offset+1, mv.nextPageStart(), mv.tmpResponse.Total, mv.tmpResponse.All)
+		mv.request.Table, mv.request.Offset+1, mv.nextPageStart(), mv.response.Total, mv.response.All)
 	subqs := make([]string, len(mv.request.Conditions[0].Requires))
 	for i, filter := range mv.request.Conditions[0].Requires {
 		subqs[i] = api.Description(filter)
@@ -614,7 +616,7 @@ func (mv *MainView) headerContents() []byte {
 
 func (mv *MainView) getColumnIndices() []int {
 	var indices []int
-	for i, col := range mv.tmpResponse.Columns {
+	for i, col := range mv.response.Columns {
 		if !strings.HasPrefix(col.Name, "_") {
 			indices = append(indices, i)
 		}
@@ -648,18 +650,19 @@ func (mv *MainView) updateTableViewContents() error {
 	if err != nil {
 		return err
 	}
+	mv.request.Table = response.Table
 	selectedCol := 0
-	if sameColumns(response, mv.tmpResponse) {
+	if sameColumns(response, mv.response) {
 		// If after changing the contents, we're still looking at the
 		// same columns, then keep the pointer in that column
 		selectedCol = mv.TableView.Selections.Primary.Column
 	}
-	mv.tmpResponse = response
+	mv.response = response
 
 	var header []string
 	var widths []int
 	for _, i := range mv.getColumnIndices() {
-		col := mv.tmpResponse.Columns[i]
+		col := mv.response.Columns[i]
 		name := col.Name
 		if mv.request.OrderBy == name {
 			if mv.request.Dec {
@@ -685,7 +688,7 @@ func (mv *MainView) updateTableViewContents() error {
 	}
 
 	// NOTE putting this here to support swapping columns later
-	for _, row := range mv.tmpResponse.Rows {
+	for _, row := range mv.response.Rows {
 		formatted := []string{}
 		for _, i := range mv.getColumnIndices() {
 			entry := row.Entries[i]
@@ -744,7 +747,7 @@ func (mv *MainView) promptExit(contents string, finish bool, err error) {
 					// TODO should unapply all filters here
 					continue
 				}
-				fields[mv.tmpResponse.Columns[col].Name] = formatted
+				fields[mv.response.Columns[col].Name] = formatted
 			}
 
 			_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
@@ -763,7 +766,7 @@ func (mv *MainView) promptExit(contents string, finish bool, err error) {
 	}
 }
 
-func (mv *MainView) goToSelectedValue(tables map[string]*types.Table) error {
+func (mv *MainView) goToSelectedValue(tables map[string]*jqlpb.TableMeta) error {
 	row, col := mv.SelectedEntry()
 	var table string
 	var keys []string
@@ -771,22 +774,22 @@ func (mv *MainView) goToSelectedValue(tables map[string]*types.Table) error {
 	// selection that is a foreign key
 loop:
 	for {
-		meta := mv.tmpResponse.Columns[col]
+		meta := mv.response.Columns[col]
 		switch meta.Type {
 		case jqlpb.EntryType_FOREIGN:
 			table = meta.ForeignTable
-			keys = []string{mv.tmpResponse.Rows[row].Entries[col].Formatted}
+			keys = []string{mv.response.Rows[row].Entries[col].Formatted}
 			if tables[table] != nil {
 				break loop
 			}
 		case jqlpb.EntryType_FOREIGNS:
 			table = meta.ForeignTable
-			keys = strings.Split(mv.tmpResponse.Rows[row].Entries[col].Formatted, "\n")
+			keys = strings.Split(mv.response.Rows[row].Entries[col].Formatted, "\n")
 			if tables[table] != nil {
 				break loop
 			}
 		}
-		col = (col + 1) % len(mv.response.Entries[row])
+		col = (col + 1) % len(mv.response.Columns)
 		if col == mv.TableView.Selections.Primary.Column {
 			return fmt.Errorf("no foreign key found in entry")
 		}
@@ -795,16 +798,16 @@ loop:
 	if err != nil {
 		return err
 	}
-	primary := mv.OSM.GetDB().Tables[table].Primary()
+	primary := api.GetPrimary(mv.response.Columns)
 	var filter *jqlpb.Filter
 	if len(keys) == 1 {
 		filter = &jqlpb.Filter{
-			Column: mv.tmpResponse.Columns[primary].Name,
+			Column: mv.response.Columns[primary].Name,
 			Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: keys[0]}},
 		}
 	} else {
 		filter = &jqlpb.Filter{
-			Column: mv.tmpResponse.Columns[primary].Name,
+			Column: mv.response.Columns[primary].Name,
 			Match:  &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: keys}},
 		}
 	}
@@ -814,7 +817,7 @@ loop:
 
 func (mv *MainView) goFromSelectedValue(tables []*jqlpb.TableMeta) error {
 	row, _ := mv.SelectedEntry()
-	selected := mv.tmpResponse.Rows[row].Entries[api.GetPrimary(mv.tmpResponse.Columns)]
+	selected := mv.response.Rows[row].Entries[api.GetPrimary(mv.response.Columns)]
 	for _, table := range tables {
 		col := api.HasForeign(table.Columns, mv.request.Table)
 		if col == -1 {
@@ -837,7 +840,7 @@ func (mv *MainView) goFromSelectedValue(tables []*jqlpb.TableMeta) error {
 			// to add a method on Entries to get their subentries
 			selections := []string{selected.Formatted}
 			for coordinate, _ := range secondary {
-				selections = append(selections, mv.tmpResponse.Rows[coordinate.Row].Entries[api.GetPrimary(mv.tmpResponse.Columns)].Formatted)
+				selections = append(selections, mv.response.Rows[coordinate.Row].Entries[api.GetPrimary(mv.response.Columns)].Formatted)
 			}
 			filters = []*jqlpb.Filter{
 				{
@@ -860,9 +863,9 @@ func (mv *MainView) incrementSelected(amt int) error {
 	row, col := mv.SelectedEntry()
 	_, err := mv.dbms.IncrementEntry(ctx, &jqlpb.IncrementEntryRequest{
 		Table:  mv.request.Table,
-		Pk:     mv.tmpResponse.Rows[row].Entries[api.GetPrimary(mv.tmpResponse.Columns)].Formatted,
+		Pk:     mv.response.Rows[row].Entries[api.GetPrimary(mv.response.Columns)].Formatted,
 		Amount: int32(amt),
-		Column: mv.tmpResponse.Columns[col].Name,
+		Column: mv.response.Columns[col].Name,
 	})
 	if err != nil {
 		return err
@@ -872,7 +875,7 @@ func (mv *MainView) incrementSelected(amt int) error {
 
 func (mv *MainView) openCellInWindow() error {
 	row, col := mv.SelectedEntry()
-	entry := mv.tmpResponse.Rows[row].Entries[col]
+	entry := mv.response.Rows[row].Entries[col]
 	cmd := exec.Command("txtopen", entry.Formatted)
 	return cmd.Run()
 }
@@ -881,7 +884,7 @@ func (mv *MainView) deleteSelectedRow() error {
 	row, _ := mv.SelectedEntry()
 	_, err := mv.dbms.DeleteRow(ctx, &jqlpb.DeleteRowRequest{
 		Table: mv.request.Table,
-		Pk:    mv.tmpResponse.Rows[row].Entries[api.GetPrimary(mv.tmpResponse.Columns)].Formatted,
+		Pk:    mv.response.Rows[row].Entries[api.GetPrimary(mv.response.Columns)].Formatted,
 	})
 	return err
 }
@@ -924,8 +927,8 @@ func (mv *MainView) nextAvailablePrimaryFromPattern(key string) (string, error) 
 
 func (mv *MainView) duplicateSelectedRow() error {
 	row, _ := mv.SelectedEntry()
-	primaryIndex := api.GetPrimary(mv.tmpResponse.Columns)
-	old := mv.tmpResponse.Rows[row].Entries
+	primaryIndex := api.GetPrimary(mv.response.Columns)
+	old := mv.response.Rows[row].Entries
 	key := old[primaryIndex].Formatted
 	newKey, err := mv.nextAvailablePrimaryFromPattern(key)
 	if err != nil {
@@ -936,7 +939,7 @@ func (mv *MainView) duplicateSelectedRow() error {
 		if i == primaryIndex {
 			continue
 		}
-		fields[mv.tmpResponse.Columns[i].Name] = oldValue.Formatted
+		fields[mv.response.Columns[i].Name] = oldValue.Formatted
 	}
 	_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
 		Table:  mv.request.Table,
@@ -951,7 +954,7 @@ func (mv *MainView) duplicateSelectedRow() error {
 
 func (mv *MainView) copyValue() error {
 	row, col := mv.SelectedEntry()
-	value := mv.tmpResponse.Rows[row].Entries[col].Formatted
+	value := mv.response.Rows[row].Entries[col].Formatted
 	path, err := exec.LookPath("txtcopy")
 	if err != nil {
 		return err
@@ -980,8 +983,8 @@ func (mv *MainView) updateEntryValue(contents string) error {
 	row, column := mv.SelectedEntry()
 	_, err := mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
 		Table:      mv.request.Table,
-		Pk:         mv.tmpResponse.Rows[row].Entries[api.GetPrimary(mv.tmpResponse.Columns)].Formatted,
-		Fields:     map[string]string{mv.tmpResponse.Columns[column].Name: contents},
+		Pk:         mv.response.Rows[row].Entries[api.GetPrimary(mv.response.Columns)].Formatted,
+		Fields:     map[string]string{mv.response.Columns[column].Name: contents},
 		UpdateOnly: true,
 	})
 	if err != nil {
@@ -1078,8 +1081,10 @@ func (mv *MainView) runMacro(ch rune) error {
 		return fmt.Errorf("Could not create snapshot: %s", err)
 	}
 	requestNoLimit := &jqlpb.ListRowsRequest{
+		Table:      mv.request.Table,
 		Conditions: mv.request.Conditions,
 		OrderBy:    mv.request.OrderBy,
+		Dec:        mv.request.Dec,
 	}
 	response, err := mv.dbms.ListRows(ctx, requestNoLimit)
 	if err != nil {
@@ -1087,17 +1092,17 @@ func (mv *MainView) runMacro(ch rune) error {
 	}
 	pks := []string{}
 	for _, row := range response.Rows {
-		pks = append(pks, row.Entries[api.GetPrimary(mv.tmpResponse.Columns)].Formatted)
+		pks = append(pks, row.Entries[api.GetPrimary(mv.response.Columns)].Formatted)
 	}
 	row, _ := mv.SelectedEntry()
-	primarySelection := mv.response.Entries[row][api.GetPrimary(mv.tmpResponse.Columns)]
+	primarySelection := mv.response.Rows[row].Entries[api.GetPrimary(mv.response.Columns)]
 
 	input := MacroInterface{
 		Snapshot: snapshot,
 		CurrentView: MacroCurrentView{
 			Table:            mv.request.Table,
 			PKs:              pks,
-			PrimarySelection: primarySelection.Format(""),
+			PrimarySelection: primarySelection.Formatted,
 		},
 	}
 	inputEncoded, err := json.Marshal(input)
@@ -1184,7 +1189,7 @@ func (mv *MainView) GoToPrimaryKey(pk string) error {
 		{
 			Requires: []*jqlpb.Filter{
 				{
-					Column: mv.tmpResponse.Columns[api.GetPrimary(mv.tmpResponse.Columns)].Name,
+					Column: mv.response.Columns[api.GetPrimary(mv.response.Columns)].Name,
 					Match:  &jqlpb.Filter_EqualMatch{EqualMatch: &jqlpb.EqualMatch{Value: pk}},
 				},
 			},

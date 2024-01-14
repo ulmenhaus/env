@@ -131,6 +131,7 @@ func (osm *ObjectStoreMapper) LoadSnapshot(src io.Reader) error {
 		var constructor types.FieldValueConstructor
 		var entryType jqlpb.EntryType
 		var foreignTable string
+		var values []string
 		if strings.HasPrefix(fieldType, "foreign.") {
 			// TODO(rabrams) double check scoping of this variable
 			// also would be good to validate foriegn values
@@ -169,25 +170,22 @@ func (osm *ObjectStoreMapper) LoadSnapshot(src io.Reader) error {
 			}
 		}
 		byTable, ok := fieldsByTable[table]
+		meta := &types.ColumnMeta{
+			Type:         entryType,
+			ForeignTable: foreignTable,
+			Values:       values,
+		}
 		if !ok {
 			fieldsByTable[table] = []string{column}
 			constructorsByTable[table] = map[string]types.FieldValueConstructor{
 				column: constructor,
 			}
 			featuresByColumnByTable[table] = map[string](map[string]interface{}){}
-			columnMetaByTable[table] = map[string]*types.ColumnMeta{
-				column: {
-					Type:         entryType,
-					ForeignTable: foreignTable,
-				},
-			}
+			columnMetaByTable[table] = map[string]*types.ColumnMeta{column: meta}
 		} else {
 			fieldsByTable[table] = append(byTable, column)
 			constructorsByTable[table][column] = constructor
-			columnMetaByTable[table][column] = &types.ColumnMeta{
-				Type:         entryType,
-				ForeignTable: foreignTable,
-			}
+			columnMetaByTable[table][column] = meta
 		}
 		features := map[string]interface{}{}
 		featuresUncast, ok := schema["features"]

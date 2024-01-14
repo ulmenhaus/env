@@ -41,6 +41,7 @@ type ColumnMeta struct {
 	Type         jqlpb.EntryType
 	MaxLength    int
 	ForeignTable string
+	Values       []string
 }
 
 // A Table is a model of an unordered two-dimensional array of data
