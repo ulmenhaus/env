@@ -15,7 +15,6 @@ import (
 
 	"github.com/jroimartin/gocui"
 	"github.com/ulmenhaus/env/img/jql/api"
-	"github.com/ulmenhaus/env/img/jql/osm"
 	"github.com/ulmenhaus/env/img/jql/types"
 	"github.com/ulmenhaus/env/proto/jql/jqlpb"
 )
@@ -82,11 +81,10 @@ type MainView struct {
 	path string
 	dbms api.JQL_DBMS
 
-	OSM       *osm.ObjectStoreMapper
 	TableView *TableView
 	Mode      MainViewMode
 
-	request     jqlpb.ListRowsRequest
+	request  jqlpb.ListRowsRequest
 	response *jqlpb.ListRowsResponse
 
 	switching     bool // on when transitioning modes has not yet been acknowleged by Layout
@@ -98,11 +96,10 @@ type MainView struct {
 }
 
 // NewMainView returns a MainView initialized with a given Table
-func NewMainView(path, start string, mapper *osm.ObjectStoreMapper, dbms api.JQL_DBMS) (*MainView, error) {
+func NewMainView(path, start string, dbms api.JQL_DBMS) (*MainView, error) {
 	mv := &MainView{
 		path: path,
 		dbms: dbms,
-		OSM:  mapper,
 	}
 	return mv, mv.loadTable(start)
 }
@@ -327,7 +324,8 @@ func (mv *MainView) saveContents() error {
 }
 
 func (mv *MainView) saveSilent() error {
-	return mv.OSM.StoreEntries()
+	_, err := mv.dbms.Persist(ctx, &jqlpb.PersistRequest{})
+	return err
 }
 
 func (mv *MainView) handleSelectInput(g *gocui.Gui, v *gocui.View) error {
@@ -1076,10 +1074,11 @@ func (mv *MainView) runMacro(ch rune) error {
 	reloadIndex := api.IndexOfField(resp.GetColumns(), "Reload")
 	isReload := reloadIndex != -1 && entries[reloadIndex].GetFormatted() == "yes"
 	var stdout, stderr bytes.Buffer
-	snapshot, err := mv.OSM.GetSnapshot(mv.OSM.GetDB())
+	snapResp, err := mv.dbms.GetSnapshot(ctx, &jqlpb.GetSnapshotRequest{})
 	if err != nil {
 		return fmt.Errorf("Could not create snapshot: %s", err)
 	}
+	snapshot := snapResp.Snapshot
 	requestNoLimit := &jqlpb.ListRowsRequest{
 		Table:      mv.request.Table,
 		Conditions: mv.request.Conditions,
@@ -1098,7 +1097,7 @@ func (mv *MainView) runMacro(ch rune) error {
 	primarySelection := mv.response.Rows[row].Entries[api.GetPrimary(mv.response.Columns)]
 
 	input := MacroInterface{
-		Snapshot: snapshot,
+		Snapshot: string(snapshot),
 		CurrentView: MacroCurrentView{
 			Table:            mv.request.Table,
 			PKs:              pks,
@@ -1138,7 +1137,9 @@ func (mv *MainView) runMacro(ch rune) error {
 		}
 		newDB = []byte(output.Snapshot)
 	}
-	err = mv.OSM.LoadSnapshot(bytes.NewBuffer(newDB))
+	_, err = mv.dbms.LoadSnapshot(ctx, &jqlpb.LoadSnapshotRequest{
+		Snapshot: newDB,
+	})
 	if err != nil {
 		return fmt.Errorf("Could not load database from macro: %s", err)
 	}

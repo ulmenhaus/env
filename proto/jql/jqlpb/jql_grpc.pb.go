@@ -26,6 +26,8 @@ const (
 	JQL_DeleteRow_FullMethodName      = "/jql.JQL/DeleteRow"
 	JQL_IncrementEntry_FullMethodName = "/jql.JQL/IncrementEntry"
 	JQL_Persist_FullMethodName        = "/jql.JQL/Persist"
+	JQL_GetSnapshot_FullMethodName    = "/jql.JQL/GetSnapshot"
+	JQL_LoadSnapshot_FullMethodName   = "/jql.JQL/LoadSnapshot"
 )
 
 // JQLClient is the client API for JQL service.
@@ -39,6 +41,8 @@ type JQLClient interface {
 	DeleteRow(ctx context.Context, in *DeleteRowRequest, opts ...grpc.CallOption) (*DeleteRowResponse, error)
 	IncrementEntry(ctx context.Context, in *IncrementEntryRequest, opts ...grpc.CallOption) (*IncrementEntryResponse, error)
 	Persist(ctx context.Context, in *PersistRequest, opts ...grpc.CallOption) (*PersistResponse, error)
+	GetSnapshot(ctx context.Context, in *GetSnapshotRequest, opts ...grpc.CallOption) (*GetSnapshotResponse, error)
+	LoadSnapshot(ctx context.Context, in *LoadSnapshotRequest, opts ...grpc.CallOption) (*LoadSnapshotResponse, error)
 }
 
 type jQLClient struct {
@@ -112,6 +116,24 @@ func (c *jQLClient) Persist(ctx context.Context, in *PersistRequest, opts ...grp
 	return out, nil
 }
 
+func (c *jQLClient) GetSnapshot(ctx context.Context, in *GetSnapshotRequest, opts ...grpc.CallOption) (*GetSnapshotResponse, error) {
+	out := new(GetSnapshotResponse)
+	err := c.cc.Invoke(ctx, JQL_GetSnapshot_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *jQLClient) LoadSnapshot(ctx context.Context, in *LoadSnapshotRequest, opts ...grpc.CallOption) (*LoadSnapshotResponse, error) {
+	out := new(LoadSnapshotResponse)
+	err := c.cc.Invoke(ctx, JQL_LoadSnapshot_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // JQLServer is the server API for JQL service.
 // All implementations must embed UnimplementedJQLServer
 // for forward compatibility
@@ -123,6 +145,8 @@ type JQLServer interface {
 	DeleteRow(context.Context, *DeleteRowRequest) (*DeleteRowResponse, error)
 	IncrementEntry(context.Context, *IncrementEntryRequest) (*IncrementEntryResponse, error)
 	Persist(context.Context, *PersistRequest) (*PersistResponse, error)
+	GetSnapshot(context.Context, *GetSnapshotRequest) (*GetSnapshotResponse, error)
+	LoadSnapshot(context.Context, *LoadSnapshotRequest) (*LoadSnapshotResponse, error)
 	mustEmbedUnimplementedJQLServer()
 }
 
@@ -150,6 +174,12 @@ func (UnimplementedJQLServer) IncrementEntry(context.Context, *IncrementEntryReq
 }
 func (UnimplementedJQLServer) Persist(context.Context, *PersistRequest) (*PersistResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Persist not implemented")
+}
+func (UnimplementedJQLServer) GetSnapshot(context.Context, *GetSnapshotRequest) (*GetSnapshotResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetSnapshot not implemented")
+}
+func (UnimplementedJQLServer) LoadSnapshot(context.Context, *LoadSnapshotRequest) (*LoadSnapshotResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method LoadSnapshot not implemented")
 }
 func (UnimplementedJQLServer) mustEmbedUnimplementedJQLServer() {}
 
@@ -290,6 +320,42 @@ func _JQL_Persist_Handler(srv interface{}, ctx context.Context, dec func(interfa
 	return interceptor(ctx, in, info, handler)
 }
 
+func _JQL_GetSnapshot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetSnapshotRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(JQLServer).GetSnapshot(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: JQL_GetSnapshot_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(JQLServer).GetSnapshot(ctx, req.(*GetSnapshotRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _JQL_LoadSnapshot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LoadSnapshotRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(JQLServer).LoadSnapshot(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: JQL_LoadSnapshot_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(JQLServer).LoadSnapshot(ctx, req.(*LoadSnapshotRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // JQL_ServiceDesc is the grpc.ServiceDesc for JQL service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -324,6 +390,14 @@ var JQL_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Persist",
 			Handler:    _JQL_Persist_Handler,
+		},
+		{
+			MethodName: "GetSnapshot",
+			Handler:    _JQL_GetSnapshot_Handler,
+		},
+		{
+			MethodName: "LoadSnapshot",
+			Handler:    _JQL_LoadSnapshot_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

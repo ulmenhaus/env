@@ -12,6 +12,8 @@ service JQL {
 	rpc DeleteRow (DeleteRowRequest) returns (DeleteRowResponse);
 	rpc IncrementEntry (IncrementEntryRequest) returns (IncrementEntryResponse);
 	rpc Persist (PersistRequest) returns (PersistResponse);
+	rpc GetSnapshot(GetSnapshotRequest) returns (GetSnapshotResponse);
+	rpc LoadSnapshot(LoadSnapshotRequest) returns (LoadSnapshotResponse);
 }
 
 message ListTablesRequest {}
@@ -154,3 +156,15 @@ message DeleteRowResponse {}
 message PersistRequest {}
 
 message PersistResponse {}
+
+message GetSnapshotRequest {}
+
+message GetSnapshotResponse {
+	bytes snapshot = 1;
+}
+
+message LoadSnapshotRequest {
+	bytes snapshot = 1;
+}
+
+message LoadSnapshotResponse {}

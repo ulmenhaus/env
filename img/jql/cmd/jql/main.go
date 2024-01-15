@@ -15,6 +15,10 @@ import (
 	"google.golang.org/grpc"
 )
 
+const (
+	maxPayloadSize = 50000000 // 50 Mb
+)
+
 func main() {
 	err := runCLI()
 	if err != nil {
@@ -60,11 +64,11 @@ func runJQL(cfg jqlConfig) error {
 	// TODO path should be hidden behind the OSM and never used directly by any of these components
 	switch cfg.mode {
 	case "standalone":
-		dbms, mapper, err := runDatabse(cfg.path)
+		dbms, _, err := runDatabse(cfg.path)
 		if err != nil {
 			return err
 		}
-		return runUI(cfg.path, cfg.table, mapper, dbms)
+		return runUI(cfg.path, cfg.table, dbms)
 	case "daemon":
 		dbms, mapper, err := runDatabse(cfg.path)
 		if err != nil {
@@ -72,13 +76,18 @@ func runJQL(cfg jqlConfig) error {
 		}
 		return runDaemon(cfg.path, cfg.table, mapper, cfg.addr, dbms)
 	case "client":
-		conn, err := grpc.Dial(cfg.addr, grpc.WithInsecure())
+		conn, err := grpc.Dial(
+			cfg.addr,
+			grpc.WithInsecure(),
+			grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxPayloadSize)),
+			grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(maxPayloadSize)),
+		)
     if err != nil {
 			return err
     }
     defer conn.Close()
 		dbms := jqlpb.NewJQLClient(conn)
-		return runUI(cfg.path, cfg.table, nil, dbms)
+		return runUI(cfg.path, cfg.table, dbms)
 	default:
 		return fmt.Errorf("Unknown mode: %v", cfg.mode)
 	}
@@ -89,7 +98,10 @@ func runDaemon(dbPath, tableName string, mapper *osm.ObjectStoreMapper, addr str
 	if err != nil {
 		return fmt.Errorf("failed to listen: %v", err)
 	}
-	s := grpc.NewServer()
+	s := grpc.NewServer(
+		grpc.MaxSendMsgSize(maxPayloadSize),
+		grpc.MaxRecvMsgSize(maxPayloadSize),
+	)
 	jqlpb.RegisterJQLServer(s, api.NewDBMSShim(dbms))
 	log.Printf("server listening at %v", lis.Addr())
 	if err := s.Serve(lis); err != nil {
@@ -98,8 +110,8 @@ func runDaemon(dbPath, tableName string, mapper *osm.ObjectStoreMapper, addr str
 	return nil
 }
 
-func runUI(dbPath, tableName string, mapper *osm.ObjectStoreMapper, dbms api.JQL_DBMS) error {
-	mv, err := ui.NewMainView(dbPath, tableName, mapper, dbms)
+func runUI(dbPath, tableName string, dbms api.JQL_DBMS) error {
+	mv, err := ui.NewMainView(dbPath, tableName, dbms)
 	if err != nil {
 		return err
 	}

@@ -282,11 +282,11 @@ func (osm *ObjectStoreMapper) StoreEntries() error {
 	return osm.dumpSnapshot(osm.db, dst)
 }
 
-func (osm *ObjectStoreMapper) GetSnapshot(db *types.Database) (string, error) {
+func (osm *ObjectStoreMapper) GetSnapshot(db *types.Database) ([]byte, error) {
 	var snapshot bytes.Buffer
 	err := osm.dumpSnapshot(db, &snapshot)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return string(snapshot.Bytes()), nil
+	return snapshot.Bytes(), nil
 }

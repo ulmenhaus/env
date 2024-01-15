@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -260,6 +261,24 @@ func (s *LocalDBMS) Persist(ctx context.Context, r *jqlpb.PersistRequest, opts .
 	return &jqlpb.PersistResponse{}, s.OSM.StoreEntries()
 }
 
+func (s *LocalDBMS) GetSnapshot(ctx context.Context, r *jqlpb.GetSnapshotRequest, opts ...grpc.CallOption) (*jqlpb.GetSnapshotResponse, error) {
+	snapshot, err := s.OSM.GetSnapshot(s.OSM.GetDB())
+	if err != nil {
+		return nil, err
+	}
+	return &jqlpb.GetSnapshotResponse{
+		Snapshot: snapshot,
+	}, nil
+}
+
+func (s *LocalDBMS) LoadSnapshot(ctx context.Context, r *jqlpb.LoadSnapshotRequest, opts ...grpc.CallOption) (*jqlpb.LoadSnapshotResponse, error) {
+	err := s.OSM.LoadSnapshot(bytes.NewBuffer(r.Snapshot))
+	if err != nil {
+		return nil, err
+	}
+	return &jqlpb.LoadSnapshotResponse{}, nil
+}
+
 // DBMSShim is a layer on top of the LocalDBMS that provides gRPC handles for exposing the DBMS as a daemon
 type DBMSShim struct {
 	*jqlpb.UnimplementedJQLServer
@@ -298,6 +317,14 @@ func (s *DBMSShim) IncrementEntry(ctx context.Context, in *jqlpb.IncrementEntryR
 
 func (s *DBMSShim) Persist(ctx context.Context, in *jqlpb.PersistRequest) (*jqlpb.PersistResponse, error) {
 	return s.api.Persist(ctx, in)
+}
+
+func (s *DBMSShim) GetSnapshot(ctx context.Context, in *jqlpb.GetSnapshotRequest) (*jqlpb.GetSnapshotResponse, error) {
+	return s.api.GetSnapshot(ctx, in)
+}
+
+func (s *DBMSShim) LoadSnapshot(ctx context.Context, in *jqlpb.LoadSnapshotRequest) (*jqlpb.LoadSnapshotResponse, error) {
+	return s.api.LoadSnapshot(ctx, in)
 }
 
 func IndexOfField(columns []*jqlpb.Column, fieldName string) int {

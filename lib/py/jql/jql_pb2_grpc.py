@@ -49,6 +49,16 @@ class JQLStub(object):
                 request_serializer=jql_dot_jql__pb2.PersistRequest.SerializeToString,
                 response_deserializer=jql_dot_jql__pb2.PersistResponse.FromString,
                 )
+        self.GetSnapshot = channel.unary_unary(
+                '/jql.JQL/GetSnapshot',
+                request_serializer=jql_dot_jql__pb2.GetSnapshotRequest.SerializeToString,
+                response_deserializer=jql_dot_jql__pb2.GetSnapshotResponse.FromString,
+                )
+        self.LoadSnapshot = channel.unary_unary(
+                '/jql.JQL/LoadSnapshot',
+                request_serializer=jql_dot_jql__pb2.LoadSnapshotRequest.SerializeToString,
+                response_deserializer=jql_dot_jql__pb2.LoadSnapshotResponse.FromString,
+                )
 
 
 class JQLServicer(object):
@@ -96,6 +106,18 @@ class JQLServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetSnapshot(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def LoadSnapshot(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_JQLServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -133,6 +155,16 @@ def add_JQLServicer_to_server(servicer, server):
                     servicer.Persist,
                     request_deserializer=jql_dot_jql__pb2.PersistRequest.FromString,
                     response_serializer=jql_dot_jql__pb2.PersistResponse.SerializeToString,
+            ),
+            'GetSnapshot': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetSnapshot,
+                    request_deserializer=jql_dot_jql__pb2.GetSnapshotRequest.FromString,
+                    response_serializer=jql_dot_jql__pb2.GetSnapshotResponse.SerializeToString,
+            ),
+            'LoadSnapshot': grpc.unary_unary_rpc_method_handler(
+                    servicer.LoadSnapshot,
+                    request_deserializer=jql_dot_jql__pb2.LoadSnapshotRequest.FromString,
+                    response_serializer=jql_dot_jql__pb2.LoadSnapshotResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -260,5 +292,39 @@ class JQL(object):
         return grpc.experimental.unary_unary(request, target, '/jql.JQL/Persist',
             jql_dot_jql__pb2.PersistRequest.SerializeToString,
             jql_dot_jql__pb2.PersistResponse.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def GetSnapshot(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/jql.JQL/GetSnapshot',
+            jql_dot_jql__pb2.GetSnapshotRequest.SerializeToString,
+            jql_dot_jql__pb2.GetSnapshotResponse.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def LoadSnapshot(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/jql.JQL/LoadSnapshot',
+            jql_dot_jql__pb2.LoadSnapshotRequest.SerializeToString,
+            jql_dot_jql__pb2.LoadSnapshotResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
