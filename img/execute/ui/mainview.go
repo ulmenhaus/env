@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/jroimartin/gocui"
+	"github.com/ulmenhaus/env/img/jql/api"
 	"github.com/ulmenhaus/env/img/jql/osm"
 	"github.com/ulmenhaus/env/img/jql/types"
 	"github.com/ulmenhaus/env/img/jql/ui"
@@ -50,6 +51,7 @@ const (
 // and a detailed view of the current project
 type MainView struct {
 	OSM *osm.ObjectStoreMapper
+	dbms api.JQL_DBMS
 
 	MainViewMode MainViewMode
 	TaskViewMode TaskViewMode
@@ -103,24 +105,21 @@ type PlanSelectionItem struct {
 }
 
 // NewMainView returns a MainView initialized with a given Table
-func NewMainView(path string, g *gocui.Gui) (*MainView, error) {
+func NewMainView(path string, g *gocui.Gui, dbms api.JQL_DBMS, mapper *osm.ObjectStoreMapper) (*MainView, error) {
 	rand.Seed(time.Now().UnixNano())
 	mv := &MainView{
+		OSM:  mapper,
+		dbms: dbms,
 		path: path,
 	}
 	return mv, mv.load(g)
 }
 
 func (mv *MainView) load(g *gocui.Gui) error {
-	mapper, err := osm.NewObjectStoreMapper(mv.path)
+	err := mv.OSM.Load()
 	if err != nil {
 		return err
 	}
-	err = mapper.Load()
-	if err != nil {
-		return err
-	}
-	mv.OSM = mapper
 	mv.MainViewMode = MainViewModeListBar
 	mv.tasks = map[string]([][]types.Entry){}
 	mv.span = Today

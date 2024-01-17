@@ -31,7 +31,11 @@ func runExecute() error {
 		return err
 	}
 	defer g.Close()
-	mv, err := ui.NewMainView(cfg.Path, g)
+	dbms, mapper, err := cfg.InitDBMS()
+	if err != nil {
+		return err
+	}
+	mv, err := ui.NewMainView(cfg.Path, g, dbms, mapper)
 	if err != nil {
 		return err
 	}
