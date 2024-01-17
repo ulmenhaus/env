@@ -26,8 +26,6 @@ type MainViewMode int
 
 const (
 	MainViewModeListBar MainViewMode = iota
-	MainViewModeGoingToJQLEntry
-	MainViewModeGoingToToday
 	MainViewModeQueryingForTask
 	MainViewModeQueryingForNewPlan
 	MainViewModeQueryingForPlansSubset
@@ -405,20 +403,7 @@ func (mv *MainView) listTasksLayout(g *gocui.Gui) error {
 	log.Clear()
 	tasks.SelBgColor = gocui.ColorWhite
 	tasks.SelFgColor = gocui.ColorBlack
-	tasks.Highlight = mv.MainViewMode != MainViewModeGoingToJQLEntry && mv.MainViewMode != MainViewModeGoingToToday
-
-	if  mv.MainViewMode == MainViewModeGoingToJQLEntry || mv.MainViewMode == MainViewModeGoingToToday {
-		// HACK give the event loop time to clear highlighting from the tty
-		// so that when we switch to jql we don't have inverted colors
-		go func() {
-			time.Sleep(50 * time.Millisecond)
-			if mv.MainViewMode == MainViewModeGoingToJQLEntry {
-				mv.goToJQLEntry(g, tasks)
-			} else if mv.MainViewMode == MainViewModeGoingToToday {
-				mv.goToToday(g, tasks)
-			}
-		}()
-	}
+	tasks.Highlight = true
 
 	for _, desc := range mv.tabulatedTasks(g, tasks) {
 		fmt.Fprintf(tasks, "%s\n", desc)
@@ -620,7 +605,7 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(TasksView, 'g', gocui.ModNone, mv.triggerGoToJQLEntry)
+	err = g.SetKeybinding(TasksView, 'g', gocui.ModNone, mv.goToJQLEntry)
 	if err != nil {
 		return err
 	}
@@ -652,7 +637,7 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(TasksView, 't', gocui.ModNone, mv.triggerGoToToday)
+	err = g.SetKeybinding(TasksView, 't', gocui.ModNone, mv.goToToday)
 	if err != nil {
 		return err
 	}
@@ -983,11 +968,6 @@ func (mv *MainView) cursorUp(g *gocui.Gui, v *gocui.View) error {
 	return mv.refreshView(g)
 }
 
-func (mv *MainView) triggerGoToToday(g *gocui.Gui, v *gocui.View) error {
-	mv.MainViewMode = MainViewModeGoingToToday
-	return nil
-}
-
 func (mv *MainView) goToToday(g *gocui.Gui, v *gocui.View) error {
 	today, err := mv.queryDayPlan()
 	if err != nil {
@@ -997,11 +977,6 @@ func (mv *MainView) goToToday(g *gocui.Gui, v *gocui.View) error {
 		return nil
 	}
 	return mv.goToPK(g, v, today[mv.OSM.GetDB().Tables[TableTasks].Primary()].Format(""))
-}
-
-func (mv *MainView) triggerGoToJQLEntry(g *gocui.Gui, v *gocui.View) error {
-	mv.MainViewMode = MainViewModeGoingToJQLEntry
-	return nil
 }
 
 func (mv *MainView) goToJQLEntry(g *gocui.Gui, v *gocui.View) error {
