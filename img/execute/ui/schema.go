@@ -1,6 +1,9 @@
 package ui
 
-import "github.com/ulmenhaus/env/img/jql/types"
+import (
+	"github.com/ulmenhaus/env/img/jql/types"
+	"github.com/ulmenhaus/env/proto/jql/jqlpb"
+)
 
 /*
 Defines the constants of the time tracking schema for jql
@@ -70,6 +73,6 @@ var Span2Title map[string]string = map[string]string{
 	SpanPending: "Pending",
 }
 
-func IsAttentionCycle(table *types.Table, elem []types.Entry) bool {
-	return elem[table.IndexOfField(FieldAction)].Format("") == "Attend" && elem[table.IndexOfField(FieldDirect)].Format("") == ""
+func IsAttentionCycle(table *types.Table, elem *jqlpb.Row) bool {
+	return elem.Entries[table.IndexOfField(FieldAction)].Formatted == "Attend" && elem.Entries[table.IndexOfField(FieldDirect)].Formatted == ""
 }
