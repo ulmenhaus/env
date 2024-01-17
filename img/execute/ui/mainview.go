@@ -26,7 +26,6 @@ type MainViewMode int
 
 const (
 	MainViewModeListBar MainViewMode = iota
-	MainViewModeSwitchingToJQL
 	MainViewModeGoingToJQLEntry
 	MainViewModeGoingToToday
 	MainViewModeQueryingForTask
@@ -406,16 +405,14 @@ func (mv *MainView) listTasksLayout(g *gocui.Gui) error {
 	log.Clear()
 	tasks.SelBgColor = gocui.ColorWhite
 	tasks.SelFgColor = gocui.ColorBlack
-	tasks.Highlight = mv.MainViewMode != MainViewModeSwitchingToJQL && mv.MainViewMode != MainViewModeGoingToJQLEntry && mv.MainViewMode != MainViewModeGoingToToday
+	tasks.Highlight = mv.MainViewMode != MainViewModeGoingToJQLEntry && mv.MainViewMode != MainViewModeGoingToToday
 
-	if mv.MainViewMode == MainViewModeSwitchingToJQL || mv.MainViewMode == MainViewModeGoingToJQLEntry || mv.MainViewMode == MainViewModeGoingToToday {
+	if  mv.MainViewMode == MainViewModeGoingToJQLEntry || mv.MainViewMode == MainViewModeGoingToToday {
 		// HACK give the event loop time to clear highlighting from the tty
 		// so that when we switch to jql we don't have inverted colors
 		go func() {
 			time.Sleep(50 * time.Millisecond)
-			if mv.MainViewMode == MainViewModeSwitchingToJQL {
-				mv.switchToJQL(g, tasks)
-			} else if mv.MainViewMode == MainViewModeGoingToJQLEntry {
+			if mv.MainViewMode == MainViewModeGoingToJQLEntry {
 				mv.goToJQLEntry(g, tasks)
 			} else if mv.MainViewMode == MainViewModeGoingToToday {
 				mv.goToToday(g, tasks)
@@ -616,10 +613,6 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 		return err
 	}
 	err = g.SetKeybinding(TasksView, 'I', gocui.ModNone, mv.degradeStatus)
-	if err != nil {
-		return err
-	}
-	err = g.SetKeybinding(TasksView, 'q', gocui.ModNone, mv.triggerSwitchToJQL)
 	if err != nil {
 		return err
 	}
@@ -990,29 +983,6 @@ func (mv *MainView) cursorUp(g *gocui.Gui, v *gocui.View) error {
 	return mv.refreshView(g)
 }
 
-func (mv *MainView) triggerSwitchToJQL(g *gocui.Gui, v *gocui.View) error {
-	mv.MainViewMode = MainViewModeSwitchingToJQL
-	return nil
-}
-
-func (mv *MainView) switchToJQL(g *gocui.Gui, v *gocui.View) error {
-	err := mv.saveContents(g, v)
-	if err != nil {
-		return err
-	}
-	binary, err := exec.LookPath(JQLName)
-	if err != nil {
-		return err
-	}
-
-	args := []string{JQLName, mv.path, TableTasks}
-
-	env := os.Environ()
-
-	err = syscall.Exec(binary, args, env)
-	return err
-}
-
 func (mv *MainView) triggerGoToToday(g *gocui.Gui, v *gocui.View) error {
 	mv.MainViewMode = MainViewModeGoingToToday
 	return nil
@@ -1079,7 +1049,7 @@ func (mv *MainView) goToPK(g *gocui.Gui, v *gocui.View, pk string) error {
 		return err
 	}
 
-	args := []string{JQLName, mv.path, TableTasks, pk}
+	args := []string{JQLName, "--path", mv.path, "--table", TableTasks, "--pk", pk}
 
 	env := os.Environ()
 

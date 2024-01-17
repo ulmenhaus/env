@@ -498,10 +498,6 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 		if err != nil {
 			return err
 		}
-		err = g.SetKeybinding(current, 'q', gocui.ModNone, mv.switchToJQL)
-		if err != nil {
-			return err
-		}
 		err = g.SetKeybinding(current, 'g', gocui.ModNone, mv.goToPK)
 		if err != nil {
 			return err
@@ -788,11 +784,7 @@ func (mv *MainView) goToPK(g *gocui.Gui, v *gocui.View) error {
 		}
 		pk = channel.status2items[v.Name()][oy+cy].Identifier
 	}
-	return mv.goToJQL(TableNouns, pk)
-}
-
-func (mv *MainView) switchToJQL(g *gocui.Gui, v *gocui.View) error {
-	return mv.goToJQL(TableNouns)
+	return mv.goToJQL("--table", TableNouns, "--pk", pk)
 }
 
 func (mv *MainView) refreshView(g *gocui.Gui) error {

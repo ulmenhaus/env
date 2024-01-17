@@ -11,7 +11,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"syscall"
 
 	"github.com/jroimartin/gocui"
 	"github.com/ulmenhaus/env/img/jql/api"
@@ -316,14 +315,14 @@ func (mv *MainView) switchMode(new MainViewMode) {
 
 // saveContents asks the osm to save the current contents to disk
 func (mv *MainView) saveContents() error {
-	err := mv.saveSilent()
+	err := mv.Save()
 	if err != nil {
 		return err
 	}
-	return fmt.Errorf("Wrote %s", mv.path)
+	return fmt.Errorf("Wrote database")
 }
 
-func (mv *MainView) saveSilent() error {
+func (mv *MainView) Save() error {
 	_, err := mv.dbms.Persist(ctx, &jqlpb.PersistRequest{})
 	return err
 }
@@ -434,6 +433,10 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 	case gocui.KeyEnter:
 		err = mv.triggerEdit()
 	case gocui.KeyEsc:
+		// NOTE this mapping will no longer work since Esc is used to switch between tools
+		// but we don't really use multi-select for anything. If we want to support it again
+		// we can probably remap `q` to first try a multi-select and then remove filters
+		// if there's nothing to deselect.
 		mv.TableView.SelectNone()
 	case gocui.KeyPgdn:
 		next := mv.nextPageStart()
@@ -568,18 +571,6 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		err = mv.newEntry(false)
 	case 'w':
 		err = mv.openCellInWindow()
-	case 'X':
-		err = mv.saveSilent()
-		if err != nil {
-			return
-		}
-		err = mv.switchView(true)
-	case 'x':
-		err = mv.saveSilent()
-		if err != nil {
-			return
-		}
-		err = mv.switchView(false)
 	case 'y':
 		err = mv.copyValue()
 	case 'Y':
@@ -1002,34 +993,6 @@ func (mv *MainView) pasteValue() error {
 		return err
 	}
 	return mv.updateEntryValue(strings.TrimSpace(string(out)))
-}
-
-// switchView changes to another tool for viewing the current jql db
-func (mv *MainView) switchView(reverse bool) error {
-	var tool string
-	if reverse {
-		tool = os.Getenv("JQL_REVERSE_TOOL")
-		if tool == "" {
-			tool = "feed"
-		}
-	} else {
-		tool = os.Getenv("JQL_FORWARD_TOOL")
-		if tool == "" {
-			tool = "execute"
-		}
-	}
-
-	binary, err := exec.LookPath(tool)
-	if err != nil {
-		return err
-	}
-
-	args := []string{tool, mv.path}
-
-	env := os.Environ()
-
-	err = syscall.Exec(binary, args, env)
-	return err
 }
 
 func (mv *MainView) cursorDown(g *gocui.Gui, v *gocui.View) error {
