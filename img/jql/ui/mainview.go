@@ -77,7 +77,6 @@ const (
 // prompts, &c. It will also be responsible for managing differnt
 // interaction modes if jql supports those.
 type MainView struct {
-	path string
 	dbms api.JQL_DBMS
 
 	TableView *TableView
@@ -95,9 +94,8 @@ type MainView struct {
 }
 
 // NewMainView returns a MainView initialized with a given Table
-func NewMainView(path, start string, dbms api.JQL_DBMS) (*MainView, error) {
+func NewMainView(dbms api.JQL_DBMS, start string) (*MainView, error) {
 	mv := &MainView{
-		path: path,
 		dbms: dbms,
 	}
 	return mv, mv.loadTable(start)
@@ -1054,7 +1052,7 @@ func (mv *MainView) runMacro(ch rune) error {
 	}
 	pks := []string{}
 	for _, row := range response.Rows {
-		pks = append(pks, row.Entries[api.GetPrimary(mv.response.Columns)].Formatted)
+		pks = append(pks, row.Entries[api.GetPrimary(response.Columns)].Formatted)
 	}
 	row, _ := mv.SelectedEntry()
 	primarySelection := mv.response.Rows[row].Entries[api.GetPrimary(mv.response.Columns)]
@@ -1089,10 +1087,7 @@ func (mv *MainView) runMacro(ch rune) error {
 
 	// TODO change to three valued "Output" field: file, stdout, none
 	if isReload {
-		newDB, err = ioutil.ReadFile(mv.path)
-		if err != nil {
-			return fmt.Errorf("Could not reload db: %s", err)
-		}
+		return fmt.Errorf("Reloaded macros no longer supported. Please change the macro.")
 	} else {
 		err = json.Unmarshal(stdout.Bytes(), &output)
 		if err != nil {

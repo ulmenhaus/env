@@ -75,13 +75,12 @@ func runDaemon(cfg *cli.JQLConfig, dbms api.JQL_DBMS) error {
 }
 
 func runUI(cfg *cli.JQLConfig, dbms api.JQL_DBMS) error {
-	mv, err := ui.NewMainView(cfg.Path, cfg.Table, dbms)
+	mv, err := ui.NewMainView(dbms, cfg.Table)
 	if err != nil {
 		return err
 	}
-	if len(os.Args) > 3 {
-		pk := os.Args[3]
-		err = mv.GoToPrimaryKey(pk)
+	if cfg.PK != "" {
+		err = mv.GoToPrimaryKey(cfg.PK)
 		if err != nil {
 			return err
 		}
