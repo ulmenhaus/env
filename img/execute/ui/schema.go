@@ -1,7 +1,7 @@
 package ui
 
 import (
-	"github.com/ulmenhaus/env/img/jql/types"
+	"github.com/ulmenhaus/env/img/jql/api"
 	"github.com/ulmenhaus/env/proto/jql/jqlpb"
 )
 
@@ -73,6 +73,6 @@ var Span2Title map[string]string = map[string]string{
 	SpanPending: "Pending",
 }
 
-func IsAttentionCycle(table *types.Table, elem *jqlpb.Row) bool {
-	return elem.Entries[table.IndexOfField(FieldAction)].Formatted == "Attend" && elem.Entries[table.IndexOfField(FieldDirect)].Formatted == ""
+func IsAttentionCycle(table *jqlpb.TableMeta, elem *jqlpb.Row) bool {
+	return elem.Entries[api.IndexOfField(table.Columns, FieldAction)].Formatted == "Attend" && elem.Entries[api.IndexOfField(table.Columns, FieldDirect)].Formatted == ""
 }
