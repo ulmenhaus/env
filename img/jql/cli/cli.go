@@ -68,7 +68,7 @@ func (c *JQLConfig) Validate() error {
 
 func (c *JQLConfig) Register(f *flag.FlagSet) {
 	f.StringVarP(&c.Mode, "mode", "m", "standalone", "Mode of operation")
-	f.StringVarP(&c.Addr, "addr", "a", ":9999", "Address (for remote connections)")
+	f.StringVarP(&c.Addr, "addr", "a", "localhost:9999", "Address (for remote connections)")
 	f.StringVarP(&c.Path, "path", "p", "", "Path to the jql storage")
 	f.StringVarP(&c.Table, "table", "t", "", "The table to start on")
 	f.StringVarP(&c.PK, "pk", "", "", "The primary key to initially select")
@@ -121,7 +121,7 @@ func (c *JQLConfig) InitDBMS() (api.JQL_DBMS, *osm.ObjectStoreMapper, error) {
 		if err != nil {
 			return nil, nil, err
 		}
-		defer conn.Close()
+		// TODO return the closer so that it may be closed by the higher-level caller
 		return jqlpb.NewJQLClient(conn), nil, nil
 	}
 	return nil, nil, fmt.Errorf("Unknown mode")

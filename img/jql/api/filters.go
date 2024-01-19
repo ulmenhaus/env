@@ -10,10 +10,19 @@ import (
 type filterShim struct {
 	filter *jqlpb.Filter
 	colix  int
+	asMap map[string]bool
 }
 
 func xor(a, b bool) bool {
 	return (a && !b) || (!a && b)
+}
+
+func (f *filterShim) init() {
+	switch match := f.filter.Match.(type) {
+	case *jqlpb.Filter_InMatch:
+		// TODO really inefficient to construct this map every time
+		f.asMap = slice2map(match.InMatch.Values)
+	}
 }
 
 func (f *filterShim) Applies(e []types.Entry) bool {
@@ -21,9 +30,7 @@ func (f *filterShim) Applies(e []types.Entry) bool {
 	case *jqlpb.Filter_EqualMatch:
 		return xor(e[f.colix].Format("") == match.EqualMatch.Value, f.filter.Negated)
 	case *jqlpb.Filter_InMatch:
-		// TODO really inefficient to construct this map every time
-		asMap := slice2map(match.InMatch.Values)
-		return asMap[e[f.colix].Format("")]
+		return f.asMap[e[f.colix].Format("")]
 	case *jqlpb.Filter_ContainsMatch:
 		cm := match.ContainsMatch
 		// NOTE exact match + col < 0 not implemented and will cause a panic

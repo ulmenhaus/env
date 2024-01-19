@@ -78,10 +78,12 @@ func (s *LocalDBMS) ListRows(ctx context.Context, in *jqlpb.ListRowsRequest, opt
 	var filters []types.Filter
 	if len(in.Conditions) == 1 {
 		for _, filter := range in.Conditions[0].Requires {
-			filters = append(filters, &filterShim{
+			filter := &filterShim{
 				filter: filter,
 				colix:  table.IndexOfField(filter.GetColumn()),
-			})
+			}
+			filter.init()
+			filters = append(filters, filter)
 		}
 	}
 	resp, err := table.Query(types.QueryParams{

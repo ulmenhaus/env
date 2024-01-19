@@ -121,10 +121,6 @@ func NewMainView(path string, g *gocui.Gui, dbms api.JQL_DBMS, mapper *osm.Objec
 }
 
 func (mv *MainView) load(g *gocui.Gui) error {
-	err := mv.OSM.Load()
-	if err != nil {
-		return err
-	}
 	mv.MainViewMode = MainViewModeListBar
 	mv.tasks = map[string]([]*jqlpb.Row){}
 	mv.span = Today
@@ -293,6 +289,7 @@ func (mv *MainView) insertDayPlan(g *gocui.Gui, description string) error {
 				},
 			},
 		},
+		OrderBy: FieldOrder,
 	})
 	if err != nil {
 		return err
@@ -1186,6 +1183,7 @@ func (mv *MainView) refreshToday() error {
 				},
 			},
 		},
+		OrderBy: FieldOrder,
 	})
 	currentBreak := ""
 	for _, row := range resp.Rows {
@@ -1200,11 +1198,11 @@ func (mv *MainView) refreshToday() error {
 			PK:          row.Entries[assertionsTable.Primary()].Formatted,
 		})
 	}
-
 	newTasks, err := mv.gatherNewTasks()
 	if err != nil {
 		return err
 	}
+
 	for _, newTask := range newTasks {
 		mv.today2item[newTask.Description] = newTask
 	}
@@ -1380,6 +1378,8 @@ func (mv *MainView) queryDayPlan() (*jqlpb.Row, error) {
 				},
 			},
 		},
+		OrderBy: FieldStart,
+		Dec: true,
 	})
 
 	if err != nil {
