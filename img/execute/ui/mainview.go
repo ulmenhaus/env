@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"math/rand"
 	"os"
 	"os/exec"
@@ -1693,6 +1694,14 @@ func (mv *MainView) refreshTasks(g *gocui.Gui, v *gocui.View) error {
 	// TODO(rabrams) this whole sequence is pretty inefficient. It involves multiple redundant
 	// O(n) operations plus loading and re-loading the data.
 	err := exec.Command("jql-timedb-autofill").Run()
+	if err != nil {
+		return err
+	}
+	snapshot, err := ioutil.ReadFile(mv.path)
+	if err != nil {
+		return err
+	}
+	_, err = mv.dbms.LoadSnapshot(ctx, &jqlpb.LoadSnapshotRequest{Snapshot: snapshot})
 	if err != nil {
 		return err
 	}
