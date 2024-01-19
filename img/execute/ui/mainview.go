@@ -55,8 +55,9 @@ var (
 // A MainView is the overall view including a project list
 // and a detailed view of the current project
 type MainView struct {
-	OSM  *osm.ObjectStoreMapper
-	dbms api.JQL_DBMS
+	OSM    *osm.ObjectStoreMapper
+	dbms   api.JQL_DBMS
+	tables map[string]*jqlpb.TableMeta
 
 	MainViewMode MainViewMode
 	TaskViewMode TaskViewMode
@@ -124,6 +125,14 @@ func (mv *MainView) load(g *gocui.Gui) error {
 	mv.MainViewMode = MainViewModeListBar
 	mv.tasks = map[string]([]*jqlpb.Row){}
 	mv.span = Today
+	tablesList, err := mv.dbms.ListTables(ctx, &jqlpb.ListTablesRequest{})
+	if err != nil {
+		return err
+	}
+	mv.tables = map[string]*jqlpb.TableMeta{}
+	for _, table := range tablesList.Tables {
+		mv.tables[table.Name] = table
+	}
 	return mv.refreshView(g)
 }
 
@@ -417,8 +426,8 @@ func (mv *MainView) listTasksLayout(g *gocui.Gui) error {
 		fmt.Fprintf(tasks, "%s\n", desc)
 	}
 
-	logTable := mv.OSM.GetDB().Tables[TableLog]
 
+	logTable := mv.OSM.GetDB().Tables[TableLog]
 	logDescriptionField := logTable.IndexOfField(FieldLogDescription)
 	beginField := logTable.IndexOfField(FieldBegin)
 	endField := logTable.IndexOfField(FieldEnd)
@@ -1379,7 +1388,7 @@ func (mv *MainView) queryDayPlan() (*jqlpb.Row, error) {
 			},
 		},
 		OrderBy: FieldStart,
-		Dec: true,
+		Dec:     true,
 	})
 
 	if err != nil {
