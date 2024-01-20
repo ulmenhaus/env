@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
@@ -100,12 +101,16 @@ func runUI(cfg *cli.JQLConfig, dbms api.JQL_DBMS) error {
 
 	cycler := func(envvar, defaultVal string) func(g *gocui.Gui, v *gocui.View) error {
 		return func(g *gocui.Gui, v *gocui.View) error {
+			_, err := dbms.Persist(context.Background(), &jqlpb.PersistRequest{})
+			if err != nil {
+				return err
+			}
 			var tool string
 			tool = os.Getenv(envvar)
 			if tool == "" {
 				tool = defaultVal
 			}
-			return cfg.SwitchTool(tool)
+			return cfg.SwitchTool(tool, "")
 		}
 	}
 

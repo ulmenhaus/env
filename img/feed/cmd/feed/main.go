@@ -59,7 +59,7 @@ func runFeed() error {
 
 	cycler := func(tool string) func(g *gocui.Gui, v *gocui.View) error {
 		return func(g *gocui.Gui, v *gocui.View) error {
-			return cfg.SwitchTool(tool)
+			return cfg.SwitchTool(tool, "")
 		}
 	}
 

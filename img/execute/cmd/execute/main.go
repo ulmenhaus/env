@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
+
 	"github.com/jroimartin/gocui"
 	"github.com/spf13/cobra"
 	"github.com/ulmenhaus/env/img/execute/ui"
 	"github.com/ulmenhaus/env/img/jql/cli"
+	"github.com/ulmenhaus/env/proto/jql/jqlpb"
 )
 
 func main() {
@@ -54,7 +57,11 @@ func runExecute() error {
 
 	cycler := func(tool string) func(g *gocui.Gui, v *gocui.View) error {
 		return func(g *gocui.Gui, v *gocui.View) error {
-			return cfg.SwitchTool(tool)
+			_, err := dbms.Persist(context.Background(), &jqlpb.PersistRequest{})
+			if err != nil {
+				return err
+			}
+			return cfg.SwitchTool(tool, "")
 		}
 	}
 
@@ -63,6 +70,40 @@ func runExecute() error {
 	}
 
 	if err := g.SetKeybinding("", gocui.KeyEsc, gocui.ModNone, cycler("feed")); err != nil {
+		return err
+	}
+
+	goToToday := func(g *gocui.Gui, v *gocui.View) error {
+		pk, err := mv.GetTodayPlanPK()
+		if err != nil {
+			return err
+		}
+		return cfg.SwitchTool("jql", pk)
+	}
+	err = g.SetKeybinding("", 't', gocui.ModNone, goToToday)
+	if err != nil {
+		return err
+	}
+
+	goToSelectedPK := func(g *gocui.Gui, v *gocui.View) error {
+		pk, err := mv.ResolveSelectedPK(g)
+		if err != nil {
+			return err
+		}
+		return cfg.SwitchTool("jql", pk)
+	}
+	err = g.SetKeybinding("", 'g', gocui.ModNone, goToSelectedPK)
+	if err != nil {
+		return err
+	}
+
+	selectAndGoToTask := func(g *gocui.Gui, v *gocui.View) error {
+		return mv.SelectTask(g, v, func (taskPK string) error {
+			return cfg.SwitchTool("jql", taskPK)
+		})
+	}
+	err = g.SetKeybinding("", 'G', gocui.ModNone, selectAndGoToTask)
+	if err != nil {
 		return err
 	}
 

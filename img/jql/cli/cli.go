@@ -74,13 +74,13 @@ func (c *JQLConfig) Register(f *flag.FlagSet) {
 	f.StringVarP(&c.PK, "pk", "", "", "The primary key to initially select")
 }
 
-func (c *JQLConfig) SwitchTool(tool string) error {
+func (c *JQLConfig) SwitchTool(tool, pk string) error {
 	binary, err := exec.LookPath(tool)
 	if err != nil {
 		return err
 	}
 
-	args := []string{tool, "--mode", c.Mode, "--addr", c.Addr, "--path", c.Path, "--table", c.Table}
+	args := []string{tool, "--mode", c.Mode, "--addr", c.Addr, "--path", c.Path, "--table", c.Table, "--pk", pk}
 
 	env := os.Environ()
 

@@ -12,7 +12,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/jroimartin/gocui"
@@ -636,14 +635,6 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(TasksView, 'G', gocui.ModNone, mv.selectAndGoToTask)
-	if err != nil {
-		return err
-	}
-	err = g.SetKeybinding(TasksView, 'g', gocui.ModNone, mv.goToJQLEntry)
-	if err != nil {
-		return err
-	}
 	err = g.SetKeybinding(TasksView, 'l', gocui.ModNone, mv.nextSpan)
 	if err != nil {
 		return err
@@ -669,10 +660,6 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 		return err
 	}
 	err = g.SetKeybinding(TasksView, 'x', gocui.ModNone, mv.markTask)
-	if err != nil {
-		return err
-	}
-	err = g.SetKeybinding(TasksView, 't', gocui.ModNone, mv.goToToday)
 	if err != nil {
 		return err
 	}
@@ -787,14 +774,12 @@ func (mv *MainView) insertNewPlan(g *gocui.Gui, v *gocui.View) error {
 	})
 }
 
-func (mv *MainView) selectAndGoToTask(g *gocui.Gui, v *gocui.View) error {
+func (mv *MainView) SelectTask(g *gocui.Gui, v *gocui.View, ret func(taskPK string) error) error {
 	err := mv.setTaskList(g, v)
 	if err != nil {
 		return err
 	}
-	return mv.queryForTask(g, v, func(taskPK string) error {
-		return mv.goToPK(g, v, taskPK)
-	})
+	return mv.queryForTask(g, v, ret)
 }
 
 func (mv *MainView) queryForNewPlan(taskPK string) error {
@@ -846,7 +831,7 @@ func (mv *MainView) addToStatus(g *gocui.Gui, v *gocui.View, delta int) error {
 }
 
 func (mv *MainView) openLink(g *gocui.Gui, v *gocui.View) error {
-	pk, err := mv.resolveSelectedPK(g)
+	pk, err := mv.ResolveSelectedPK(g)
 	if err != nil {
 		return err
 	}
@@ -1015,27 +1000,19 @@ func (mv *MainView) cursorUp(g *gocui.Gui, v *gocui.View) error {
 	return mv.refreshView(g)
 }
 
-func (mv *MainView) goToToday(g *gocui.Gui, v *gocui.View) error {
+func (mv *MainView) GetTodayPlanPK() (string, error) {
 	today, err := mv.queryDayPlan()
 	if err != nil {
-		return err
+		return "", err
 	}
 	if today == nil {
-		return nil
+		return "", nil
 	}
 	tasksTable := mv.tables[TableTasks]
-	return mv.goToPK(g, v, today.Entries[api.GetPrimary(tasksTable.Columns)].Formatted)
+	return today.Entries[api.GetPrimary(tasksTable.Columns)].Formatted, nil
 }
 
-func (mv *MainView) goToJQLEntry(g *gocui.Gui, v *gocui.View) error {
-	pk, err := mv.resolveSelectedPK(g)
-	if err != nil {
-		return err
-	}
-	return mv.goToPK(g, v, pk)
-}
-
-func (mv *MainView) resolveSelectedPK(g *gocui.Gui) (string, error) {
+func (mv *MainView) ResolveSelectedPK(g *gocui.Gui) (string, error) {
 	var cy, oy int
 	view, err := g.View(TasksView)
 	if err != nil && err != gocui.ErrUnknownView {
@@ -1060,24 +1037,6 @@ func (mv *MainView) resolveSelectedPK(g *gocui.Gui) (string, error) {
 		selectedTask := mv.tasks[mv.span][ix]
 		return selectedTask.Entries[api.IndexOfField(tasksTable.Columns, FieldDescription)].Formatted, nil
 	}
-}
-
-func (mv *MainView) goToPK(g *gocui.Gui, v *gocui.View, pk string) error {
-	err := mv.saveContents(g, v)
-	if err != nil {
-		return err
-	}
-	binary, err := exec.LookPath(JQLName)
-	if err != nil {
-		return err
-	}
-
-	args := []string{JQLName, "--path", mv.path, "--table", TableTasks, "--pk", pk}
-
-	env := os.Environ()
-
-	err = syscall.Exec(binary, args, env)
-	return err
 }
 
 func (mv *MainView) refreshView(g *gocui.Gui) error {
