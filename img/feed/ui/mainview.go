@@ -13,7 +13,6 @@ import (
 
 	"github.com/jroimartin/gocui"
 	"github.com/ulmenhaus/env/img/jql/api"
-	"github.com/ulmenhaus/env/img/jql/osm"
 	"github.com/ulmenhaus/env/proto/jql/jqlpb"
 	"golang.org/x/sync/errgroup"
 )
@@ -40,7 +39,6 @@ const (
 // A MainView is the overall view including a resource list
 // and a detailed view of the current resource
 type MainView struct {
-	OSM    *osm.ObjectStoreMapper
 	dbms   api.JQL_DBMS
 	tables map[string]*jqlpb.TableMeta
 
@@ -66,9 +64,8 @@ type channel struct {
 }
 
 // NewMainView returns a MainView initialized with a given Table
-func NewMainView(g *gocui.Gui, dbms api.JQL_DBMS, mapper *osm.ObjectStoreMapper, ignoredPath string, returnArgs []string) (*MainView, error) {
+func NewMainView(g *gocui.Gui, dbms api.JQL_DBMS, ignoredPath string, returnArgs []string) (*MainView, error) {
 	mv := &MainView{
-		OSM:  mapper,
 		dbms: dbms,
 
 		ignoredPath: ignoredPath,
@@ -461,19 +458,8 @@ func (mv *MainView) saveContents(g *gocui.Gui, v *gocui.View) error {
 }
 
 func (mv *MainView) save() error {
-	err := mv.OSM.StoreEntries()
-	if err != nil {
-		return err
-	}
-	serialized, err := json.MarshalIndent(mv.ignored, "", "    ")
-	if err != nil {
-		return err
-	}
-	err = os.WriteFile(mv.ignoredPath, serialized, 0600)
-	if err != nil {
-		return err
-	}
-	return nil
+	_, err := mv.dbms.Persist(ctx, &jqlpb.PersistRequest{})
+	return err
 }
 
 func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {

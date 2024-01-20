@@ -88,10 +88,10 @@ func (c *JQLConfig) SwitchTool(tool, pk string) error {
 	return err
 }
 
-func (c *JQLConfig) InitDBMS() (api.JQL_DBMS, *osm.ObjectStoreMapper, error) {
+func (c *JQLConfig) InitDBMS() (api.JQL_DBMS, error) {
 	err := c.Validate()
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	// As a convenience we reset the terminal when initializing the dbms
 	// so that any previous attributes like highlights are gone
@@ -100,17 +100,17 @@ func (c *JQLConfig) InitDBMS() (api.JQL_DBMS, *osm.ObjectStoreMapper, error) {
 	case ModeDaemon, ModeStandalone:
 		mapper, err := osm.NewObjectStoreMapper(c.Path)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		err = mapper.Load()
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		dbms, err := api.NewLocalDBMS(mapper, c.Path)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to initialize database server: %v", err)
+			return nil, fmt.Errorf("failed to initialize database server: %v", err)
 		}
-		return dbms, mapper, err
+		return dbms, err
 	case ModeClient:
 		conn, err := grpc.Dial(
 			c.Addr,
@@ -119,12 +119,12 @@ func (c *JQLConfig) InitDBMS() (api.JQL_DBMS, *osm.ObjectStoreMapper, error) {
 			grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(MaxPayloadSize)),
 		)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		// TODO return the closer so that it may be closed by the higher-level caller
-		return jqlpb.NewJQLClient(conn), nil, nil
+		return jqlpb.NewJQLClient(conn), nil
 	}
-	return nil, nil, fmt.Errorf("Unknown mode")
+	return nil, fmt.Errorf("Unknown mode")
 }
 
 func clearTerminal() {

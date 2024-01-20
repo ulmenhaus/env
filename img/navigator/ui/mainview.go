@@ -105,7 +105,7 @@ func NewMainView(g *gocui.Gui, projectName, jqlBinDir string) (*MainView, error)
 		Mode:  cli.ModeStandalone,
 		Table: ProjectsTable,
 	}
-	dbms, _, err := cfg.InitDBMS()
+	dbms, err := cfg.InitDBMS()
 	if err != nil {
 		return nil, err
 	}
@@ -128,7 +128,7 @@ func NewMainView(g *gocui.Gui, projectName, jqlBinDir string) (*MainView, error)
 		Mode:  cli.ModeStandalone,
 		Table: ComponentsTable,
 	}
-	codeDB, _, err := codeCfg.InitDBMS()
+	codeDB, err := codeCfg.InitDBMS()
 	if err != nil && !os.IsNotExist(err) {
 		return nil, err
 	} else if err == nil {

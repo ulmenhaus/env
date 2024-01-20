@@ -39,16 +39,15 @@ func runCLI() error {
 }
 
 func runJQL(cfg *cli.JQLConfig) error {
-	// TODO path should be hidden behind the OSM and never used directly by any of these components
 	switch cfg.Mode {
 	case cli.ModeStandalone, cli.ModeClient:
-		dbms, _, err := cfg.InitDBMS()
+		dbms, err := cfg.InitDBMS()
 		if err != nil {
 			return err
 		}
 		return runUI(cfg, dbms)
 	case cli.ModeDaemon:
-		dbms, _, err := cfg.InitDBMS()
+		dbms, err := cfg.InitDBMS()
 		if err != nil {
 			return err
 		}

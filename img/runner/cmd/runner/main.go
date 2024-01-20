@@ -25,7 +25,7 @@ func main() {
 		Mode:  cli.ModeStandalone,
 		Table: ui.TableNouns,
 	}
-	dbms, _, err := cfg.InitDBMS()
+	dbms, err := cfg.InitDBMS()
 	if err != nil {
 		panic(err)
 	}

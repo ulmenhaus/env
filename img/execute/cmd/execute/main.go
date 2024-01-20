@@ -34,7 +34,7 @@ func runExecute() error {
 		return err
 	}
 	defer g.Close()
-	dbms, _, err := cfg.InitDBMS()
+	dbms, err := cfg.InitDBMS()
 	if err != nil {
 		return err
 	}
@@ -78,6 +78,7 @@ func runExecute() error {
 		if err != nil {
 			return err
 		}
+		cfg.Table = ui.TableTasks
 		return cfg.SwitchTool("jql", pk)
 	}
 	err = g.SetKeybinding("", 't', gocui.ModNone, goToToday)
@@ -90,6 +91,7 @@ func runExecute() error {
 		if err != nil {
 			return err
 		}
+		cfg.Table = ui.TableTasks
 		return cfg.SwitchTool("jql", pk)
 	}
 	err = g.SetKeybinding("", 'g', gocui.ModNone, goToSelectedPK)
@@ -99,6 +101,7 @@ func runExecute() error {
 
 	selectAndGoToTask := func(g *gocui.Gui, v *gocui.View) error {
 		return mv.SelectTask(g, v, func (taskPK string) error {
+			cfg.Table = ui.TableTasks
 			return cfg.SwitchTool("jql", taskPK)
 		})
 	}
