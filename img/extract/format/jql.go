@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/ulmenhaus/env/img/explore/models"
+	"github.com/ulmenhaus/env/img/extract/models"
 )
 
 type ComponentEntry struct {

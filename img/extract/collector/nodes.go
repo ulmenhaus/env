@@ -5,7 +5,7 @@ import (
 	"go/ast"
 	"go/token"
 
-	"github.com/ulmenhaus/env/img/explore/models"
+	"github.com/ulmenhaus/env/img/extract/models"
 	"golang.org/x/tools/go/packages"
 )
 
