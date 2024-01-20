@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -10,8 +11,8 @@ import (
 	"strings"
 
 	"github.com/jroimartin/gocui"
-	"github.com/ulmenhaus/env/img/jql/osm"
-	"github.com/ulmenhaus/env/img/jql/types"
+	"github.com/ulmenhaus/env/img/jql/api"
+	"github.com/ulmenhaus/env/proto/jql/jqlpb"
 )
 
 // MainViewMode is the current mode of the MainView.
@@ -46,12 +47,12 @@ var (
 		ResourceTypeResources,
 		ResourceTypeProcedures,
 	}
+	ctx = context.Background()
 )
 
 // A MainView is the overall view including a list of resources
 type MainView struct {
-	OSM       *osm.ObjectStoreMapper
-	DB        *types.Database
+	dbms      api.JQL_DBMS
 	jqlBinDir string
 
 	Mode   MainViewMode
@@ -68,22 +69,13 @@ type MainView struct {
 }
 
 // NewMainView returns a MainView initialized with a given Table
-func NewMainView(path string, g *gocui.Gui, jqlBinDir, defaultResourceFilter string) (*MainView, error) {
-	mapper, err := osm.NewObjectStoreMapper(path)
-	if err != nil {
-		return nil, err
-	}
-	err = mapper.Load()
-	if err != nil {
-		return nil, err
-	}
+func NewMainView(g *gocui.Gui, dbms api.JQL_DBMS, jqlBinDir, defaultResourceFilter string) (*MainView, error) {
 	rootTopic := RootTopic
 	if defaultResourceFilter != "" {
 		rootTopic = defaultResourceFilter
 	}
 	mv := &MainView{
-		OSM:       mapper,
-		DB:        mapper.GetDB(),
+		dbms:      dbms,
 		topic:     rootTopic,
 		TypeIX:    1,
 		recursive: true,
@@ -462,53 +454,50 @@ func (mv *MainView) resetFilters() {
 
 func (mv *MainView) gatherResources() error {
 	mv.resources = []Resource{}
-	// TODO support timedb entries
-	assertions := mv.DB.Tables[TableAssertions]
 	nouns, err := mv.gatherFilteredNouns(mv.recursive)
 	if err != nil {
 		return err
 	}
-	rel := assertions.IndexOfField(FieldRelation)
-	arg0 := assertions.IndexOfField(FieldArg0)
-	arg1 := assertions.IndexOfField(FieldArg1)
 	recType := ListResourcesTypes[mv.TypeIX]
-	var filter types.Filter
-	if recType == ResourceTypeResources {
-		filter = &eqFilter{
-			col: rel,
-			val: ".Resource",
-		}
-	} else if recType == ResourceTypeCommands {
-		filter = &eqFilter{
-			col: rel,
-			val: ".Command",
-		}
-	} else if recType == ResourceTypeProcedures {
-		filter = &eqFilter{
-			col: rel,
-			val: ".Procedure",
-		}
+	filter := &jqlpb.Filter{
+		Column: FieldRelation,
 	}
-	resp, err := assertions.Query(types.QueryParams{
+	if recType == ResourceTypeResources {
+		filter.Match = &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Resource"}}
+	} else if recType == ResourceTypeCommands {
+		filter.Match = &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Command"}}
+	} else if recType == ResourceTypeProcedures {
+		filter.Match = &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Procedure"}}
+	}
+	arg0s := []string{}
+	for noun := range nouns {
+		arg0s = append(arg0s, fmt.Sprintf("nouns %s", noun))
+	}
+	resp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
+		Table:   TableAssertions,
 		OrderBy: FieldArg1,
-		Filters: []types.Filter{
-			&nounFilter{
-				col:   arg0,
-				nouns: nouns,
+		Conditions: []*jqlpb.Condition{
+			{
+				Requires: []*jqlpb.Filter{
+					{
+						Column: FieldArg0,
+						Match:  &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: arg0s}},
+					},
+					// TODO since we include arg0 in procedures this search can give false negatives
+					{
+						Column: FieldArg1,
+						Match:  &jqlpb.Filter_ContainsMatch{&jqlpb.ContainsMatch{Value: mv.resourceQ}},
+					},
+					filter,
+				},
 			},
-			// TODO since we include arg0 in procedures this search can give false negatives
-			&inFilter{
-				col: arg1,
-				val: mv.resourceQ,
-			},
-			filter,
 		},
 	})
 	if err != nil {
 		return err
 	}
-	for _, row := range resp.Entries {
-		entry := row[arg1].Format("")
+	for _, row := range resp.Rows {
+		entry := row.Entries[api.IndexOfField(resp.Columns, FieldArg1)].Formatted
 		if recType == ResourceTypeResources {
 			if !(strings.HasPrefix(entry, "[") && strings.Contains(entry, "](") && strings.HasSuffix(entry, ")")) {
 				continue
@@ -589,7 +578,7 @@ func (mv *MainView) gatherResources() error {
 			if indirect != "" {
 				shortDescComponents = append([]string{strings.Title(indirect)}, shortDescComponents...)
 			}
-			object := strings.SplitN(row[arg0].Format(""), " ", 2)[1]
+			object := strings.SplitN(row.Entries[api.IndexOfField(resp.Columns, FieldArg0)].Formatted, " ", 2)[1]
 			mv.resources = append(mv.resources, Resource{
 				Description: fmt.Sprintf("%s %s%s%s", verb, object, indirectExp, paramsS),
 				Meta:        content,
@@ -612,16 +601,15 @@ func (mv *MainView) gatherFilteredNouns(recursive bool) (map[string]bool, error)
 		return filtered, nil
 	}
 	node2children := map[string]([]string){}
-	nouns := mv.DB.Tables[TableNouns]
-	resp, err := nouns.Query(types.QueryParams{})
+	resp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{Table: TableNouns})
 	if err != nil {
 		return nil, err
 	}
-	descCol := nouns.IndexOfField(FieldNounIdentifier)
-	parCol := nouns.IndexOfField(FieldParent)
-	for _, row := range resp.Entries {
-		desc := row[descCol].Format("")
-		parent := row[parCol].Format("")
+	descCol := api.IndexOfField(resp.Columns, FieldNounIdentifier)
+	parCol := api.IndexOfField(resp.Columns, FieldParent)
+	for _, row := range resp.Rows {
+		desc := row.Entries[descCol].Formatted
+		parent := row.Entries[parCol].Formatted
 		node2children[parent] = append(node2children[parent], desc)
 	}
 	queue := node2children[mv.topic]

@@ -4,11 +4,11 @@ import (
 	"os"
 
 	"github.com/jroimartin/gocui"
+	"github.com/ulmenhaus/env/img/jql/cli"
 	"github.com/ulmenhaus/env/img/runner/ui"
 )
 
 func main() {
-	// TODO use a cli library
 	dbPath := os.Args[1]
 	jqlBinDir := os.Args[2]
 	var defaultResourceFilter string
@@ -20,9 +20,18 @@ func main() {
 		panic(err)
 	}
 
+	cfg := &cli.JQLConfig{
+		Path:  dbPath,
+		Mode:  cli.ModeStandalone,
+		Table: ui.TableNouns,
+	}
+	dbms, _, err := cfg.InitDBMS()
+	if err != nil {
+		panic(err)
+	}
 	// TODO decent amount of common set-up logic here to maybe break into a common subroutine
 	defer g.Close()
-	mv, err := ui.NewMainView(dbPath, g, jqlBinDir, defaultResourceFilter)
+	mv, err := ui.NewMainView(g, dbms, jqlBinDir, defaultResourceFilter)
 	if err != nil {
 		panic(err)
 	}
