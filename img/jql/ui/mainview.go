@@ -107,7 +107,7 @@ func (mv *MainView) loadTable(t string) error {
 		Table:      t,
 		Conditions: []*jqlpb.Condition{{}},
 	}
-	return mv.updateTableViewContents()
+	return mv.updateTableViewContents(true)
 }
 
 func (mv *MainView) filteredSelectOptions(g *gocui.Gui) []string {
@@ -136,7 +136,7 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 	maxRows := uint32(maxY - 8)
 	if mv.request.Limit != maxRows {
 		mv.request.Limit = maxRows
-		if err := mv.updateTableViewContents(); err != nil {
+		if err := mv.updateTableViewContents(true); err != nil {
 			return err
 		}
 	}
@@ -369,7 +369,7 @@ func (mv *MainView) handleSearchInput(v *gocui.View, key gocui.Key, ch rune, mod
 		Column: field,
 		Match:  &jqlpb.Filter_ContainsMatch{ContainsMatch: &jqlpb.ContainsMatch{Value: mv.searchText}},
 	}
-	return mv.updateTableViewContents()
+	return mv.updateTableViewContents(true)
 }
 
 func (mv *MainView) triggerEdit() error {
@@ -442,10 +442,10 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 			return
 		}
 		mv.request.Offset = uint32(next)
-		err = mv.updateTableViewContents()
+		err = mv.updateTableViewContents(true)
 	case gocui.KeyPgup:
 		mv.request.Offset = uint32(mv.prevPageStart())
-		err = mv.updateTableViewContents()
+		err = mv.updateTableViewContents(true)
 	}
 
 	if int(ch) == 0 {
@@ -499,27 +499,27 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 			Column:  mv.response.Columns[col].Name,
 			Match:   &jqlpb.Filter_EqualMatch{EqualMatch: &jqlpb.EqualMatch{Value: filterTarget}},
 		})
-		err = mv.updateTableViewContents()
+		err = mv.updateTableViewContents(true)
 	case 'q':
 		if len(mv.request.Conditions[0].Requires) > 0 {
 			mv.request.Conditions[0].Requires = mv.request.Conditions[0].Requires[:len(mv.request.Conditions[0].Requires)-1]
 		}
-		err = mv.updateTableViewContents()
+		err = mv.updateTableViewContents(true)
 	case 'Q':
 		mv.request.Conditions = []*jqlpb.Condition{{}}
-		err = mv.updateTableViewContents()
+		err = mv.updateTableViewContents(true)
 	case 'd':
 		err = mv.deleteSelectedRow()
 		if err != nil {
 			return
 		}
-		err = mv.updateTableViewContents()
+		err = mv.updateTableViewContents(false)
 	case 'D':
 		err = mv.duplicateSelectedRow()
 		if err != nil {
 			return
 		}
-		err = mv.updateTableViewContents()
+		err = mv.updateTableViewContents(false)
 	case '\'':
 		mv.switchMode(MainViewModePrompt)
 		mv.promptText = "switch-table "
@@ -543,20 +543,20 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		_, col := mv.SelectedEntry()
 		mv.request.OrderBy = mv.response.Columns[col].Name
 		mv.request.Dec = false
-		err = mv.updateTableViewContents()
+		err = mv.updateTableViewContents(true)
 	case 'O':
 		_, col := mv.SelectedEntry()
 		mv.request.OrderBy = mv.response.Columns[col].Name
 		mv.request.Dec = true
-		err = mv.updateTableViewContents()
+		err = mv.updateTableViewContents(true)
 	case 'p':
 		mv.request.OrderBy = mv.response.Columns[api.GetPrimary(mv.response.Columns)].Name
 		mv.request.Dec = false
-		err = mv.updateTableViewContents()
+		err = mv.updateTableViewContents(true)
 	case 'P':
 		mv.request.OrderBy = mv.response.Columns[api.GetPrimary(mv.response.Columns)].Name
 		mv.request.Dec = true
-		err = mv.updateTableViewContents()
+		err = mv.updateTableViewContents(true)
 	case 'i':
 		err = mv.incrementSelected(1)
 	case 'I':
@@ -632,7 +632,7 @@ func sameColumns(respA, respB *jqlpb.ListRowsResponse) bool {
 	return true
 }
 
-func (mv *MainView) updateTableViewContents() error {
+func (mv *MainView) updateTableViewContents(resetCursorRow bool) error {
 	response, err := mv.dbms.ListRows(ctx, &mv.request)
 	if err != nil {
 		return err
@@ -643,6 +643,10 @@ func (mv *MainView) updateTableViewContents() error {
 		// If after changing the contents, we're still looking at the
 		// same columns, then keep the pointer in that column
 		selectedCol = mv.TableView.Selections.Primary.Column
+	}
+	selectedRow := 0
+	if !resetCursorRow && mv.TableView != nil {
+		selectedRow = mv.TableView.Selections.Primary.Row
 	}
 	mv.response = response
 
@@ -668,6 +672,7 @@ func (mv *MainView) updateTableViewContents() error {
 		Selections: SelectionSet{
 			Primary: Coordinate{
 				Column: selectedCol,
+				Row:    selectedRow,
 			},
 			Secondary: make(map[Coordinate]bool),
 			Tertiary:  make(map[Coordinate]bool),
@@ -745,7 +750,7 @@ func (mv *MainView) promptExit(contents string, finish bool, err error) {
 			if err != nil {
 				return
 			}
-			err = mv.updateTableViewContents()
+			err = mv.updateTableViewContents(true)
 			return
 		default:
 			err = fmt.Errorf("unknown command: %s", contents)
@@ -799,7 +804,7 @@ loop:
 		}
 	}
 	mv.request.Conditions[0].Requires = []*jqlpb.Filter{filter}
-	return mv.updateTableViewContents()
+	return mv.updateTableViewContents(true)
 }
 
 func (mv *MainView) goFromSelectedValue(tables []*jqlpb.TableMeta) error {
@@ -838,7 +843,7 @@ func (mv *MainView) goFromSelectedValue(tables []*jqlpb.TableMeta) error {
 
 		mv.request.Table = table.Name
 		mv.request.Conditions = conditions
-		return mv.updateTableViewContents()
+		return mv.updateTableViewContents(true)
 	}
 	return fmt.Errorf("no tables found with corresponding foreign key: %s", selected)
 }
@@ -854,7 +859,7 @@ func (mv *MainView) incrementSelected(amt int) error {
 	if err != nil {
 		return err
 	}
-	return mv.updateTableViewContents()
+	return mv.updateTableViewContents(false)
 }
 
 func (mv *MainView) openCellInWindow() error {
@@ -974,7 +979,7 @@ func (mv *MainView) updateEntryValue(contents string) error {
 	if err != nil {
 		return err
 	}
-	return mv.updateTableViewContents()
+	return mv.updateTableViewContents(true)
 }
 
 func (mv *MainView) pasteValue() error {
@@ -1128,7 +1133,7 @@ func (mv *MainView) runMacro(ch rune) error {
 		mv.request.OrderBy = orderBy
 		mv.request.Dec = output.CurrentView.OrderDec
 	}
-	err = mv.updateTableViewContents()
+	err = mv.updateTableViewContents(true)
 	if err != nil {
 		return fmt.Errorf("Could not update table view after macro: %s", err)
 	}
@@ -1151,5 +1156,5 @@ func (mv *MainView) GoToPrimaryKey(pk string) error {
 			},
 		},
 	}
-	return mv.updateTableViewContents()
+	return mv.updateTableViewContents(true)
 }
