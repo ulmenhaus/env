@@ -806,41 +806,38 @@ func (mv *MainView) goFromSelectedValue(tables []*jqlpb.TableMeta) error {
 	row, _ := mv.SelectedEntry()
 	selected := mv.response.Rows[row].Entries[api.GetPrimary(mv.response.Columns)]
 	for _, table := range tables {
-		col := api.HasForeign(table.Columns, mv.request.Table)
-		if col == -1 {
+		cols := api.GetForeign(table.Columns, mv.request.Table)
+		if len(cols) == 0 {
 			continue
 		}
-		secondary := mv.TableView.Selections.Secondary
-
-		var filters []*jqlpb.Filter
-
-		if len(secondary) == 0 {
-			filters = []*jqlpb.Filter{
+		var conditions []*jqlpb.Condition
+		// If there are multiple foreign key columns, ignore any that don't have any matching entries
+		for _, col := range cols {
+			conditions = []*jqlpb.Condition{
 				{
-					Column: table.Columns[col].Name,
-					Match:  &jqlpb.Filter_ContainsMatch{ContainsMatch: &jqlpb.ContainsMatch{Value: selected.Formatted, Exact: true}},
+					Requires: []*jqlpb.Filter{
+						{
+							Column: table.Columns[col].Name,
+							Match:  &jqlpb.Filter_EqualMatch{EqualMatch: &jqlpb.EqualMatch{Value: selected.Formatted}},
+						},
+					},
 				},
 			}
-		} else {
-			// NOTE multiple selections will not work for foreign lists
-			// A better solution that also would remove some hackiness in the ContainsFilter would be
-			// to add a method on Entries to get their subentries
-			selections := []string{selected.Formatted}
-			for coordinate, _ := range secondary {
-				selections = append(selections, mv.response.Rows[coordinate.Row].Entries[api.GetPrimary(mv.response.Columns)].Formatted)
+			allMatching, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
+				Table:      table.Name,
+				Conditions: conditions,
+				Limit:      1,
+			})
+			if err != nil {
+				return err
 			}
-			filters = []*jqlpb.Filter{
-				{
-					Column: table.Columns[col].Name,
-					Match:  &jqlpb.Filter_InMatch{InMatch: &jqlpb.InMatch{Values: selections}},
-				},
+			if len(allMatching.Rows) == 0 {
+				continue
 			}
 		}
-		err := mv.loadTable(table.Name)
-		if err != nil {
-			return err
-		}
-		mv.request.Conditions[0].Requires = filters
+
+		mv.request.Table = table.Name
+		mv.request.Conditions = conditions
 		return mv.updateTableViewContents()
 	}
 	return fmt.Errorf("no tables found with corresponding foreign key: %s", selected)

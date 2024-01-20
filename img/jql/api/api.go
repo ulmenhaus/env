@@ -356,15 +356,16 @@ func GetPrimary(columns []*jqlpb.Column) int {
 	return -1
 }
 
-// HasForeign returns the index of the column that is a foriegn key to the
-// provided table or -1 if there is no such column
-func HasForeign(columns []*jqlpb.Column, table string) int {
+// GetForeign returns the index of the columns that are foriegn keys to the
+// provided table
+func GetForeign(columns []*jqlpb.Column, table string) []int {
+	var ret []int
 	for i, column := range columns {
 		if column.ForeignTable == table {
-			return i
+			ret = append(ret, i)
 		}
 	}
-	return -1
+	return ret
 }
 
 func GetTables(ctx context.Context, dbms JQL_DBMS) (map[string]*jqlpb.TableMeta, error) {
