@@ -729,7 +729,7 @@ func (mv *MainView) promptExit(contents string, finish bool, err error) {
 			newPK := strings.Join(parts[1:], " ")
 			fields := map[string]string{}
 			for _, filter := range mv.request.Conditions[0].Requires {
-				col, formatted := api.Example(filter)
+				col, formatted := api.Example(mv.response.Columns, filter)
 				if col == -1 {
 					// TODO should unapply all filters here
 					continue

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/ulmenhaus/env/img/jql/types"
@@ -10,7 +11,7 @@ import (
 type filterShim struct {
 	filter *jqlpb.Filter
 	colix  int
-	asMap map[string]bool
+	asMap  map[string]bool
 }
 
 func xor(a, b bool) bool {
@@ -71,17 +72,49 @@ func (f *filterShim) PrimarySuggestion() (string, bool) {
 }
 
 func PrimarySuggestion(f *jqlpb.Filter) (string, bool) {
-	// TODO implement
+	switch match := f.Match.(type) {
+	case *jqlpb.Filter_EqualMatch:
+		if f.Negated {
+			return "", false
+		}
+		return match.EqualMatch.Value, true
+	case *jqlpb.Filter_InMatch:
+		return "", false
+	case *jqlpb.Filter_ContainsMatch:
+		return "", false
+	}
 	return "", false
 }
 
 func Description(f *jqlpb.Filter) string {
-	// TODO implement
+	switch match := f.Match.(type) {
+	case *jqlpb.Filter_EqualMatch:
+		op := "="
+		if f.Negated {
+			op = "!="
+		}
+		return fmt.Sprintf("%s %s \"%s\"", f.Column, op, strings.Replace(match.EqualMatch.Value, "\"", "\\\"", -1))
+	case *jqlpb.Filter_InMatch:
+		return fmt.Sprintf("%s in (%s)", f.Column, strings.Join(match.InMatch.Values, ", "))
+	case *jqlpb.Filter_ContainsMatch:
+		return fmt.Sprintf("%s contains \"%s\"", f.Column, strings.Replace(match.ContainsMatch.Value, "\"", "\\\"", -1))
+	}
 	return ""
 }
 
-func Example(f *jqlpb.Filter) (int, string) {
-	// TODO implement
+func Example(columns []*jqlpb.Column, f *jqlpb.Filter) (int, string) {
+	col := IndexOfField(columns, f.GetColumn())
+	switch match := f.Match.(type) {
+	case *jqlpb.Filter_EqualMatch:
+		if f.Negated {
+			return col, ""
+		}
+		return col, match.EqualMatch.Value
+	case *jqlpb.Filter_InMatch:
+		return col, match.InMatch.Values[0]
+	case *jqlpb.Filter_ContainsMatch:
+		return col, match.ContainsMatch.Value
+	}
 	return 0, ""
 }
 
@@ -92,4 +125,3 @@ func slice2map(slice []string) map[string]bool {
 	}
 	return m
 }
-
