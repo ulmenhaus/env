@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,9 +12,9 @@ import (
 	"strings"
 
 	"github.com/jroimartin/gocui"
-	"github.com/ulmenhaus/env/img/jql/osm"
-	"github.com/ulmenhaus/env/img/jql/types"
-	"github.com/ulmenhaus/env/img/jql/ui"
+	"github.com/ulmenhaus/env/img/jql/api"
+	"github.com/ulmenhaus/env/img/jql/cli"
+	"github.com/ulmenhaus/env/proto/jql/jqlpb"
 )
 
 const (
@@ -42,6 +43,7 @@ var (
 		ResourceTypeBookmarks,
 		ResourceTypeJumps,
 	}
+	ctx = context.Background()
 )
 
 type Location struct {
@@ -80,10 +82,8 @@ type MainView struct {
 	Mode   MainViewMode
 	TypeIX int
 
-	OSM *osm.ObjectStoreMapper
-	DB  *types.Database
-
-	CodeOSM *osm.ObjectStoreMapper
+	dbms   api.JQL_DBMS
+	codeDB api.JQL_DBMS
 
 	projectName     string
 	resourceQ       string
@@ -100,18 +100,18 @@ func NewMainView(g *gocui.Gui, projectName, jqlBinDir string) (*MainView, error)
 		return nil, err
 	}
 	projectsPath := filepath.Join(homedir, ".projects.json")
-	mapper, err := osm.NewObjectStoreMapper(projectsPath)
-	if err != nil {
-		return nil, err
+	cfg := &cli.JQLConfig{
+		Path:  projectsPath,
+		Mode:  cli.ModeStandalone,
+		Table: ProjectsTable,
 	}
-	err = mapper.Load()
+	dbms, _, err := cfg.InitDBMS()
 	if err != nil {
 		return nil, err
 	}
 
 	mv := &MainView{
-		OSM: mapper,
-		DB:  mapper.GetDB(),
+		dbms: dbms,
 
 		TypeIX: 1,
 
@@ -122,21 +122,17 @@ func NewMainView(g *gocui.Gui, projectName, jqlBinDir string) (*MainView, error)
 	if err != nil {
 		return nil, err
 	}
-	projectPath := filepath.Join(projWorkdir, ".project.json")
-	codeMapper, err := osm.NewObjectStoreMapper(projectPath)
-	if err != nil {
-		return nil, err
+	codePath := filepath.Join(projWorkdir, ".project.json")
+	codeCfg := &cli.JQLConfig{
+		Path:  codePath,
+		Mode:  cli.ModeStandalone,
+		Table: ComponentsTable,
 	}
-	f, err := os.Open(projectPath)
+	codeDB, _, err := codeCfg.InitDBMS()
 	if err != nil && !os.IsNotExist(err) {
 		return nil, err
 	} else if err == nil {
-		defer f.Close()
-		err := mapper.Load()
-		if err != nil {
-			return nil, err
-		}
-		mv.CodeOSM = codeMapper
+		mv.codeDB = codeDB
 	}
 	return mv, mv.refreshAllResources()
 }
@@ -387,27 +383,28 @@ func (mv *MainView) refreshActiveResources() error {
 }
 
 func (mv *MainView) gatherJumps() error {
-	jumpsTable := mv.DB.Tables[JumpsTable]
-	jumps, err := jumpsTable.Query(
-		types.QueryParams{
-			Filters: []types.Filter{
-				&ui.EqualFilter{
-					Field:     FieldProject,
-					Col:       jumpsTable.IndexOfField(FieldProject),
-					Formatted: mv.projectName,
+	jumps, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
+		Table: JumpsTable,
+		Conditions: []*jqlpb.Condition{
+			{
+				Requires: []*jqlpb.Filter{
+					{
+						Column: FieldProject,
+						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: mv.projectName}},
+					},
 				},
 			},
-			OrderBy: FieldOrder,
 		},
-	)
+		OrderBy: FieldOrder,
+	})
 	if err != nil {
 		return err
 	}
 
-	for _, jump := range jumps.Entries {
-		source := NewLocation(jump[jumpsTable.Primary()].Format(""))
-		tgt := NewLocation(jump[jumpsTable.IndexOfField(FieldTarget)].Format(""))
-		description := jump[jumpsTable.Primary()].Format("")
+	for _, jump := range jumps.Rows {
+		description := jump.Entries[api.GetPrimary(jumps.Columns)].Formatted
+		source := NewLocation(description)
+		tgt := NewLocation(jump.Entries[api.IndexOfField(jumps.Columns, FieldTarget)].Formatted)
 		// NOTE a bisect would probably be more efficient here but this is good enough
 		for _, res := range mv.componentLookup[source.Path] {
 			if res.Location.Point > source.Point {
@@ -432,50 +429,49 @@ func (mv *MainView) gatherJumps() error {
 }
 
 func (mv *MainView) gatherComponents() error {
-	if mv.CodeOSM.GetDB() == nil {
+	if mv.codeDB == nil {
 		return nil
 	}
-	componentsTable := mv.CodeOSM.GetDB().Tables[ComponentsTable]
-	components, err := componentsTable.Query(
-		types.QueryParams{
-			OrderBy: FieldDisplayName,
-		},
-	)
+	components, err := mv.codeDB.ListRows(ctx, &jqlpb.ListRowsRequest{
+		Table:   ComponentsTable,
+		OrderBy: FieldDisplayName,
+	})
 	if err != nil {
 		return err
 	}
 
-	for _, component := range components.Entries {
+	for _, component := range components.Rows {
 		mv.allResources = append(mv.allResources, Resource{
-			Description: component[componentsTable.IndexOfField(FieldDisplayName)].Format(""),
-			Location:    NewLocation(component[componentsTable.IndexOfField(FieldSrcLocation)].Format("")),
+			Description: component.Entries[api.IndexOfField(components.Columns, FieldDisplayName)].Formatted,
+			Location:    NewLocation(component.Entries[api.IndexOfField(components.Columns, FieldSrcLocation)].Formatted),
 		})
 	}
 	return nil
 }
 
 func (mv *MainView) gatherBookmarks() error {
-	bookmarksTable := mv.DB.Tables[BookmarksTable]
-	bookmarks, err := bookmarksTable.Query(
-		types.QueryParams{
-			Filters: []types.Filter{
-				&ui.EqualFilter{
-					Field:     FieldProject,
-					Col:       bookmarksTable.IndexOfField(FieldProject),
-					Formatted: mv.projectName,
+	bookmarks, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
+		Table: BookmarksTable,
+		Conditions: []*jqlpb.Condition{
+			{
+				Requires: []*jqlpb.Filter{
+					{
+						Column: FieldProject,
+						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: mv.projectName}},
+					},
 				},
 			},
-			OrderBy: FieldOrder,
 		},
-	)
+		OrderBy: FieldOrder,
+	})
 	if err != nil {
 		return err
 	}
 
-	for _, bookmark := range bookmarks.Entries {
+	for _, bookmark := range bookmarks.Rows {
 		mv.allResources = append(mv.allResources, Resource{
-			Description: bookmark[bookmarksTable.IndexOfField(FieldDescription)].Format(""),
-			Location:    NewLocation(bookmark[bookmarksTable.Primary()].Format("")),
+			Description: bookmark.Entries[api.IndexOfField(bookmarks.Columns, FieldDescription)].Formatted,
+			Location:    NewLocation(bookmark.Entries[api.GetPrimary(bookmarks.Columns)].Formatted),
 		})
 	}
 	return nil
@@ -539,26 +535,14 @@ func (mv *MainView) toggleSearch(g *gocui.Gui, v *gocui.View) error {
 }
 
 func (mv *MainView) getProjectWorkdir() (string, error) {
-	allProjects := mv.DB.Tables[ProjectsTable]
-	projects, err := allProjects.Query(
-		types.QueryParams{
-			Filters: []types.Filter{
-				&ui.EqualFilter{
-					Field:     FieldProjectName,
-					Col:       allProjects.IndexOfField(FieldProjectName),
-					Formatted: mv.projectName,
-				},
-			},
-			OrderBy: FieldProjectName,
-		},
-	)
+	project, err := mv.dbms.GetRow(ctx, &jqlpb.GetRowRequest{
+		Table: ProjectsTable,
+		Pk:    mv.projectName,
+	})
 	if err != nil {
 		return "", err
 	}
-	if projects.Total != 1 {
-		return "", fmt.Errorf("Expected one poject with this name, got: %d", projects.Total)
-	}
-	workdir := projects.Entries[0][allProjects.IndexOfField(FieldWorkdir)].Format("")
+	workdir := project.Row.Entries[api.IndexOfField(project.Columns, FieldWorkdir)].Formatted
 	homedir, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
