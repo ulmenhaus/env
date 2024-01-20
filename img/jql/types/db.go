@@ -93,15 +93,6 @@ type Database struct {
 type Filter interface {
 	// Applies returns true iff the provided entry should be shown given the filter
 	Applies([]Entry) bool
-	// Description returns a user-facing description of the Filter
-	Description() string
-	// Example returns a column and an example formatted value that would match the
-	// given filter or -1 if no such matching is possible
-	Example() (int, string)
-	// PrimarySuggestion returns a suggestion for prefilling the primary key of a new
-	// entry when this filter is applied as well as a boolean which may be false if the
-	// filter has no suggestion
-	PrimarySuggestion() (string, bool)
 }
 
 // QueryParams are the parameters to a table's Query method

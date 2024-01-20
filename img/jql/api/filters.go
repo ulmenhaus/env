@@ -56,21 +56,9 @@ func (f *filterShim) Applies(e []types.Entry) bool {
 	return false
 }
 
-func (f *filterShim) Description() string {
-	// TODO remove superfluous method
-	return ""
-}
-
-func (f *filterShim) Example() (int, string) {
-	// TODO remove superfluous method
-	return 0, ""
-}
-
-func (f *filterShim) PrimarySuggestion() (string, bool) {
-	// TODO remove superfluous method
-	return "", false
-}
-
+// PrimarySuggestion returns a suggestion for prefilling the primary key of a new
+// entry when this filter is applied as well as a boolean which may be false if the
+// filter has no suggestion
 func PrimarySuggestion(f *jqlpb.Filter) (string, bool) {
 	switch match := f.Match.(type) {
 	case *jqlpb.Filter_EqualMatch:
@@ -86,6 +74,7 @@ func PrimarySuggestion(f *jqlpb.Filter) (string, bool) {
 	return "", false
 }
 
+// Description returns a user-facing description of the Filter
 func Description(f *jqlpb.Filter) string {
 	switch match := f.Match.(type) {
 	case *jqlpb.Filter_EqualMatch:
@@ -102,6 +91,8 @@ func Description(f *jqlpb.Filter) string {
 	return ""
 }
 
+// Example returns a column and an example formatted value that would match the
+// given filter or -1 if no such matching is possible
 func Example(columns []*jqlpb.Column, f *jqlpb.Filter) (int, string) {
 	col := IndexOfField(columns, f.GetColumn())
 	switch match := f.Match.(type) {
