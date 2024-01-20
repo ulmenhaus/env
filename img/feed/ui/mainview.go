@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -11,9 +12,9 @@ import (
 	"syscall"
 
 	"github.com/jroimartin/gocui"
+	"github.com/ulmenhaus/env/img/jql/api"
 	"github.com/ulmenhaus/env/img/jql/osm"
-	"github.com/ulmenhaus/env/img/jql/types"
-	"github.com/ulmenhaus/env/img/jql/ui"
+	"github.com/ulmenhaus/env/proto/jql/jqlpb"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -22,6 +23,10 @@ const (
 	whiteBackEscape = "\033[47m"
 	boldTextEscape  = "\033[1m"
 	resetEscape     = "\033[0m"
+)
+
+var (
+	ctx = context.Background()
 )
 
 // MainViewMode is the current mode of the MainView.
@@ -35,13 +40,15 @@ const (
 // A MainView is the overall view including a resource list
 // and a detailed view of the current resource
 type MainView struct {
-	OSM *osm.ObjectStoreMapper
+	OSM    *osm.ObjectStoreMapper
+	dbms   api.JQL_DBMS
+	tables map[string]*jqlpb.TableMeta
 
 	Mode MainViewMode
 
 	ignored     map[string](map[string]bool) // stores a map from feed name to a set of ignored entries
 	ignoredPath string
-	returnArgs []string
+	returnArgs  []string
 
 	selectedDomain int
 	domains        []*domain
@@ -54,20 +61,26 @@ type domain struct {
 }
 
 type channel struct {
-	row          []types.Entry
+	row          *jqlpb.Row
 	status2items map[string][]*Item
 }
 
 // NewMainView returns a MainView initialized with a given Table
-func NewMainView(g *gocui.Gui, mapper *osm.ObjectStoreMapper, ignoredPath string, returnArgs []string) (*MainView, error) {
+func NewMainView(g *gocui.Gui, dbms api.JQL_DBMS, mapper *osm.ObjectStoreMapper, ignoredPath string, returnArgs []string) (*MainView, error) {
 	mv := &MainView{
-		OSM: mapper,
+		OSM:  mapper,
+		dbms: dbms,
 
 		ignoredPath: ignoredPath,
-		returnArgs: returnArgs,
-		id2channel: map[string]*channel{},
+		returnArgs:  returnArgs,
+		id2channel:  map[string]*channel{},
 	}
-	_, err := os.Stat(mv.ignoredPath)
+	tables, err := api.GetTables(ctx, mv.dbms)
+	if err != nil {
+		return nil, err
+	}
+	mv.tables = tables
+	_, err = os.Stat(mv.ignoredPath)
 	if os.IsNotExist(err) {
 		mv.ignored = map[string](map[string]bool){}
 	} else if err != nil {
@@ -92,16 +105,16 @@ func NewMainView(g *gocui.Gui, mapper *osm.ObjectStoreMapper, ignoredPath string
 }
 
 func (mv *MainView) gatherDomains() (map[string]string, error) {
-	assnTable, ok := mv.OSM.GetDB().Tables[TableAssertions]
-	if !ok {
-		return nil, fmt.Errorf("expected assertions table to exist")
-	}
-	resp, err := assnTable.Query(types.QueryParams{
-		Filters: []types.Filter{
-			&ui.EqualFilter{
-				Field:     FieldRelation,
-				Col:       assnTable.IndexOfField(FieldRelation),
-				Formatted: ".Domain",
+	resp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
+		Table: TableAssertions,
+		Conditions: []*jqlpb.Condition{
+			{
+				Requires: []*jqlpb.Filter{
+					{
+						Column: FieldRelation,
+						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Domain"}},
+					},
+				},
 			},
 		},
 	})
@@ -109,9 +122,9 @@ func (mv *MainView) gatherDomains() (map[string]string, error) {
 		return nil, err
 	}
 	noun2domain := map[string]string{}
-	for _, entry := range resp.Entries {
-		arg0 := entry[assnTable.IndexOfField(FieldArg0)].Format("")
-		arg1 := entry[assnTable.IndexOfField(FieldArg1)].Format("")
+	for _, row := range resp.Rows {
+		arg0 := row.Entries[api.IndexOfField(resp.Columns, FieldArg0)].Formatted
+		arg1 := row.Entries[api.IndexOfField(resp.Columns, FieldArg1)].Formatted
 		if !strings.HasPrefix(arg0, "nouns ") {
 			continue
 		}
@@ -129,18 +142,17 @@ func (mv *MainView) gatherDomains() (map[string]string, error) {
 }
 
 func (mv *MainView) fetchResources() error {
-	// TODO use constants for column names
-	nounsTable, ok := mv.OSM.GetDB().Tables[TableNouns]
-	if !ok {
-		return fmt.Errorf("expected nouns table to exist")
-	}
-	resp, err := nounsTable.Query(types.QueryParams{
-		Filters: []types.Filter{
-			&ui.EqualFilter{
-				Field:     FieldFeed,
-				Col:       nounsTable.IndexOfField(FieldFeed),
-				Formatted: "",
-				Not:       true,
+	resp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
+		Table: TableNouns,
+		Conditions: []*jqlpb.Condition{
+			{
+				Requires: []*jqlpb.Filter{
+					{
+						Column:  FieldFeed,
+						Match:   &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ""}},
+						Negated: true,
+					},
+				},
 			},
 		},
 		OrderBy: FieldIdentifier,
@@ -158,12 +170,12 @@ func (mv *MainView) fetchResources() error {
 		status. If they have neither and no in progress tasks and no feed, then we also
 		add it.
 	*/
-	for _, entry := range resp.Entries {
-		feed := entry[nounsTable.IndexOfField(FieldFeed)].Format("")
+	for _, row := range resp.Rows {
+		feed := row.Entries[api.IndexOfField(resp.Columns, FieldFeed)].Formatted
 		if (!strings.Contains(feed, "://")) && feed != "manual" {
 			continue
 		}
-		entryName := entry[nounsTable.IndexOfField(FieldIdentifier)].Format("")
+		entryName := row.Entries[api.IndexOfField(resp.Columns, FieldIdentifier)].Formatted
 		domainName := noun2domain[entryName]
 		if domainName == "" {
 			domainName = "other"
@@ -172,9 +184,9 @@ func (mv *MainView) fetchResources() error {
 			domains[domainName] = &domain{name: domainName}
 		}
 		domain := domains[domainName]
-		name := entry[nounsTable.IndexOfField(FieldIdentifier)].Format("")
+		name := row.Entries[api.IndexOfField(resp.Columns, FieldIdentifier)].Formatted
 		mv.id2channel[name] = &channel{
-			row:          entry,
+			row:          row,
 			status2items: map[string][]*Item{},
 		}
 		domain.channels = append(domain.channels, name)
@@ -195,43 +207,33 @@ func (mv *MainView) fetchResources() error {
 }
 
 func (mv *MainView) fetchNewItems(g *gocui.Gui, v *gocui.View) error {
-	// TODO worth taking a second pass at this function for code cleanliness and performance
-	nounsTable, ok := mv.OSM.GetDB().Tables[TableNouns]
-	if !ok {
-		return fmt.Errorf("expected nouns table to exist")
-	}
-	contextTable, ok := mv.OSM.GetDB().Tables[TableContexts]
-	if !ok {
-		return fmt.Errorf("expected context table to exist")
-	}
-
-	allContexts, err := contextTable.Query(types.QueryParams{})
+	allContexts, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{Table: TableContexts})
 	if err != nil {
 		return err
 	}
 	parent2context := map[string]string{}
-	for _, entry := range allContexts.Entries {
-		parent2context[entry[contextTable.IndexOfField(FieldParent)].Format("")] = entry[contextTable.IndexOfField(FieldCode)].Format("")
+	for _, row := range allContexts.Rows {
+		parent2context[row.Entries[api.IndexOfField(allContexts.Columns, FieldParent)].Formatted] = row.Entries[api.IndexOfField(allContexts.Columns, FieldCode)].Formatted
 	}
 
-	allItems, err := nounsTable.Query(types.QueryParams{})
+	allItems, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{Table: TableNouns})
 	if err != nil {
 		return err
 	}
 	allIDs := map[string]bool{}
-	for _, rawItem := range allItems.Entries {
-		allIDs[rawItem[nounsTable.IndexOfField(FieldIdentifier)].Format("")] = true
+	for _, row := range allItems.Rows {
+		allIDs[row.Entries[api.IndexOfField(allItems.Columns, FieldIdentifier)].Formatted] = true
 	}
 	group := new(errgroup.Group)
 	semaphore := make(chan bool, 5) // Limit parallel requests
 	for _, domain := range mv.domains {
 		for _, name := range domain.channels {
 			entry := mv.id2channel[name]
-			entryName := entry.row[nounsTable.IndexOfField(FieldIdentifier)].Format("")
+			entryName := entry.row.Entries[api.IndexOfField(allItems.Columns, FieldIdentifier)].Formatted
 			channel := mv.id2channel[entryName]
 			channel.status2items[FreshView] = nil
 
-			feedURL := entry.row[nounsTable.IndexOfField(FieldFeed)].Format("")
+			feedURL := entry.row.Entries[api.IndexOfField(allItems.Columns, FieldFeed)].Formatted
 			if !strings.Contains(feedURL, "://") {
 				continue
 			}
@@ -244,7 +246,7 @@ func (mv *MainView) fetchNewItems(g *gocui.Gui, v *gocui.View) error {
 				defer func() { <-semaphore }()
 				latest, err := feed.FetchNew()
 				if err != nil {
-					return fmt.Errorf("Failed to fetch feed for %s: %s", entry.row[nounsTable.IndexOfField(FieldIdentifier)].Format(""), err)
+					return fmt.Errorf("Failed to fetch feed for %s: %s", entry.row.Entries[api.IndexOfField(allItems.Columns, FieldIdentifier)].Formatted, err)
 				}
 				for _, item := range latest {
 					if !(allIDs[item.Identifier] || mv.ignored[entryName][item.Identifier]) {
@@ -264,23 +266,34 @@ func (mv *MainView) addFreshItem(g *gocui.Gui, v *gocui.View) error {
 		return err
 	}
 	_, selectedResource := resources.Cursor()
-	nounsTable, ok := mv.OSM.GetDB().Tables[TableNouns]
+	nounsTable, ok := mv.tables[TableNouns]
 	if !ok {
 		return fmt.Errorf("expected resources table to exist")
 	}
 	feed := mv.id2channel[mv.domains[mv.selectedDomain].channels[selectedResource]]
-	entryName := feed.row[nounsTable.IndexOfField(FieldIdentifier)].Format("")
+	entryName := feed.row.Entries[api.IndexOfField(nounsTable.Columns, FieldIdentifier)].Formatted
 	_, cy := v.Cursor()
 	_, oy := v.Origin()
 	item := mv.id2channel[entryName].status2items[FreshView][oy+cy]
-	identifier := item.Identifier
-	err = nounsTable.Insert(identifier)
+	fields := map[string]string{
+		FieldLink:        item.Link,
+		FieldParent:      entryName,
+		FieldDescription: item.Description,
+		FieldContext:     item.Context,
+	}
+	request := &jqlpb.WriteRowRequest{
+		Table:      TableNouns,
+		Pk:         item.Identifier,
+		Fields:     fields,
+		InsertOnly: true,
+	}
+	_, err = mv.dbms.WriteRow(ctx, request)
 	if err != nil {
 		// TODO would be good to use a specific error type
 		if strings.HasPrefix(err.Error(), "Row already exists") {
 			for i := 1; i < 100; i++ {
-				identifier = fmt.Sprintf("%s (%02d)", item.Identifier, i)
-				err = nounsTable.Insert(identifier)
+				request.Pk = fmt.Sprintf("%s (%02d)", item.Identifier, i)
+				_, err = mv.dbms.WriteRow(ctx, request)
 				if err == nil {
 					break
 				} else if strings.HasPrefix(err.Error(), "Row already exists") {
@@ -294,24 +307,6 @@ func (mv *MainView) addFreshItem(g *gocui.Gui, v *gocui.View) error {
 		}
 	}
 
-	// TODO now that we support insert with fields we probably don't need separate updates here
-	err = nounsTable.Update(identifier, FieldLink, item.Link)
-	if err != nil {
-		return fmt.Errorf("Failed to update link for entry: %s", err)
-	}
-
-	err = nounsTable.Update(identifier, FieldParent, entryName)
-	if err != nil {
-		return fmt.Errorf("Failed to update resource for entry: %s", err)
-	}
-	err = nounsTable.Update(identifier, FieldDescription, item.Description)
-	if err != nil {
-		return fmt.Errorf("Failed to update description for entry: %s", err)
-	}
-	err = nounsTable.Update(identifier, FieldContext, item.Context)
-	if err != nil {
-		return fmt.Errorf("Failed to update context for entry: %s", err)
-	}
 	channel := mv.id2channel[entryName]
 	channel.status2items[FreshView] = append(channel.status2items[FreshView][:oy+cy], channel.status2items[FreshView][oy+cy+1:]...)
 	return mv.refreshView(g)
@@ -365,7 +360,7 @@ func (mv *MainView) layoutDomains(g *gocui.Gui, domainHeight int) error {
 }
 
 func (mv *MainView) Layout(g *gocui.Gui) error {
-	nounsTable, ok := mv.OSM.GetDB().Tables[TableNouns]
+	nounsTable, ok := mv.tables[TableNouns]
 	if !ok {
 		return fmt.Errorf("expected nouns table to exist")
 	}
@@ -425,7 +420,7 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 
 	for ix, name := range mv.domains[mv.selectedDomain].channels {
 		channel := mv.id2channel[name]
-		description := channel.row[nounsTable.IndexOfField(FieldDescription)].Format("")
+		description := channel.row.Entries[api.IndexOfField(nounsTable.Columns, FieldDescription)].Formatted
 		if len(channel.status2items[FreshView]) > 0 {
 			description += fmt.Sprintf(" %s(%d)%s", boldTextEscape, len(channel.status2items[FreshView]), resetEscape)
 		}
@@ -498,10 +493,6 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 		if err != nil {
 			return err
 		}
-		err = g.SetKeybinding(current, 'g', gocui.ModNone, mv.goToPK)
-		if err != nil {
-			return err
-		}
 		err = g.SetKeybinding(next, 'N', gocui.ModNone, mv.switcherTo(current))
 		if err != nil {
 			return err
@@ -566,27 +557,31 @@ func (mv *MainView) moveDownInPipe(g *gocui.Gui, v *gocui.View) error {
 	}
 	_, cy := v.Cursor()
 	_, oy := v.Origin()
-	nounsTable, ok := mv.OSM.GetDB().Tables[TableNouns]
-	if !ok {
-		return fmt.Errorf("Expected to find nouns table")
-	}
 	channel, err := mv.selectedChannel(g)
 	if err != nil {
 		return err
 	}
 	pk := channel.status2items[name][oy+cy].Identifier
-	new, err := nounsTable.Entries[pk][nounsTable.IndexOfField(FieldCoordinal)].Add(1)
+	_, err = mv.dbms.IncrementEntry(ctx, &jqlpb.IncrementEntryRequest{
+		Table:  TableNouns,
+		Pk:     pk,
+		Column: FieldCoordinal,
+		Amount: 1,
+	})
 	if err != nil {
 		return err
 	}
-	nounsTable.Entries[pk][nounsTable.IndexOfField(FieldCoordinal)] = new
 	if oy+cy+1 < len(channel.status2items[name]) {
 		successor := channel.status2items[name][oy+cy+1].Identifier
-		new, err := nounsTable.Entries[successor][nounsTable.IndexOfField(FieldCoordinal)].Add(-1)
+		_, err = mv.dbms.IncrementEntry(ctx, &jqlpb.IncrementEntryRequest{
+			Table:  TableNouns,
+			Pk:     successor,
+			Column: FieldCoordinal,
+			Amount: -1,
+		})
 		if err != nil {
 			return err
 		}
-		nounsTable.Entries[successor][nounsTable.IndexOfField(FieldCoordinal)] = new
 	}
 	return mv.cursorDown(g, v)
 }
@@ -601,27 +596,31 @@ func (mv *MainView) moveUpInPipe(g *gocui.Gui, v *gocui.View) error {
 	}
 	_, cy := v.Cursor()
 	_, oy := v.Origin()
-	nounsTable, ok := mv.OSM.GetDB().Tables[TableNouns]
-	if !ok {
-		return fmt.Errorf("Expected to find nouns table")
-	}
 	channel, err := mv.selectedChannel(g)
 	if err != nil {
 		return err
 	}
 	pk := channel.status2items[name][oy+cy].Identifier
-	new, err := nounsTable.Entries[pk][nounsTable.IndexOfField(FieldCoordinal)].Add(-1)
+	_, err = mv.dbms.IncrementEntry(ctx, &jqlpb.IncrementEntryRequest{
+		Table:  TableNouns,
+		Pk:     pk,
+		Column: FieldCoordinal,
+		Amount: -1,
+	})
 	if err != nil {
 		return err
 	}
-	nounsTable.Entries[pk][nounsTable.IndexOfField(FieldCoordinal)] = new
 	if oy+cy-1 >= 0 {
 		predecessor := channel.status2items[name][oy+cy-1].Identifier
-		new, err := nounsTable.Entries[predecessor][nounsTable.IndexOfField(FieldCoordinal)].Add(1)
+		_, err = mv.dbms.IncrementEntry(ctx, &jqlpb.IncrementEntryRequest{
+			Table:  TableNouns,
+			Pk:     predecessor,
+			Column: FieldCoordinal,
+			Amount: 1,
+		})
 		if err != nil {
 			return err
 		}
-		nounsTable.Entries[predecessor][nounsTable.IndexOfField(FieldCoordinal)] = new
 	}
 	return mv.cursorUp(g, v)
 }
@@ -636,7 +635,7 @@ func (mv *MainView) moveDown(g *gocui.Gui, v *gocui.View) error {
 	}
 	_, cy := v.Cursor()
 	_, oy := v.Origin()
-	nounsTable, ok := mv.OSM.GetDB().Tables[TableNouns]
+	nounsTable, ok := mv.tables[TableNouns]
 	if !ok {
 		return fmt.Errorf("Expected to find nouns table")
 	}
@@ -652,17 +651,21 @@ func (mv *MainView) moveDown(g *gocui.Gui, v *gocui.View) error {
 		}
 		_, roy := resources.Origin()
 		_, rcy := resources.Cursor()
-		entry := mv.id2channel[mv.domains[mv.selectedDomain].channels[roy+rcy]].row
-		entryName := entry[nounsTable.IndexOfField(FieldIdentifier)].Format("")
+		row := mv.id2channel[mv.domains[mv.selectedDomain].channels[roy+rcy]].row
+		entryName := row.Entries[api.IndexOfField(nounsTable.Columns, FieldIdentifier)].Formatted
 		mv.ignored[entryName][pk] = true
 		channel := mv.id2channel[entryName]
 		channel.status2items[FreshView] = append(channel.status2items[FreshView][:oy+cy], channel.status2items[FreshView][oy+cy+1:]...)
 	} else {
-		new, err := nounsTable.Entries[pk][nounsTable.IndexOfField(FieldStatus)].Add(-1)
+		_, err = mv.dbms.IncrementEntry(ctx, &jqlpb.IncrementEntryRequest{
+			Table:  TableNouns,
+			Pk:     pk,
+			Column: FieldStatus,
+			Amount: -1,
+		})
 		if err != nil {
 			return err
 		}
-		nounsTable.Entries[pk][nounsTable.IndexOfField(FieldStatus)] = new
 	}
 	return mv.refreshView(g)
 }
@@ -695,15 +698,15 @@ func (mv *MainView) moveUp(g *gocui.Gui, v *gocui.View) error {
 	_, cy := v.Cursor()
 	_, oy := v.Origin()
 	pk := channel.status2items[name][oy+cy].Identifier
-	nounsTable, ok := mv.OSM.GetDB().Tables[TableNouns]
-	if !ok {
-		return fmt.Errorf("Expected to find items table")
-	}
-	new, err := nounsTable.Entries[pk][nounsTable.IndexOfField(FieldStatus)].Add(1)
+	_, err = mv.dbms.IncrementEntry(ctx, &jqlpb.IncrementEntryRequest{
+		Table:  TableNouns,
+		Pk:     pk,
+		Column: FieldStatus,
+		Amount: 1,
+	})
 	if err != nil {
 		return err
 	}
-	nounsTable.Entries[pk][nounsTable.IndexOfField(FieldStatus)] = new
 	return mv.refreshView(g)
 }
 
@@ -767,32 +770,25 @@ func (mv *MainView) goToJQL(extraArgs ...string) error {
 	return err
 }
 
-func (mv *MainView) goToPK(g *gocui.Gui, v *gocui.View) error {
+func (mv *MainView) GetSelectedPK(g *gocui.Gui, v *gocui.View) (string, error) {
 	_, cy := v.Cursor()
 	_, oy := v.Origin()
-	var pk string
 	if v.Name() == ResourcesView {
-		nounsTable, ok := mv.OSM.GetDB().Tables[TableNouns]
+		nounsTable, ok := mv.tables[TableNouns]
 		if !ok {
-			return fmt.Errorf("expected nouns table to exist")
+			return "", fmt.Errorf("expected nouns table to exist")
 		}
-		pk = mv.id2channel[mv.domains[mv.selectedDomain].channels[oy+cy]].row[nounsTable.IndexOfField(FieldIdentifier)].Format("")
+		return mv.id2channel[mv.domains[mv.selectedDomain].channels[oy+cy]].row.Entries[api.IndexOfField(nounsTable.Columns, FieldIdentifier)].Formatted, nil
 	} else {
 		channel, err := mv.selectedChannel(g)
 		if err != nil {
-			return err
+			return "", err
 		}
-		pk = channel.status2items[v.Name()][oy+cy].Identifier
+		return channel.status2items[v.Name()][oy+cy].Identifier, nil
 	}
-	return mv.goToJQL("--table", TableNouns, "--pk", pk)
 }
 
 func (mv *MainView) refreshView(g *gocui.Gui) error {
-	// TODO this method could use a second pass for code cleanliness and performance
-	nounsTable, ok := mv.OSM.GetDB().Tables[TableNouns]
-	if !ok {
-		return fmt.Errorf("expected nouns table to exist")
-	}
 	// We refresh all channels here so we can be sure the status UI reflects the current
 	// state even though most likely only the current selected channel changed
 	for _, chn := range mv.id2channel {
@@ -800,22 +796,22 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 			chn.status2items[status] = nil
 		}
 	}
-	rawItems, err := nounsTable.Query(types.QueryParams{})
+	rawItems, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{Table: TableNouns})
 	if err != nil {
 		return err
 	}
 
-	for _, rawItem := range rawItems.Entries {
-		channel, ok := mv.id2channel[rawItem[nounsTable.IndexOfField(FieldParent)].Format("")]
+	for _, rawItem := range rawItems.Rows {
+		channel, ok := mv.id2channel[rawItem.Entries[api.IndexOfField(rawItems.Columns, FieldParent)].Formatted]
 		if !ok {
 			continue
 		}
-		status := rawItem[nounsTable.IndexOfField(FieldStatus)].Format("")
+		status := rawItem.Entries[api.IndexOfField(rawItems.Columns, FieldStatus)].Formatted
 		channel.status2items[status] = append(channel.status2items[status], &Item{
-			Identifier:  rawItem[nounsTable.IndexOfField(FieldIdentifier)].Format(""),
-			Description: rawItem[nounsTable.IndexOfField(FieldDescription)].Format(""),
-			Coordinal:   rawItem[nounsTable.IndexOfField(FieldCoordinal)].Format(""),
-			Link:        rawItem[nounsTable.IndexOfField(FieldLink)].Format(""),
+			Identifier:  rawItem.Entries[api.IndexOfField(rawItems.Columns, FieldIdentifier)].Formatted,
+			Description: rawItem.Entries[api.IndexOfField(rawItems.Columns, FieldDescription)].Formatted,
+			Coordinal:   rawItem.Entries[api.IndexOfField(rawItems.Columns, FieldCoordinal)].Formatted,
+			Link:        rawItem.Entries[api.IndexOfField(rawItems.Columns, FieldLink)].Formatted,
 		})
 	}
 	for _, channel := range mv.id2channel {
@@ -835,7 +831,17 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 					padded = strings.Repeat("0", 3-len(padded)) + padded
 				}
 				item.Coordinal = padded
-				nounsTable.Entries[item.Identifier][nounsTable.IndexOfField(FieldCoordinal)] = types.String(padded)
+				_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
+					UpdateOnly: true,
+					Table:      TableNouns,
+					Pk:         item.Identifier,
+					Fields: map[string]string{
+						FieldCoordinal: padded,
+					},
+				})
+				if err != nil {
+					return err
+				}
 			}
 		}
 	}

@@ -121,14 +121,11 @@ func (mv *MainView) load(g *gocui.Gui) error {
 	mv.MainViewMode = MainViewModeListBar
 	mv.tasks = map[string]([]*jqlpb.Row){}
 	mv.span = Today
-	tablesList, err := mv.dbms.ListTables(ctx, &jqlpb.ListTablesRequest{})
+	tables, err := api.GetTables(ctx, mv.dbms)
 	if err != nil {
 		return err
 	}
-	mv.tables = map[string]*jqlpb.TableMeta{}
-	for _, table := range tablesList.Tables {
-		mv.tables[table.Name] = table
-	}
+	mv.tables = tables
 	return mv.refreshView(g)
 }
 

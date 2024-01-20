@@ -361,3 +361,15 @@ func HasForeign(columns []*jqlpb.Column, table string) int {
 	}
 	return -1
 }
+
+func GetTables(ctx context.Context, dbms JQL_DBMS) (map[string]*jqlpb.TableMeta, error) {
+	tablesList, err := dbms.ListTables(ctx, &jqlpb.ListTablesRequest{})
+	if err != nil {
+		return nil, err
+	}
+	tables := map[string]*jqlpb.TableMeta{}
+	for _, table := range tablesList.Tables {
+		tables[table.Name] = table
+	}
+	return tables, nil
+}

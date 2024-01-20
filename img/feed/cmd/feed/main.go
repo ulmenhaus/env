@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
+
 	"github.com/jroimartin/gocui"
 	"github.com/spf13/cobra"
 	"github.com/ulmenhaus/env/img/feed/ui"
 	"github.com/ulmenhaus/env/img/jql/cli"
-	"github.com/ulmenhaus/env/img/jql/osm"
+	"github.com/ulmenhaus/env/proto/jql/jqlpb"
 )
 
 func main() {
@@ -32,17 +34,13 @@ func runFeed() error {
 		return err
 	}
 	defer g.Close()
-	mapper, err := osm.NewObjectStoreMapper(cfg.Path)
+	dbms, mapper, err := cfg.InitDBMS()
 	if err != nil {
-		panic(err)
+		return err
 	}
-	err = mapper.Load()
+	mv, err := ui.NewMainView(g, dbms, mapper, cfg.Path+".ignored", []string{"--path", cfg.Path})
 	if err != nil {
-		panic(err)
-	}
-	mv, err := ui.NewMainView(g, mapper, cfg.Path+".ignored", []string{"--path", cfg.Path})
-	if err != nil {
-		panic(err)
+		return err
 	}
 	g.InputEsc = true
 
@@ -59,6 +57,10 @@ func runFeed() error {
 
 	cycler := func(tool string) func(g *gocui.Gui, v *gocui.View) error {
 		return func(g *gocui.Gui, v *gocui.View) error {
+			_, err := dbms.Persist(context.Background(), &jqlpb.PersistRequest{})
+			if err != nil {
+				return err
+			}
 			return cfg.SwitchTool(tool, "")
 		}
 	}
@@ -68,6 +70,23 @@ func runFeed() error {
 	}
 
 	if err := g.SetKeybinding("", gocui.KeyEsc, gocui.ModNone, cycler("jql")); err != nil {
+		return err
+	}
+
+	goToSelectedPK := func(g *gocui.Gui, v *gocui.View) error {
+		pk, err := mv.GetSelectedPK(g, v)
+		if err != nil {
+			return err
+		}
+		cfg.Table = ui.TableNouns
+		_, err = dbms.Persist(context.Background(), &jqlpb.PersistRequest{})
+		if err != nil {
+			return err
+		}
+		return cfg.SwitchTool("jql", pk)
+	}
+	err = g.SetKeybinding("", 'g', gocui.ModNone, goToSelectedPK)
+	if err != nil {
 		return err
 	}
 
