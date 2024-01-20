@@ -86,8 +86,12 @@ func (s *LocalDBMS) ListRows(ctx context.Context, in *jqlpb.ListRowsRequest, opt
 			filters = append(filters, filter)
 		}
 	}
+	orderBy := in.GetOrderBy()
+	if orderBy == "" {
+		orderBy = table.Columns[table.Primary()]
+	}
 	resp, err := table.Query(types.QueryParams{
-		OrderBy: in.GetOrderBy(),
+		OrderBy: orderBy,
 		Dec:     in.GetDec(),
 		Offset:  uint(in.GetOffset()),
 		Limit:   uint(in.GetLimit()),
