@@ -278,7 +278,12 @@ func (s *LocalDBMS) GetSnapshot(ctx context.Context, r *jqlpb.GetSnapshotRequest
 }
 
 func (s *LocalDBMS) LoadSnapshot(ctx context.Context, r *jqlpb.LoadSnapshotRequest, opts ...grpc.CallOption) (*jqlpb.LoadSnapshotResponse, error) {
-	err := s.OSM.LoadSnapshot(bytes.NewBuffer(r.Snapshot))
+	var err error
+	if r.Snapshot == nil {
+		err = s.OSM.Load()
+	} else {
+		err = s.OSM.LoadSnapshot(bytes.NewBuffer(r.Snapshot))
+	}
 	if err != nil {
 		return nil, err
 	}

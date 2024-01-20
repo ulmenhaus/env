@@ -38,7 +38,7 @@ func runExecute() error {
 	if err != nil {
 		return err
 	}
-	mv, err := ui.NewMainView(cfg.Path, g, dbms)
+	mv, err := ui.NewMainView(g, dbms)
 	if err != nil {
 		return err
 	}

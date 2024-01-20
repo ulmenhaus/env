@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"math/rand"
 	"os"
 	"os/exec"
@@ -63,7 +62,6 @@ type MainView struct {
 	tasks map[string]([]*jqlpb.Row)
 	span  string
 	log   []*jqlpb.Row
-	path  string
 
 	// today
 	cachedTodayTasks []string
@@ -108,11 +106,10 @@ type PlanSelectionItem struct {
 }
 
 // NewMainView returns a MainView initialized with a given Table
-func NewMainView(path string, g *gocui.Gui, dbms api.JQL_DBMS) (*MainView, error) {
+func NewMainView(g *gocui.Gui, dbms api.JQL_DBMS) (*MainView, error) {
 	rand.Seed(time.Now().UnixNano())
 	mv := &MainView{
 		dbms: dbms,
-		path: path,
 	}
 	return mv, mv.load(g)
 }
@@ -574,7 +571,12 @@ func (mv *MainView) saveContents(g *gocui.Gui, v *gocui.View) error {
 }
 
 func (mv *MainView) itemStorePath() string {
-	return filepath.Join(filepath.Dir(mv.path), ".item_store."+filepath.Base(mv.path))
+	// NOTE this assumes only one timedb in the working dir from which this was invoked
+	workdir, err := os.Getwd()
+	if err != nil {
+		panic(fmt.Sprintf("Could not get working directory for item store path: %s", err))
+	}
+	return filepath.Join(workdir, ".execute.item_store.json")
 }
 
 func (mv *MainView) save() error {
@@ -588,7 +590,7 @@ func (mv *MainView) save() error {
 	//
 	// NOTE If this file gets too big I can just purge its entries every time
 	// I create a new 'Plan today' task.
-	itemStoreMarshaled, err := json.Marshal(mv.today2item)
+	itemStoreMarshaled, err := json.MarshalIndent(mv.today2item, "", "    ")
 	if err != nil {
 		return err
 	}
@@ -1653,11 +1655,9 @@ func (mv *MainView) refreshTasks(g *gocui.Gui, v *gocui.View) error {
 	if err != nil {
 		return err
 	}
-	snapshot, err := ioutil.ReadFile(mv.path)
-	if err != nil {
-		return err
-	}
-	_, err = mv.dbms.LoadSnapshot(ctx, &jqlpb.LoadSnapshotRequest{Snapshot: snapshot})
+	// HACK until we provide the dbms interface to macros we need to tell the OSM
+	// to reload the database which we do with an empty request
+	_, err = mv.dbms.LoadSnapshot(ctx, &jqlpb.LoadSnapshotRequest{Snapshot: nil})
 	if err != nil {
 		return err
 	}
