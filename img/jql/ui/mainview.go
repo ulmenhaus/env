@@ -836,13 +836,14 @@ func (mv *MainView) goFromSelectedValue(tables []*jqlpb.TableMeta) error {
 			if err != nil {
 				return err
 			}
-			if len(allMatching.Rows) == 0 {
-				continue
+			if len(allMatching.Rows) > 0 {
+				break
 			}
 		}
 
 		mv.request.Table = table.Name
 		mv.request.Conditions = conditions
+		mv.request.OrderBy = ""
 		return mv.updateTableViewContents(true)
 	}
 	return fmt.Errorf("no tables found with corresponding foreign key: %s", selected)
