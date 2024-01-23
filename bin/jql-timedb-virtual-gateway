@@ -1,0 +1,34 @@
+#! /usr/local/bin/python3
+
+import os
+
+from concurrent import futures
+
+import click
+import grpc
+
+from jql import jql_pb2, jql_pb2_grpc
+from timedb.virtual_gateway.gateway import Gateway
+
+
+@click.group()
+def cli():
+    pass
+
+
+def main():
+    def run():
+        channel = grpc.insecure_channel('localhost:9999')
+        client = jql_pb2_grpc.JQLStub(channel)
+        gateway = Gateway(client)
+        server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
+        jql_pb2_grpc.add_JQLServicer_to_server(gateway, server)
+        server.add_insecure_port('localhost:9998')
+        server.start()
+        server.wait_for_termination()
+    cli.command()(run)
+    cli(obj={})
+
+
+if __name__ == "__main__":
+    main()
