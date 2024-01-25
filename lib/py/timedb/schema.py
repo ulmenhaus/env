@@ -10,6 +10,12 @@ class Fields(object):
     Relation = "A Relation"
     Parent = "Parent"
     Order = "Order"
+    Direct = "Direct"
+    Indirect = "Indirect"
+    ParamStart = "Param~Start"
 
 class Values(object):
     StatusIdea = 'Idea'
+    StatusHabitual = 'Habitual'
+    StatusSatisfied = 'Satisfied'
+    StatusRevisit = 'Revisit'

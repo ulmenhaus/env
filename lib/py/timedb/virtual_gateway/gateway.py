@@ -1,4 +1,4 @@
-from timedb.virtual_gateway import ideas, relatives
+from timedb.virtual_gateway import ideas, relatives, habituals
 
 from jql import jql_pb2_grpc
 
@@ -9,6 +9,7 @@ class Gateway(jql_pb2_grpc.JQLServicer):
         super().__init__()
         self.backends = {
             "vt.ideas": ideas.IdeasBackend(client),
+            "vt.habituals": habituals.HabitualsBackend(client),
             "vt.relatives": relatives.RelativesBackend(client),
         }
 

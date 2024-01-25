@@ -61,7 +61,8 @@ def apply_request_parameters(rows, request):
 def _filter_matches(row, f):
     match_type = f.WhichOneof('match')
     if match_type == 'equal_match':
-        return (f.equal_match.value in row[f.column]) ^ f.negated
+        values = row[f.column] if row[f.column] else [""]
+        return (f.equal_match.value in values) ^ f.negated
     elif match_type == 'contains_match':
         return (f.contains_match.value.lower()
                 in "\n".join(row[f.column]).lower()) ^ f.negated
