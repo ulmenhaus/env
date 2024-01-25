@@ -17,13 +17,15 @@ def cli():
 
 
 def main():
-    def run():
-        channel = grpc.insecure_channel('localhost:9999')
+    @click.argument('jql_target', type=click.STRING, default="localhost:9999")
+    @click.argument('listen_addr', type=click.STRING, default="localhost:9998")
+    def run(jql_target, listen_addr):
+        channel = grpc.insecure_channel(jql_target)
         client = jql_pb2_grpc.JQLStub(channel)
         gateway = Gateway(client)
         server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
         jql_pb2_grpc.add_JQLServicer_to_server(gateway, server)
-        server.add_insecure_port('localhost:9998')
+        server.add_insecure_port(listen_addr)
         server.start()
         server.wait_for_termination()
     cli.command()(run)

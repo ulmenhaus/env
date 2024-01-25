@@ -14,9 +14,10 @@ class Gateway(jql_pb2_grpc.JQLServicer):
         }
 
     def _handle_request(self, request, context, method):
-        if request.table in self.backends:
-            return getattr(self.backends[request.table], method)(request,
-                                                                 context)
+        for table, backend in self.backends.items():
+            if not table.startswith(request.table):
+                continue
+            return getattr(backend, method)(request, context)
         raise ValueError("Unknown table", request.table)
 
     def ListRows(self, request, context):

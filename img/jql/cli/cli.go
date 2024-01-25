@@ -27,6 +27,7 @@ type JQLConfig struct {
 	Path  string
 	Table string
 	Addr  string
+	VirtualGateway string
 
 	PK string
 }
@@ -72,6 +73,7 @@ func (c *JQLConfig) Register(f *flag.FlagSet) {
 	f.StringVarP(&c.Path, "path", "p", "", "Path to the jql storage")
 	f.StringVarP(&c.Table, "table", "t", "", "The table to start on")
 	f.StringVarP(&c.PK, "pk", "", "", "The primary key to initially select")
+	f.StringVarP(&c.VirtualGateway, "virtual-gateway", "", "", "The address where the virtual gateway runs")
 }
 
 func (c *JQLConfig) SwitchTool(tool, pk string) error {
@@ -86,6 +88,19 @@ func (c *JQLConfig) SwitchTool(tool, pk string) error {
 
 	err = syscall.Exec(binary, args, env)
 	return err
+}
+
+func (c *JQLConfig) InitVirtualDBMS() (api.JQL_DBMS, error) {
+	conn, err := grpc.Dial(
+		c.VirtualGateway,
+		grpc.WithInsecure(),
+		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(MaxPayloadSize)),
+		grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(MaxPayloadSize)),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return jqlpb.NewJQLClient(conn), nil
 }
 
 func (c *JQLConfig) InitDBMS() (api.JQL_DBMS, error) {

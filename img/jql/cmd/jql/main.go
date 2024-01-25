@@ -66,7 +66,16 @@ func runDaemon(cfg *cli.JQLConfig, dbms api.JQL_DBMS) error {
 		grpc.MaxSendMsgSize(cli.MaxPayloadSize),
 		grpc.MaxRecvMsgSize(cli.MaxPayloadSize),
 	)
-	jqlpb.RegisterJQLServer(s, api.NewDBMSShim(dbms))
+	var backend jqlpb.JQLServer
+	backend = api.NewDBMSShim(dbms)
+	if cfg.VirtualGateway != "" {
+		gateway, err := cfg.InitVirtualDBMS()
+		if err != nil {
+			return err
+		}
+		backend = api.NewRouter(backend, api.NewDBMSShim(gateway))
+	}
+	jqlpb.RegisterJQLServer(s, backend)
 	log.Printf("server listening at %v", lis.Addr())
 	if err := s.Serve(lis); err != nil {
 		return fmt.Errorf("failed to serve: %v", err)

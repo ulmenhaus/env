@@ -379,3 +379,72 @@ func GetTables(ctx context.Context, dbms JQL_DBMS) (map[string]*jqlpb.TableMeta,
 	}
 	return tables, nil
 }
+
+// Router is a layer on top of the LocalDBMS that provides gRPC handles for exposing the DBMS as a daemon
+type Router struct {
+	*jqlpb.UnimplementedJQLServer
+	api            jqlpb.JQLServer
+	virtualGateway jqlpb.JQLServer
+}
+
+func NewRouter(api jqlpb.JQLServer, virtualGateway jqlpb.JQLServer) *Router {
+	return &Router{
+		api:            api,
+		virtualGateway: virtualGateway,
+	}
+}
+
+func (s *Router) ListTables(ctx context.Context, in *jqlpb.ListTablesRequest) (*jqlpb.ListTablesResponse, error) {
+	return s.api.ListTables(ctx, in)
+}
+
+func (s *Router) ListRows(ctx context.Context, in *jqlpb.ListRowsRequest) (*jqlpb.ListRowsResponse, error) {
+	if IsVirtualTable(in.Table) {
+		return s.virtualGateway.ListRows(ctx, in)
+	}
+	return s.api.ListRows(ctx, in)
+}
+
+func (s *Router) GetRow(ctx context.Context, in *jqlpb.GetRowRequest) (*jqlpb.GetRowResponse, error) {
+	if IsVirtualTable(in.Table) {
+		return s.virtualGateway.GetRow(ctx, in)
+	}
+	return s.api.GetRow(ctx, in)
+}
+
+func (s *Router) WriteRow(ctx context.Context, in *jqlpb.WriteRowRequest) (*jqlpb.WriteRowResponse, error) {
+	if IsVirtualTable(in.Table) {
+		return s.virtualGateway.WriteRow(ctx, in)
+	}
+	return s.api.WriteRow(ctx, in)
+}
+
+func (s *Router) DeleteRow(ctx context.Context, in *jqlpb.DeleteRowRequest) (*jqlpb.DeleteRowResponse, error) {
+	if IsVirtualTable(in.Table) {
+		return s.virtualGateway.DeleteRow(ctx, in)
+	}
+	return s.api.DeleteRow(ctx, in)
+}
+
+func (s *Router) IncrementEntry(ctx context.Context, in *jqlpb.IncrementEntryRequest) (*jqlpb.IncrementEntryResponse, error) {
+	if IsVirtualTable(in.Table) {
+		return s.virtualGateway.IncrementEntry(ctx, in)
+	}
+	return s.api.IncrementEntry(ctx, in)
+}
+
+func (s *Router) Persist(ctx context.Context, in *jqlpb.PersistRequest) (*jqlpb.PersistResponse, error) {
+	return s.api.Persist(ctx, in)
+}
+
+func (s *Router) GetSnapshot(ctx context.Context, in *jqlpb.GetSnapshotRequest) (*jqlpb.GetSnapshotResponse, error) {
+	return s.api.GetSnapshot(ctx, in)
+}
+
+func (s *Router) LoadSnapshot(ctx context.Context, in *jqlpb.LoadSnapshotRequest) (*jqlpb.LoadSnapshotResponse, error) {
+	return s.api.LoadSnapshot(ctx, in)
+}
+
+func IsVirtualTable(name string) bool {
+	return strings.HasPrefix(name, "vt.")
+}
