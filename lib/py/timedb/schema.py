@@ -9,6 +9,7 @@ class Fields(object):
     Arg1 = "Arg1"
     Relation = "A Relation"
     Parent = "Parent"
+    Order = "Order"
 
 class Values(object):
     StatusIdea = 'Idea'

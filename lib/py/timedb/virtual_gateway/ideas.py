@@ -15,8 +15,12 @@ VALUES = {
         "6 O(years)",
     ],
     "SoB": [
-        "Time Efficiency",
-        "Joissance",
+        "Time Efficiency",  # New investments in tools that create efficiency wins
+        "Simplicity/Consistency",  # Improvements of existing tools that create efficiency wins
+        "Joissance",  # Diverse, rich, and pleasurable (in particular sensory) experiences
+        "Achievement",  # Challenge you to prove your mettle, gives external and internal validaton of competence -> security, feeling of accomplishment
+        "Fulfillment",  # Make you whole, content, feel like you are elevating yourself/humanity
+        "Self Expression", # Aesthetic/Creative fulfillment
     ],
     "RoI": [
         "1 Very Low",
@@ -61,18 +65,18 @@ class IdeasBackend(jql_pb2_grpc.JQLServicer):
             self.client, schema.Tables.Nouns, noun_pks, fields)
         for row in ideas_response.rows:
             noun_pk = row.entries[primary].formatted
-            noun_to_idea[noun_pk]["Parent"] = row.entries[ideas_cmap[
-                schema.Fields.Parent]].formatted
-            noun_to_idea[noun_pk]["Idea"] = noun_pk
-            noun_to_idea[noun_pk]["_pk"] = json.dumps(
-                [noun_pk, assn_pks[noun_pk]])
+            noun_to_idea[noun_pk]["Parent"] = [row.entries[ideas_cmap[
+                schema.Fields.Parent]].formatted]
+            noun_to_idea[noun_pk]["Idea"] = [noun_pk]
+            noun_to_idea[noun_pk]["_pk"] = [json.dumps(
+                [noun_pk, assn_pks[noun_pk]])]
 
-        parent_pks = sorted({idea["Parent"] for idea in noun_to_idea.values()})
+        parent_pks = sorted({idea["Parent"][0] for idea in noun_to_idea.values()})
         domains, _ = common.get_fields_for_items(self.client,
                                                  schema.Tables.Nouns,
                                                  parent_pks, ["Domain"])
         for idea in noun_to_idea.values():
-            idea["Domain"] = domains[idea["Parent"]]["Domain"]
+            idea["Domain"] = domains[idea["Parent"][0]]["Domain"]
         # apply sorting, filtering, and limiting -- this portion can be made generic
         ideas, all_count = common.apply_request_parameters(
             noun_to_idea.values(), request)
@@ -85,7 +89,7 @@ class IdeasBackend(jql_pb2_grpc.JQLServicer):
             ],
             rows=[
                 jql_pb2.Row(entries=[
-                    jql_pb2.Entry(formatted=idea[field]) for field in fields
+                    jql_pb2.Entry(formatted=common.present_attrs(idea[field])) for field in fields
                 ]) for idea in ideas
             ],
             total=all_count,
@@ -101,7 +105,8 @@ class IdeasBackend(jql_pb2_grpc.JQLServicer):
         elif request.column in pk_map:
             assn_pk, current = pk_map[request.column]
             values = VALUES[request.column]
-            next_value = values[(values.index(current) + request.amount) % len(values)]
+            next_value = values[(values.index(current) + request.amount) %
+                                len(values)]
             request = jql_pb2.WriteRowRequest(
                 table=schema.Tables.Assertions,
                 pk=assn_pk,

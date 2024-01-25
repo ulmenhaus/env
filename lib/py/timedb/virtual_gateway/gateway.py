@@ -1,4 +1,4 @@
-from timedb.virtual_gateway import ideas
+from timedb.virtual_gateway import ideas, relatives
 
 from jql import jql_pb2_grpc
 
@@ -7,7 +7,10 @@ class Gateway(jql_pb2_grpc.JQLServicer):
 
     def __init__(self, client):
         super().__init__()
-        self.backends = {"vt.ideas": ideas.IdeasBackend(client)}
+        self.backends = {
+            "vt.ideas": ideas.IdeasBackend(client),
+            "vt.relatives": relatives.RelativesBackend(client),
+        }
 
     def _handle_request(self, request, context, method):
         if request.table in self.backends:
