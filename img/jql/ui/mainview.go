@@ -980,7 +980,7 @@ func (mv *MainView) updateEntryValue(contents string) error {
 	if err != nil {
 		return err
 	}
-	return mv.updateTableViewContents(true)
+	return mv.updateTableViewContents(false)
 }
 
 func (mv *MainView) pasteValue() error {

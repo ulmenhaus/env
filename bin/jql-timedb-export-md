@@ -913,8 +913,12 @@ def sm2(x, a=6.0, b=-0.8, c=0.28, d=0.02, theta=0.2):
 def _open_in_browser(memos=False):
     iface = json.load(sys.stdin)
     cv = iface['current_view']
-    path = urllib.parse.quote("{} {}".format(cv['table'],
-                                             cv['primary_selection']))
+    selection = cv['primary_selection']
+    table = cv['table']
+    if table == 'vt.ideas':
+        selection = json.loads(selection)[0]
+        table = 'nouns'
+    path = urllib.parse.quote("{} {}".format(table, selection))
     port = MEMOS_PORT_NUMBER if memos else PORT_NUMBER
     subprocess.check_call(
         ["open", "http://{}:{}/{}".format(HOST_NAME, port, path)])

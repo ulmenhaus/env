@@ -20,7 +20,7 @@ VALUES = {
         "Joissance",  # Diverse, rich, and pleasurable (in particular sensory) experiences
         "Achievement",  # Challenge you to prove your mettle, gives external and internal validaton of competence -> security, feeling of accomplishment
         "Fulfillment",  # Make you whole, content, feel like you are elevating yourself/humanity
-        "Self Expression", # Aesthetic/Creative fulfillment
+        "Self Expression",  # Aesthetic/Creative fulfillment
     ],
     "RoI": [
         "1 Very Low",
@@ -65,13 +65,17 @@ class IdeasBackend(jql_pb2_grpc.JQLServicer):
             self.client, schema.Tables.Nouns, noun_pks, fields)
         for row in ideas_response.rows:
             noun_pk = row.entries[primary].formatted
-            noun_to_idea[noun_pk]["Parent"] = [row.entries[ideas_cmap[
-                schema.Fields.Parent]].formatted]
+            noun_to_idea[noun_pk]["Parent"] = [
+                row.entries[ideas_cmap[schema.Fields.Parent]].formatted
+            ]
             noun_to_idea[noun_pk]["Idea"] = [noun_pk]
-            noun_to_idea[noun_pk]["_pk"] = [json.dumps(
-                [noun_pk, assn_pks[noun_pk]])]
+            noun_to_idea[noun_pk]["_pk"] = [
+                json.dumps([noun_pk, assn_pks[noun_pk]])
+            ]
 
-        parent_pks = sorted({idea["Parent"][0] for idea in noun_to_idea.values()})
+        parent_pks = sorted(
+            {idea["Parent"][0]
+             for idea in noun_to_idea.values()})
         domains, _ = common.get_fields_for_items(self.client,
                                                  schema.Tables.Nouns,
                                                  parent_pks, ["Domain"])
@@ -85,11 +89,16 @@ class IdeasBackend(jql_pb2_grpc.JQLServicer):
             columns=[
                 jql_pb2.Column(name=field,
                                max_length=30,
+                               type=_type_of(field),
+                               foreign_table='nouns' if field == 'Idea' else '',
+                               values=VALUES.get(field, []),
                                primary=field == '_pk') for field in fields
             ],
             rows=[
                 jql_pb2.Row(entries=[
-                    jql_pb2.Entry(formatted=common.present_attrs(idea[field])) for field in fields
+                    jql_pb2.Entry(
+                        formatted=common.present_attrs(idea[field]),
+                    ) for field in fields
                 ]) for idea in ideas
             ],
             total=all_count,
@@ -105,8 +114,9 @@ class IdeasBackend(jql_pb2_grpc.JQLServicer):
         elif request.column in pk_map:
             assn_pk, current = pk_map[request.column]
             values = VALUES[request.column]
-            next_value = values[(values.index(current) + request.amount) %
-                                len(values)]
+            current_index = values.index(
+                current) if current in values else -request.amount
+            next_value = values[(current_index + request.amount) % len(values)]
             request = jql_pb2.WriteRowRequest(
                 table=schema.Tables.Assertions,
                 pk=assn_pk,
@@ -131,3 +141,39 @@ class IdeasBackend(jql_pb2_grpc.JQLServicer):
             return jql_pb2.IncrementEntryResponse()
         else:
             raise ValueError("Unknown column", request.column)
+
+    def WriteRow(self, request, context):
+        noun_pk, pk_map = json.loads(request.pk)
+        for field, value in request.fields.items():
+            if field in pk_map:
+                assn_pk, current = pk_map[field]
+                request = jql_pb2.WriteRowRequest(
+                    table=schema.Tables.Assertions,
+                    pk=assn_pk,
+                    fields={schema.Fields.Arg1: value},
+                    update_only=True,
+                )
+                self.client.WriteRow(request)
+            elif field in VALUES:
+                request = jql_pb2.WriteRowRequest(
+                    table=schema.Tables.Assertions,
+                    pk=str((f".{field}", noun_pk, "0000")),
+                    fields={
+                        schema.Fields.Relation: f".{field}",
+                        schema.Fields.Arg0: f"nouns {noun_pk}",
+                        schema.Fields.Arg1: value,
+                    },
+                    insert_only=True,
+                )
+                self.client.WriteRow(request)
+            else:
+                raise ValueError("Unknown column", request.column)
+        return jql_pb2.WriteRowResponse()
+
+
+def _type_of(field):
+    if field == 'Idea':
+        return jql_pb2.EntryType.FOREIGN
+    elif field in VALUES:
+        return jql_pb2.EntryType.ENUM
+    return jql_pb2.EntryType.STRING

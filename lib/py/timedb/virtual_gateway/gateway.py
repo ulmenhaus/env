@@ -25,3 +25,7 @@ class Gateway(jql_pb2_grpc.JQLServicer):
 
     def IncrementEntry(self, request, context):
         return self._handle_request(request, context, "IncrementEntry")
+
+    def WriteRow(self, request, context):
+        return self._handle_request(request, context, "WriteRow")
+
