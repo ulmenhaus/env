@@ -88,16 +88,20 @@ def main():
         changed = True
         order_by = "Param~Start"
         order_dec = True
+    elif "--ideas" in sys.argv:
+        table = "vt.ideas"
+        formatted = ""
     elif "--for" in sys.argv:
         raise NotImplementedError("--for flag not yet implemented")
     else:
         formatted = find_active_root_cycle(snapshot)
     current_view = iface["current_view"]
     current_view['table'] = table
-    current_view['filter'] = {
-        "field": field,
-        "formatted": formatted,
-    }
+    if field:
+        current_view['filter'] = {
+            "field": field,
+            "formatted": formatted,
+        }
     current_view['order_by'] = order_by
     current_view['order_dec'] = order_dec
     if changed:

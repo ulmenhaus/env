@@ -14,6 +14,7 @@ VALUES = {
         "030 Monthly",
         "090 Quarterly",
         "365 Yearly",
+        "1825 Quinquennial",
     ],
 }
 
@@ -67,7 +68,12 @@ class HabitualsBackend(jql_pb2_grpc.JQLServicer):
             habitual = noun_to_habitual[noun_pk]
             habitual["Days Since"] = [str(days_since).zfill(4)]
             if "Cadence" in habitual:
-                habitual["Days Until"] = [str(int(habitual["Cadence"][0].split(" ")[0]) - days_since).zfill(4)]
+                days_until = int(habitual["Cadence"][0].split(" ")[0]) - days_since
+                if days_until > 0:
+                    days_until_s = "+" + str(days_until).zfill(4)
+                else:
+                    days_until_s = str(days_until).zfill(5)
+                habitual["Days Until"] = [days_until_s]
         # apply sorting, filtering, and limiting -- this portion can be made generic
         habituals, all_count = common.apply_request_parameters(
             noun_to_habitual.values(), request)
@@ -76,6 +82,9 @@ class HabitualsBackend(jql_pb2_grpc.JQLServicer):
             columns=[
                 jql_pb2.Column(name=field,
                                max_length=30,
+                               type=_type_of(field),
+                               foreign_table='nouns' if field == 'Habitual' else '',
+                               values=VALUES.get(field, []),
                                primary=field == '_pk') for field in fields
             ],
             rows=[
@@ -171,3 +180,38 @@ class HabitualsBackend(jql_pb2_grpc.JQLServicer):
                     ret[value] = days_since
                 
         return ret
+
+    def WriteRow(self, request, context):
+        noun_pk, pk_map = json.loads(request.pk)
+        for field, value in request.fields.items():
+            if field in pk_map:
+                assn_pk, current = pk_map[field]
+                request = jql_pb2.WriteRowRequest(
+                    table=schema.Tables.Assertions,
+                    pk=assn_pk,
+                    fields={schema.Fields.Arg1: value},
+                    update_only=True,
+                )
+                self.client.WriteRow(request)
+            elif field in VALUES:
+                request = jql_pb2.WriteRowRequest(
+                    table=schema.Tables.Assertions,
+                    pk=str((f".{field}", noun_pk, "0000")),
+                    fields={
+                        schema.Fields.Relation: f".{field}",
+                        schema.Fields.Arg0: f"nouns {noun_pk}",
+                        schema.Fields.Arg1: value,
+                    },
+                    insert_only=True,
+                )
+                self.client.WriteRow(request)
+            else:
+                raise ValueError("Unknown column", request.column)
+        return jql_pb2.WriteRowResponse()
+
+def _type_of(field):
+    if field == 'Habitual':
+        return jql_pb2.EntryType.FOREIGN
+    elif field in VALUES:
+        return jql_pb2.EntryType.ENUM
+    return jql_pb2.EntryType.STRING
