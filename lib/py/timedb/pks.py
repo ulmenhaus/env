@@ -49,7 +49,12 @@ def pk_for_task(task, actions):
     return "".join(pk_terms_for_task(task, actions))
 
 def pk_for_noun(noun):
-    idn = noun['Description']
+    modifier, description, disambiguator = noun['A Modifier'], noun['Description'], noun['Disambiguator']
+    idn = description
+    if modifier:
+        idn = f"{modifier} {idn}"
+    if disambiguator:
+        idn = f"{idn} ({disambiguator})"
     ctx, cnl = noun['Context'], noun['Coordinal']
     # we only consider the coordinal of a noun as part of its identity once we are committed to it
     if cnl != "" and noun['Relation'] == "Item" and noun['Status'] not in ['Idea', 'Pending', 'Someday']:

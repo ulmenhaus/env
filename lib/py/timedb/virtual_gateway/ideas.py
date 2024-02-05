@@ -108,9 +108,17 @@ class IdeasBackend(jql_pb2_grpc.JQLServicer):
     def IncrementEntry(self, request, context):
         noun_pk, pk_map = json.loads(request.pk)
         if request.column == 'Idea':
-            # TODO if it's the idea itself we're incrementing/decrementing that corresponds
+            # If it's the habitual itself we're incrementing/decrementing that corresponds
             # to the status
-            raise ValueError("Not yet implemented")
+            next_status = schema.Values.StatusSatisfied if request.amount > 0 else schema.Values.StatusRevisit
+            request = jql_pb2.WriteRowRequest(
+                table=schema.Tables.Nouns,
+                pk=noun_pk,
+                fields={schema.Fields.Status: next_status},
+                update_only=True,
+            )
+            self.client.WriteRow(request)
+            return jql_pb2.IncrementEntryResponse()
         elif request.column in pk_map:
             assn_pk, current = pk_map[request.column]
             values = VALUES[request.column]

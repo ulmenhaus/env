@@ -44,7 +44,7 @@ def _parse_habits_table(snapshot, full_pk, section_title):
         and assn['Arg1'].startswith(prefix)
     ]
     if len(relevant) == 0:
-        raise ValueError("No habits found within this entry")
+        return []
     if len(relevant) > 1:
         raise ValueError(
             "More than one candidate habit table -- this is not supported")

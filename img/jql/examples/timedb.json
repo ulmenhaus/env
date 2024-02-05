@@ -94,6 +94,9 @@
             },
             "type": "enum"
         },
+        "nouns.A Modifier": {
+            "type": "string"
+        },
         "nouns.Context": {
             "type": "foreign.contexts"
         },
@@ -101,6 +104,9 @@
             "type": "string"
         },
         "nouns.Description": {
+            "type": "string"
+        },
+        "nouns.Disambiguator": {
             "type": "string"
         },
         "nouns.Feed": {
