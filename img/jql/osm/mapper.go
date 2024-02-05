@@ -428,6 +428,7 @@ func (osm *ObjectStoreMapper) storeTableInDirectory(selected map[GlobalKey]strin
 		return osm.writeShard(
 			filepath.Join(osm.path, fmt.Sprintf("%s.json", name)),
 			encodedTable,
+			selected != nil,
 		)
 	} else if strategy.primaryShards == 256 && strategy.secondaryShards == 0 {
 		encodedTables := map[string]storage.EncodedTable{}
@@ -448,6 +449,7 @@ func (osm *ObjectStoreMapper) storeTableInDirectory(selected map[GlobalKey]strin
 			err := osm.writeShard(
 				filepath.Join(osm.path, name, fmt.Sprintf("%s.json", hash)),
 				encoded,
+				selected != nil,
 			)
 			if err != nil {
 				return err
@@ -476,6 +478,7 @@ func (osm *ObjectStoreMapper) storeTableInDirectory(selected map[GlobalKey]strin
 				err := osm.writeShard(
 					filepath.Join(osm.path, name, hash, fmt.Sprintf("%s.json", key)),
 					encoded,
+					selected != nil,
 				)
 				if err != nil {
 					return err
@@ -489,12 +492,12 @@ func (osm *ObjectStoreMapper) storeTableInDirectory(selected map[GlobalKey]strin
 }
 
 // writeShard upserts the provided entries into the shard. Any entries that are nil get deleted.
-func (osm *ObjectStoreMapper) writeShard(path string, t storage.EncodedTable) error {
+func (osm *ObjectStoreMapper) writeShard(path string, t storage.EncodedTable, upsert bool) error {
 	shard := storage.EncodedTable{}
 	_, err := os.Stat(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
-	} else if err == nil {
+	} else if err == nil && upsert {
 		reader, err := os.Open(path)
 		if err != nil {
 			return err
