@@ -48,6 +48,9 @@ const (
 	// MacroLocationCol is the name of the column of the macros
 	// table containing the location of the program to run
 	MacroLocationCol = "Location"
+	// MacroV2Col is teh name of the column of the macros table
+	// indicating if the macro supports the v2 interface
+	MacroV2Col = "V2"
 )
 
 // A MainView is the overall view of the table including headers,
@@ -1013,11 +1016,13 @@ func (mv *MainView) runMacro(ch rune) error {
 	}
 	entries := resp.GetRow().GetEntries()
 	locIndex := api.IndexOfField(resp.GetColumns(), MacroLocationCol)
+	v2Index := api.IndexOfField(resp.GetColumns(), MacroV2Col)
 	reloadIndex := api.IndexOfField(resp.GetColumns(), "Reload")
 	isReload := reloadIndex != -1 && entries[reloadIndex].GetFormatted() == "yes"
 	if isReload {
 		return fmt.Errorf("Reloaded macros no longer supported. Please change the macro.")
 	}
+	v2 := v2Index != -1 && entries[v2Index].GetFormatted() == "yes"
 	requestNoLimit := &jqlpb.ListRowsRequest{
 		Table:      mv.request.Table,
 		Conditions: mv.request.Conditions,
@@ -1041,7 +1046,7 @@ func (mv *MainView) runMacro(ch rune) error {
 	}
 
 	path := entries[locIndex].GetFormatted()
-	output, err := api.RunMacro(ctx, mv.dbms, path, currentView)
+	output, err := api.RunMacro(ctx, mv.dbms, path, currentView, v2)
 	if err != nil {
 		return err
 	}

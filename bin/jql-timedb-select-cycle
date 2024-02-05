@@ -68,13 +68,13 @@ def create_ideation_task(snapshot, idea_pk):
 
 def main():
     iface = json.load(sys.stdin)
-    snapshot = json.loads(iface["snapshot"])
     field = "Primary Goal"
     table = "tasks"
     changed = False
     order_by = ""
     order_dec = False
     if "--pending" in sys.argv:
+        snapshot = json.loads(iface["snapshot"])
         formatted = find_pending_root_cycle(snapshot)
     elif "--sources" in sys.argv:
         table = "nouns"
@@ -82,6 +82,7 @@ def main():
         formatted = "Source"
     elif "--ideate" in sys.argv:
         formatted = iface['current_view']['primary_selection']
+        snapshot = json.loads(iface["snapshot"])
         create_ideation_task(snapshot, formatted)
         table = "tasks"
         field = "Indirect"
@@ -103,6 +104,7 @@ def main():
     elif "--for" in sys.argv:
         raise NotImplementedError("--for flag not yet implemented")
     else:
+        snapshot = json.loads(iface["snapshot"])
         formatted = find_active_root_cycle(snapshot)
     current_view = iface["current_view"]
     current_view['table'] = table

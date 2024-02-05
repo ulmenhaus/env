@@ -32,16 +32,28 @@ type MacroInterface struct {
 	CurrentView MacroCurrentView `json:"current_view"`
 }
 
-func RunMacro(ctx context.Context, dbms JQL_DBMS, command string, currentView MacroCurrentView) (*MacroInterface, error) {
+func RunMacro(ctx context.Context, dbms JQL_DBMS, command string, currentView MacroCurrentView, v2 bool) (*MacroInterface, error) {
 	var stdout, stderr bytes.Buffer
-	snapResp, err := dbms.GetSnapshot(ctx, &jqlpb.GetSnapshotRequest{})
-	if err != nil {
-		return nil, fmt.Errorf("Could not create snapshot: %s", err)
-	}
-	snapshot := snapResp.Snapshot
 	input := MacroInterface{
-		Snapshot:    string(snapshot),
 		CurrentView: currentView,
+	}
+	if v2 {
+		switch dbms.(type) {
+		case *LocalDBMS:
+			snapResp, err := dbms.GetSnapshot(ctx, &jqlpb.GetSnapshotRequest{})
+			if err != nil {
+				return nil, fmt.Errorf("Could not create snapshot: %s", err)
+			}
+			input.Snapshot = string(snapResp.Snapshot)
+		default:
+			// TODO pass remove info
+		}
+	} else {
+		snapResp, err := dbms.GetSnapshot(ctx, &jqlpb.GetSnapshotRequest{})
+		if err != nil {
+			return nil, fmt.Errorf("Could not create snapshot: %s", err)
+		}
+		input.Snapshot = string(snapResp.Snapshot)
 	}
 	inputEncoded, err := json.Marshal(input)
 	if err != nil {
@@ -71,11 +83,25 @@ func RunMacro(ctx context.Context, dbms JQL_DBMS, command string, currentView Ma
 	}
 	newDB = []byte(output.Snapshot)
 
-	_, err = dbms.LoadSnapshot(ctx, &jqlpb.LoadSnapshotRequest{
-		Snapshot: newDB,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("Could not load database from macro: %s", err)
+	if v2 {
+		switch dbms.(type) {
+		case *LocalDBMS:
+			_, err = dbms.LoadSnapshot(ctx, &jqlpb.LoadSnapshotRequest{
+				Snapshot: newDB,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("Could not load database from macro: %s", err)
+			}
+		default:
+			// TODO pass remove info
+		}
+	} else {
+		_, err = dbms.LoadSnapshot(ctx, &jqlpb.LoadSnapshotRequest{
+			Snapshot: newDB,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("Could not load database from macro: %s", err)
+		}
 	}
 	return &output, nil
 }
