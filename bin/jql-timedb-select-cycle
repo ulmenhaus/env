@@ -90,7 +90,16 @@ def main():
         order_dec = True
     elif "--ideas" in sys.argv:
         table = "vt.ideas"
-        formatted = ""
+        field = "Idea"
+        formatted = iface['current_view']['primary_selection']
+    elif "--relatives" in sys.argv:
+        table = "vt.relatives"
+        field = "-> Item"
+        formatted = iface['current_view']['primary_selection']
+    elif "--habituals" in sys.argv:
+        table = "vt.habituals"
+        field = "Habitual"
+        formatted = iface['current_view']['primary_selection']
     elif "--for" in sys.argv:
         raise NotImplementedError("--for flag not yet implemented")
     else:

@@ -431,7 +431,7 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		return
 	}
 	switch ch {
-	case 'a':
+	case '"':
 		mv.TableView.SelectColumn()
 	case 'r':
 		mv.switchMode(MainViewModeEdit)
