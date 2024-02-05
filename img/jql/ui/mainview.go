@@ -158,7 +158,9 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 	if row < len(mv.response.Rows) {
 		primarySelection = mv.response.Rows[row].Entries[api.GetPrimary(mv.response.Columns)]
 	}
-	location.Write([]byte(fmt.Sprintf("    L%d C%d           %s", row, col, primarySelection.Formatted)))
+	// Virtual Tables store auxiliary pks in an entry's main pk to prevent unnecessary look-ups
+	// when modifying entries. These auxiliary pks are tab delimited so we hide them here
+	location.Write([]byte(fmt.Sprintf("    L%d C%d           %s", row, col, strings.Split(primarySelection.Formatted, "\t")[0])))
 	if mv.Mode == MainViewModeSelectBox {
 		selectBox, err := g.SetView("selectBox", maxX/2-30, maxY/2-10, maxX/2+30, maxY/2+10)
 		if err != nil {
