@@ -74,6 +74,10 @@ func runExecute() error {
 	}
 
 	goToToday := func(g *gocui.Gui, v *gocui.View) error {
+		if mv.MainViewMode != ui.MainViewModeListBar {
+			mv.Edit(v, gocui.Key(0), 't', gocui.ModNone)
+			return nil
+		}
 		pk, err := mv.GetTodayPlanPK()
 		if err != nil {
 			return err
@@ -87,6 +91,10 @@ func runExecute() error {
 	}
 
 	goToSelectedPK := func(g *gocui.Gui, v *gocui.View) error {
+		if mv.MainViewMode != ui.MainViewModeListBar {
+			mv.Edit(v, gocui.Key(0), 'g', gocui.ModNone)
+			return nil
+		}
 		pk, err := mv.ResolveSelectedPK(g)
 		if err != nil {
 			return err
@@ -100,7 +108,11 @@ func runExecute() error {
 	}
 
 	selectAndGoToTask := func(g *gocui.Gui, v *gocui.View) error {
-		return mv.SelectTask(g, v, func (taskPK string) error {
+		if mv.MainViewMode != ui.MainViewModeListBar {
+			mv.Edit(v, gocui.Key(0), 'g', gocui.ModNone)
+			return nil
+		}
+		return mv.SelectTask(g, v, func(taskPK string) error {
 			cfg.Table = ui.TableTasks
 			return cfg.SwitchTool("jql", taskPK)
 		})
