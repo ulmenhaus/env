@@ -802,7 +802,7 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 	}
 	for _, channel := range mv.id2channel {
 		for status, items := range channel.status2items {
-			if status == FreshView {
+			if status != StatusIdea && status != StatusPending && status != StatusActive {
 				continue
 			}
 			sort.Slice(items, func(i, j int) bool {
