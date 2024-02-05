@@ -19,6 +19,10 @@ type Store interface {
 	// Write performs the database serialization
 	// TODO pass by reference?
 	Write(dst io.Writer, db EncodedDatabase) error
-	// Write performs the database deserialization
+	// Read performs the database deserialization
 	Read(src io.Reader) (EncodedDatabase, error)
+	// ReadShard performs the database deserialization of a single shard
+	ReadShard(src io.Reader) (EncodedTable, error)
+	// WriteShard performs the database serialization of a single shard
+	WriteShard(dst io.Writer, table EncodedTable) error
 }

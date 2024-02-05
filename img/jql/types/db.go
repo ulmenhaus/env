@@ -38,10 +38,12 @@ type Entry interface {
 type FieldValueConstructor func(encoded interface{}, features map[string]interface{}) (Entry, error)
 
 type ColumnMeta struct {
-	Type         jqlpb.EntryType
-	MaxLength    int
-	ForeignTable string
-	Values       []string
+	Type            jqlpb.EntryType
+	MaxLength       int
+	ForeignTable    string
+	Values          []string
+	PrimaryShards   int
+	SecondaryShards int
 }
 
 // A Table is a model of an unordered two-dimensional array of data

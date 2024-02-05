@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/ulmenhaus/env/img/jql/osm"
@@ -19,8 +18,7 @@ type JQL_DBMS interface {
 }
 
 type LocalDBMS struct {
-	OSM *osm.ObjectStoreMapper
-
+	OSM  *osm.ObjectStoreMapper
 	path string
 }
 
@@ -28,7 +26,7 @@ func NewLocalDBMS(mapper *osm.ObjectStoreMapper, path string) (*LocalDBMS, error
 	return &LocalDBMS{
 		OSM: mapper,
 
-		path: path,
+		path:    path,
 	}, nil
 }
 
@@ -135,10 +133,14 @@ func (s *LocalDBMS) WriteRow(ctx context.Context, in *jqlpb.WriteRowRequest, opt
 	if err != nil {
 		return nil, err
 	}
+	s.OSM.RowUpdating(in.GetTable(), in.GetPk())
 	if in.GetUpdateOnly() {
 		for key, value := range in.GetFields() {
 			if err := table.Update(in.GetPk(), key, value); err != nil {
 				return nil, err
+			}
+			if table.Primary() == table.IndexOfField(key) {
+				s.OSM.RowUpdating(in.GetTable(), value)
 			}
 		}
 	} else {
@@ -208,6 +210,7 @@ func (s *LocalDBMS) DeleteRow(ctx context.Context, in *jqlpb.DeleteRowRequest, o
 	if err != nil {
 		return nil, err
 	}
+	s.OSM.RowUpdating(in.GetTable(), in.GetPk())
 	return &jqlpb.DeleteRowResponse{}, table.Delete(in.GetPk())
 }
 
@@ -220,6 +223,7 @@ func (s *LocalDBMS) IncrementEntry(ctx context.Context, in *jqlpb.IncrementEntry
 	if !ok {
 		return nil, fmt.Errorf("no such pk '%s' in table '%s'", in.GetPk(), in.GetTable())
 	}
+	s.OSM.RowUpdating(in.GetTable(), in.GetPk())
 	colix := table.IndexOfField(in.GetColumn())
 	if colix == -1 {
 		return nil, fmt.Errorf("no such column '%s' in table '%s'", in.GetColumn(), in.GetTable())
@@ -257,13 +261,6 @@ func (s *LocalDBMS) IncrementEntry(ctx context.Context, in *jqlpb.IncrementEntry
 }
 
 func (s *LocalDBMS) Persist(ctx context.Context, r *jqlpb.PersistRequest, opts ...grpc.CallOption) (*jqlpb.PersistResponse, error) {
-	// TODO this prserves the existing interface used by all jql tools, but we should hide
-	// all this logic behind the OSM
-	f, err := os.OpenFile(s.path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
-	if err != nil {
-		return &jqlpb.PersistResponse{}, err
-	}
-	defer f.Close()
 	return &jqlpb.PersistResponse{}, s.OSM.StoreEntries()
 }
 
@@ -278,6 +275,7 @@ func (s *LocalDBMS) GetSnapshot(ctx context.Context, r *jqlpb.GetSnapshotRequest
 }
 
 func (s *LocalDBMS) LoadSnapshot(ctx context.Context, r *jqlpb.LoadSnapshotRequest, opts ...grpc.CallOption) (*jqlpb.LoadSnapshotResponse, error) {
+	s.OSM.AllUpdated()
 	var err error
 	if r.Snapshot == nil {
 		err = s.OSM.Load()

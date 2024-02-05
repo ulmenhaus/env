@@ -3,10 +3,13 @@ package osm
 import (
 	"bytes"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/ulmenhaus/env/img/jql/storage"
 	"github.com/ulmenhaus/env/img/jql/types"
@@ -51,20 +54,52 @@ type ObjectStoreMapper struct {
 	// hidden behind the DBMS API and we are doing sharded storage
 	// we can reconsider the handoff between the OSM and the API layer
 	db *types.Database
+
+	mu      sync.Mutex
+	updates map[GlobalKey]string // if nil a snapshot was loaded and we update everything
 }
 
 // NewObjectStoreMapper returns a new ObjectStoreMapper given a storage driver
 func NewObjectStoreMapper(path string) (*ObjectStoreMapper, error) {
 	var store storage.Store
-	if strings.HasSuffix(path, ".json") {
+	if strings.HasSuffix(path, ".json") || strings.HasSuffix(path, ".jql") {
 		store = &storage.JSONStore{}
 	} else {
 		return nil, fmt.Errorf("Unknown file type")
 	}
 	return &ObjectStoreMapper{
-		store: store,
-		path:  path,
+		store:   store,
+		path:    path,
+		updates: map[GlobalKey]string{},
 	}, nil
+}
+
+func (osm *ObjectStoreMapper) getAndPurgeUpdates() map[GlobalKey]string {
+	osm.mu.Lock()
+	defer osm.mu.Unlock()
+	updates := osm.updates
+	osm.updates = map[GlobalKey]string{}
+	return updates
+}
+
+func (osm *ObjectStoreMapper) AllUpdated() {
+	osm.mu.Lock()
+	defer osm.mu.Unlock()
+	osm.updates = nil
+}
+
+func (osm *ObjectStoreMapper) RowUpdating(tname, pk string) {
+	osm.mu.Lock()
+	defer osm.mu.Unlock()
+	if osm.updates != nil {
+		shardKey := ""
+		table := osm.db.Tables[tname]
+		strategy := getShardStrategy(table)
+		if strategy.shardBy != "" {
+			shardKey = table.Entries[pk][table.IndexOfField(strategy.shardBy)].Format("")
+		}
+		osm.updates[GlobalKey{Table: tname, PK: pk}] = shardKey
+	}
 }
 
 func (osm *ObjectStoreMapper) GetDB() *types.Database {
@@ -72,21 +107,76 @@ func (osm *ObjectStoreMapper) GetDB() *types.Database {
 }
 
 func (osm *ObjectStoreMapper) Load() error {
-	f, err := os.Open(osm.path)
+	if strings.HasSuffix(osm.path, ".json") {
+		f, err := os.Open(osm.path)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		return osm.LoadSnapshot(f)
+	} else if strings.HasSuffix(osm.path, ".jql") {
+		return osm.loadDirectory()
+	} else {
+		return fmt.Errorf("unkown file type")
+	}
+}
+
+func (osm *ObjectStoreMapper) readShard(path string) (storage.EncodedTable, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return osm.store.ReadShard(f)
+}
+
+func (osm *ObjectStoreMapper) loadDirectory() error {
+	raw := storage.EncodedDatabase{}
+	var paths []string
+	err := filepath.Walk(osm.path, func(path string, info os.FileInfo, err error) error {
+		if strings.HasSuffix(path, ".json") {
+			paths = append(paths, path)
+		}
+		return nil
+	})
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	return osm.LoadSnapshot(f)
+	for _, path := range paths {
+		shard, err := osm.readShard(path)
+		if err != nil {
+			return err
+		}
+
+		relpath, err := filepath.Rel(osm.path, path)
+		if err != nil {
+			return err
+		}
+		parts := strings.Split(relpath, string(os.PathSeparator))
+		table := strings.Split(parts[0], ".")[0]
+
+		if _, ok := raw[table]; !ok {
+			raw[table] = storage.EncodedTable{}
+		}
+
+		for pk, value := range shard {
+			raw[table][pk] = value
+		}
+	}
+	return osm.loadEncodedDB(raw)
 }
 
 // Load takes the given reader of a serialized databse and returns a databse object
 func (osm *ObjectStoreMapper) LoadSnapshot(src io.Reader) error {
-	// XXX needs refactor
 	raw, err := osm.store.Read(src)
 	if err != nil {
 		return err
 	}
+	return osm.loadEncodedDB(raw)
+}
+
+func (osm *ObjectStoreMapper) loadEncodedDB(raw storage.EncodedDatabase) error {
+	// XXX needs refactor
 	schemata, ok := raw[schemataTableName]
 	if !ok {
 		return fmt.Errorf("missing schema table")
@@ -170,10 +260,28 @@ func (osm *ObjectStoreMapper) LoadSnapshot(src io.Reader) error {
 			}
 		}
 		byTable, ok := fieldsByTable[table]
+		var primaryShards int
+		if shard, ok := schema["primary_shards"]; ok {
+			if asInt, ok := shard.(float64); ok {
+				primaryShards = int(asInt)
+			} else {
+				return fmt.Errorf("invalid type for primary shards: %T", shard)
+			}
+		}
+		var secondaryShards int
+		if shard, ok := schema["secondary_shards"]; ok {
+			if asInt, ok := shard.(float64); ok {
+				secondaryShards = int(asInt)
+			} else {
+				return fmt.Errorf("invalid type for secondary shards: %T", shard)
+			}
+		}
 		meta := &types.ColumnMeta{
-			Type:         entryType,
-			ForeignTable: foreignTable,
-			Values:       values,
+			Type:            entryType,
+			ForeignTable:    foreignTable,
+			Values:          values,
+			PrimaryShards:   primaryShards,
+			SecondaryShards: secondaryShards,
 		}
 		if !ok {
 			fieldsByTable[table] = []string{column}
@@ -256,30 +364,153 @@ func (osm *ObjectStoreMapper) dumpSnapshot(db *types.Database, dst io.Writer) er
 		schemataTableName: db.Schemata,
 	}
 	for name, table := range db.Tables {
-		encodedTable := storage.EncodedTable{}
-		pkCol := table.Primary()
-		for pk, row := range table.Entries {
-			// TODO inconsistent use of entry in types and storage
-			encodedEntry := storage.EncodedEntry{}
-			for i, entry := range row {
-				if i != pkCol {
-					encodedEntry[table.Columns[i]] = entry.Encoded()
-				}
-			}
-			encodedTable[pk] = encodedEntry
-		}
-		encoded[name] = encodedTable
+		encoded[name] = osm.encodeTable(table)
 	}
 	return osm.store.Write(dst, encoded)
 }
 
+func (osm *ObjectStoreMapper) encodeTable(table *types.Table) storage.EncodedTable {
+	encodedTable := storage.EncodedTable{}
+	for pk := range table.Entries {
+		encodedTable[pk] = osm.encodedRow(table, pk)
+	}
+	return encodedTable
+}
+
+func (osm *ObjectStoreMapper) encodedRow(table *types.Table, pk string) storage.EncodedEntry {
+	// TODO inconsistent use of entry in types and storage
+	encodedEntry := storage.EncodedEntry{}
+	pkCol := table.Primary()
+	row := table.Entries[pk]
+	for i, entry := range row {
+		if i != pkCol {
+			encodedEntry[table.Columns[i]] = entry.Encoded()
+		}
+	}
+	return encodedEntry
+}
+
 func (osm *ObjectStoreMapper) StoreEntries() error {
-	dst, err := os.OpenFile(osm.path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	entries := osm.getAndPurgeUpdates()
+	if strings.HasSuffix(osm.path, ".json") {
+		dst, err := os.OpenFile(osm.path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+		if err != nil {
+			return err
+		}
+		defer dst.Close()
+		return osm.dumpSnapshot(osm.db, dst)
+	} else if strings.HasSuffix(osm.path, ".jql") {
+		return osm.storeAsDirectory(entries)
+	} else {
+		return fmt.Errorf("invalid path: %s", osm.path)
+	}
+}
+
+func (osm *ObjectStoreMapper) storeAsDirectory(entries map[GlobalKey]string) error {
+	for name, table := range osm.db.Tables {
+		err := osm.storeTableInDirectory(entries, name, table)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (osm *ObjectStoreMapper) storeTableInDirectory(selected map[GlobalKey]string, name string, table *types.Table) error {
+	strategy := getShardStrategy(table)
+
+	if strategy.primaryShards == 0 && strategy.secondaryShards == 0 {
+		encodedTable := storage.EncodedTable{}
+		for pk := range selectEntries(selected, name, table) {
+			encodedTable[pk] = osm.encodedRow(table, pk)
+		}
+		return osm.writeShard(
+			filepath.Join(osm.path, fmt.Sprintf("%s.json", name)),
+			encodedTable,
+		)
+	} else if strategy.primaryShards == 256 && strategy.secondaryShards == 0 {
+		encodedTables := map[string]storage.EncodedTable{}
+		for pk, entries := range selectEntries(selected, name, table) {
+			key := ""
+			if selected == nil {
+				key = sanitizeKey(entries[table.IndexOfField(strategy.shardBy)].Format(""))
+			} else {
+				key = sanitizeKey(selected[GlobalKey{Table: name, PK: pk}])
+			}
+			hash := byteHex(byteHash([]byte(key)))
+			if _, ok := encodedTables[hash]; !ok {
+				encodedTables[hash] = storage.EncodedTable{}
+			}
+			encodedTables[hash][pk] = osm.encodedRow(table, pk)
+		}
+		for hash, encoded := range encodedTables {
+			err := osm.writeShard(
+				filepath.Join(osm.path, name, fmt.Sprintf("%s.json", hash)),
+				encoded,
+			)
+			if err != nil {
+				return err
+			}
+		}
+	} else if strategy.primaryShards == 256 && strategy.secondaryShards == -1 {
+		encodedTables := map[string](map[string]storage.EncodedTable){}
+		for pk, entries := range selectEntries(selected, name, table) {
+			key := ""
+			if selected == nil {
+				key = sanitizeKey(entries[table.IndexOfField(strategy.shardBy)].Format(""))
+			} else {
+				key = sanitizeKey(selected[GlobalKey{Table: name, PK: pk}])
+			}
+			hash := byteHex(byteHash([]byte(key)))
+			if _, ok := encodedTables[hash]; !ok {
+				encodedTables[hash] = map[string]storage.EncodedTable{}
+			}
+			if _, ok := encodedTables[hash][key]; !ok {
+				encodedTables[hash][key] = storage.EncodedTable{}
+			}
+			encodedTables[hash][key][pk] = osm.encodedRow(table, pk)
+		}
+		for hash, tables := range encodedTables {
+			for key, encoded := range tables {
+				err := osm.writeShard(
+					filepath.Join(osm.path, name, hash, fmt.Sprintf("%s.json", key)),
+					encoded,
+				)
+				if err != nil {
+					return err
+				}
+			}
+		}
+	} else {
+		return fmt.Errorf("Unknown sharding strategy with %d primary shards and %d secondary shards", strategy.primaryShards, strategy.secondaryShards)
+	}
+	return nil
+}
+
+// writeShard upserts the provided entries into the shard. Any entries that are nil get deleted.
+func (osm *ObjectStoreMapper) writeShard(path string, t storage.EncodedTable) error {
+	reader, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+	shard, err := osm.store.ReadShard(reader)
+	if err != nil {
+		return err
+	}
+	for pk, row := range t {
+		if len(row) == 0 {
+			delete(shard, pk)
+		} else {
+			shard[pk] = row
+		}
+	}
+	dst, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
 		return err
 	}
 	defer dst.Close()
-	return osm.dumpSnapshot(osm.db, dst)
+	return osm.store.WriteShard(dst, shard)
 }
 
 func (osm *ObjectStoreMapper) GetSnapshot(db *types.Database) ([]byte, error) {
@@ -289,4 +520,65 @@ func (osm *ObjectStoreMapper) GetSnapshot(db *types.Database) ([]byte, error) {
 		return nil, err
 	}
 	return snapshot.Bytes(), nil
+}
+
+func byteHash(b []byte) byte {
+	hasher := fnv.New32a()
+	hasher.Write(b)
+	hashValue := hasher.Sum32()
+
+	byte1 := byte(hashValue & 0xFF)
+	byte2 := byte((hashValue >> 8) & 0xFF)
+	byte3 := byte((hashValue >> 16) & 0xFF)
+	byte4 := byte((hashValue >> 24) & 0xFF)
+
+	return byte1 ^ byte2 ^ byte3 ^ byte4
+}
+
+func byteHex(b byte) string {
+	return fmt.Sprintf("%02x", b)
+}
+
+func sanitizeKey(s string) string {
+	return strings.ReplaceAll(s, "/", "_")
+}
+
+type GlobalKey struct {
+	Table    string
+	PK       string
+}
+
+func selectEntries(entries map[GlobalKey]string, name string, table *types.Table) map[string][]types.Entry {
+	if entries == nil {
+		return table.Entries
+	}
+	selections := map[string][]types.Entry{}
+	for gk := range entries {
+		if gk.Table != name {
+			continue
+		}
+		selections[gk.PK] = table.Entries[gk.PK]
+	}
+	return selections
+}
+
+type shardStrategy struct {
+	shardBy         string
+	primaryShards   int
+	secondaryShards int
+}
+
+func getShardStrategy(table *types.Table) shardStrategy {
+	strategy := shardStrategy{}
+
+	// NOTE this will not error if a user has multiple shard
+	// keys even though that's not supported
+	for cname, meta := range table.ColumnMeta {
+		if meta.PrimaryShards != 0 || meta.SecondaryShards != 0 {
+			strategy.shardBy = cname
+			strategy.primaryShards = meta.PrimaryShards
+			strategy.secondaryShards = meta.SecondaryShards
+		}
+	}
+	return strategy
 }
