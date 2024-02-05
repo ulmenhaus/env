@@ -1,12 +1,8 @@
 package ui
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io/ioutil"
-	"os"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -25,25 +21,6 @@ var (
 // MainViewMode is the current mode of the MainView.
 // It determines which subview processes inputs.
 type MainViewMode int
-
-type MacroResponseFilter struct {
-	Field     string `json:"field"`
-	Formatted string `json:"formatted"`
-}
-
-type MacroCurrentView struct {
-	Table            string              `json:"table"`
-	PKs              []string            `json:"pks"`
-	PrimarySelection string              `json:"primary_selection"`
-	Filter           MacroResponseFilter `json:"filter"`
-	OrderBy          string              `json:"order_by"`
-	OrderDec         bool                `json:"order_dec"`
-}
-
-type MacroInterface struct {
-	Snapshot    string           `json:"snapshot"`
-	CurrentView MacroCurrentView `json:"current_view"`
-}
 
 const (
 	// MainViewModeTable is the mode for standard table
@@ -1034,15 +1011,11 @@ func (mv *MainView) runMacro(ch rune) error {
 	}
 	entries := resp.GetRow().GetEntries()
 	locIndex := api.IndexOfField(resp.GetColumns(), MacroLocationCol)
-	loc := strings.Split(entries[locIndex].GetFormatted(), " ")
 	reloadIndex := api.IndexOfField(resp.GetColumns(), "Reload")
 	isReload := reloadIndex != -1 && entries[reloadIndex].GetFormatted() == "yes"
-	var stdout, stderr bytes.Buffer
-	snapResp, err := mv.dbms.GetSnapshot(ctx, &jqlpb.GetSnapshotRequest{})
-	if err != nil {
-		return fmt.Errorf("Could not create snapshot: %s", err)
+	if isReload {
+		return fmt.Errorf("Reloaded macros no longer supported. Please change the macro.")
 	}
-	snapshot := snapResp.Snapshot
 	requestNoLimit := &jqlpb.ListRowsRequest{
 		Table:      mv.request.Table,
 		Conditions: mv.request.Conditions,
@@ -1059,50 +1032,16 @@ func (mv *MainView) runMacro(ch rune) error {
 	}
 	row, _ := mv.SelectedEntry()
 	primarySelection := mv.response.Rows[row].Entries[api.GetPrimary(mv.response.Columns)]
+	currentView := api.MacroCurrentView{
+		Table:            mv.request.Table,
+		PKs:              pks,
+		PrimarySelection: primarySelection.Formatted,
+	}
 
-	input := MacroInterface{
-		Snapshot: string(snapshot),
-		CurrentView: MacroCurrentView{
-			Table:            mv.request.Table,
-			PKs:              pks,
-			PrimarySelection: primarySelection.Formatted,
-		},
-	}
-	inputEncoded, err := json.Marshal(input)
+	path := entries[locIndex].GetFormatted()
+	output, err := api.RunMacro(ctx, mv.dbms, path, currentView)
 	if err != nil {
-		return fmt.Errorf("Could not marshal input: %s", err)
-	}
-	cmd := exec.Command(loc[0], loc[1:]...)
-	cmd.Stdin = bytes.NewBuffer(inputEncoded)
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err = cmd.Run()
-	if err != nil {
-		// TODO log stderr
-		writeErr := ioutil.WriteFile("/tmp/error.log", stderr.Bytes(), os.ModePerm)
-		if writeErr != nil {
-			return fmt.Errorf("Could not run macro or store stderr: %s", err)
-		}
-		return fmt.Errorf("Could not run macro: %s -- error at /tmp/error.log", err)
-	}
-	var newDB []byte
-	var output MacroInterface
-
-	// TODO change to three valued "Output" field: file, stdout, none
-	if isReload {
-		return fmt.Errorf("Reloaded macros no longer supported. Please change the macro.")
-	} else {
-		err = json.Unmarshal(stdout.Bytes(), &output)
-		if err != nil {
-			return fmt.Errorf("Could not unmarshal macro output: %s", err)
-		}
-		newDB = []byte(output.Snapshot)
-	}
-	_, err = mv.dbms.LoadSnapshot(ctx, &jqlpb.LoadSnapshotRequest{
-		Snapshot: newDB,
-	})
-	if err != nil {
-		return fmt.Errorf("Could not load database from macro: %s", err)
+		return err
 	}
 	tableSwitch := mv.request.Table != output.CurrentView.Table
 	request := mv.request
@@ -1138,7 +1077,7 @@ func (mv *MainView) runMacro(ch rune) error {
 	if err != nil {
 		return fmt.Errorf("Could not update table view after macro: %s", err)
 	}
-	return fmt.Errorf("Ran macro %s", loc)
+	return fmt.Errorf("Ran macro %s", path)
 }
 
 func (mv *MainView) SelectedEntry() (int, int) {

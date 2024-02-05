@@ -2,6 +2,7 @@
 
 import datetime
 import json
+import sys
 
 from timedb.pks import pk_for_task
 
@@ -261,25 +262,24 @@ class HabitModes(object):
 
 
 def main():
-    with open("schema2.json") as f:
-        data = json.load(f)
+    iface = json.load(sys.stdin)
+    snapshot = json.loads(iface["snapshot"])
 
-    modes = HabitModes(data)
+    modes = HabitModes(snapshot)
     locs = modes.locals()
     globs = modes.globals()
-    snapshot = list(data['tasks'].items())
-    for task_pk, task_data in snapshot:
+    task_snapshot = list(snapshot['tasks'].items())
+    for task_pk, task_data in task_snapshot:
         modes.task_pk = task_pk
         modes.task_data = task_data
         if task_data["Status"] != "Habitual":
             continue
         indirect = task_data["Indirect"]
         if indirect in locs:
-            print(indirect, task_data)
             eval("{}({})".format(indirect, task_data['Parameters']), locs,
                  globs)
-    with open("schema2.json", 'w') as f:
-        json.dump(data, f, sort_keys=True, indent=4, separators=(",", ": "))
+    iface["snapshot"] = json.dumps(snapshot)
+    json.dump(iface, sys.stdout)
 
 
 if __name__ == "__main__":

@@ -1651,13 +1651,7 @@ func (mv *MainView) refreshPKs(g *gocui.Gui) error {
 func (mv *MainView) refreshTasks(g *gocui.Gui, v *gocui.View) error {
 	// TODO(rabrams) this whole sequence is pretty inefficient. It involves multiple redundant
 	// O(n) operations plus loading and re-loading the data.
-	err := exec.Command("jql-timedb-autofill").Run()
-	if err != nil {
-		return err
-	}
-	// HACK until we provide the dbms interface to macros we need to tell the OSM
-	// to reload the database which we do with an empty request
-	_, err = mv.dbms.LoadSnapshot(ctx, &jqlpb.LoadSnapshotRequest{Snapshot: nil})
+	_, err := api.RunMacro(ctx, mv.dbms, "jql-timedb-autofill", api.MacroCurrentView{})
 	if err != nil {
 		return err
 	}

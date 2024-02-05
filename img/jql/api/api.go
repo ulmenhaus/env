@@ -133,7 +133,6 @@ func (s *LocalDBMS) WriteRow(ctx context.Context, in *jqlpb.WriteRowRequest, opt
 	if err != nil {
 		return nil, err
 	}
-	s.OSM.RowUpdating(in.GetTable(), in.GetPk())
 	if in.GetUpdateOnly() {
 		for key, value := range in.GetFields() {
 			if err := table.Update(in.GetPk(), key, value); err != nil {
@@ -146,6 +145,7 @@ func (s *LocalDBMS) WriteRow(ctx context.Context, in *jqlpb.WriteRowRequest, opt
 	} else {
 		table.InsertWithFields(in.GetPk(), in.GetFields())
 	}
+	s.OSM.RowUpdating(in.GetTable(), in.GetPk())
 	return &jqlpb.WriteRowResponse{}, nil
 }
 
