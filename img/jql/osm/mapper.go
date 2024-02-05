@@ -2,6 +2,7 @@ package osm
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"io"
@@ -489,15 +490,22 @@ func (osm *ObjectStoreMapper) storeTableInDirectory(selected map[GlobalKey]strin
 
 // writeShard upserts the provided entries into the shard. Any entries that are nil get deleted.
 func (osm *ObjectStoreMapper) writeShard(path string, t storage.EncodedTable) error {
-	reader, err := os.Open(path)
-	if err != nil {
+	shard := storage.EncodedTable{}
+	_, err := os.Stat(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
+	} else if err == nil {
+		reader, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer reader.Close()
+		shard, err = osm.store.ReadShard(reader)
+		if err != nil {
+			return err
+		}
 	}
-	defer reader.Close()
-	shard, err := osm.store.ReadShard(reader)
-	if err != nil {
-		return err
-	}
+
 	for pk, row := range t {
 		if len(row) == 0 {
 			delete(shard, pk)
@@ -544,8 +552,8 @@ func sanitizeKey(s string) string {
 }
 
 type GlobalKey struct {
-	Table    string
-	PK       string
+	Table string
+	PK    string
 }
 
 func selectEntries(entries map[GlobalKey]string, name string, table *types.Table) map[string][]types.Entry {
