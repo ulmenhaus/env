@@ -109,7 +109,7 @@ func runExecute() error {
 
 	selectAndGoToTask := func(g *gocui.Gui, v *gocui.View) error {
 		if mv.MainViewMode != ui.MainViewModeListBar {
-			mv.Edit(v, gocui.Key(0), 'g', gocui.ModNone)
+			mv.Edit(v, gocui.Key(0), 'G', gocui.ModNone)
 			return nil
 		}
 		return mv.SelectTask(g, v, func(taskPK string) error {

@@ -50,6 +50,7 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
         # 1. Children
         # 2. From arguments (direct/indirect of tasks, modified for nouns)
         # 3. Inherited relationships (e.g. object whose class is a sub-class of this one)
+        max_lens = common.gather_max_lens(relatives.values())
         final, all_count = common.apply_request_parameters(relatives.values(), request)
         first_fields = ["Class", "Relation"]
         shared_fields = sorted(set().union(*(final)) - set(first_fields) - {"_pk", "-> Item"})
@@ -58,7 +59,7 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
             table='vt.relatives',
             columns=[
                 jql_pb2.Column(name=field,
-                               max_length=30,
+                               max_length=max_lens[field],
                                primary=field == '_pk') for field in fields
             ],
             rows=[

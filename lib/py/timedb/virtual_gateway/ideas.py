@@ -14,20 +14,27 @@ VALUES = {
         "5 O(quarters)",
         "6 O(years)",
     ],
-    "SoB": [
-        "Time Efficiency",  # New investments in tools that create efficiency wins
-        "Simplicity/Consistency",  # Improvements of existing tools that create efficiency wins
-        "Joissance",  # Diverse, rich, and pleasurable (in particular sensory) experiences
-        "Achievement",  # Challenge you to prove your mettle, gives external and internal validaton of competence -> security, feeling of accomplishment
-        "Fulfillment",  # Make you whole, content, feel like you are elevating yourself/humanity
-        "Self Expression",  # Aesthetic/Creative fulfillment
+    "PE": [
+        "1 (Hours)",
+        "2 (Days)",
+        "3 (Weeks)",
+        "4 (Months)",
+        "5 (Quarters)",
+        "6 (Years)",
     ],
-    "RoI": [
-        "1 Very Low",
-        "2 Low",
-        "3 Medium",
-        "4 High",
-        "5 Very High",
+    "SoB": [
+        # Investment
+        "Time Efficiency",  # New investments in tools that create efficiency wins
+        "Risk Reduction",
+        "Future Gains",
+        "Simplicity/Consistency",  # Improvements of existing tools that create efficiency wins
+        "Rest",
+        # Happiness"
+        "Joissance",  # Diverse, rich, and pleasurable (in particular sensory) experiences
+        "Pleasure",
+        "Eudemonic",
+        # Functional Output
+        "Achievement",  # Challenge you to prove your mettle, gives external and internal validaton of competence -> security, feeling of accomplishment
     ],
 }
 
@@ -60,16 +67,20 @@ class IdeasBackend(jql_pb2_grpc.JQLServicer):
             row.entries[primary].formatted for row in ideas_response.rows
         ]
         # Populate all relevant fields for the given nouns
-        fields = ["Domain", "Parent", "Cost", "SoB", "RoI", "Idea", "_pk"]
+        fields = ["Domain", "Parent", "Cost", "PE", "SoB", "RoI", "Idea", "_pk"]
         noun_to_idea, assn_pks = common.get_fields_for_items(
             self.client, schema.Tables.Nouns, noun_pks, fields)
         for row in ideas_response.rows:
             noun_pk = row.entries[primary].formatted
-            noun_to_idea[noun_pk]["Parent"] = [
+            idea = noun_to_idea[noun_pk]
+            idea["Parent"] = [
                 row.entries[ideas_cmap[schema.Fields.Parent]].formatted
             ]
-            noun_to_idea[noun_pk]["Idea"] = [noun_pk]
-            noun_to_idea[noun_pk]["_pk"] = [_encode_pk(noun_pk, assn_pks[noun_pk])]
+            idea["Idea"] = [noun_pk]
+            idea["_pk"] = [_encode_pk(noun_pk, assn_pks[noun_pk])]
+            if idea["PE"] and idea["PE"][0] and idea["Cost"] and idea["Cost"][0]:
+                # Entries denote orders of magnitude so determine RoI through subtraction
+                idea["RoI"] = [str(int(idea["PE"][0].split(" ")[0]) - int(idea["Cost"][0].split(" ")[0]))]
 
         parent_pks = sorted(
             {idea["Parent"][0]

@@ -51,11 +51,21 @@ def apply_request_parameters(rows, request):
             _filter_matches(row, f) for f in request.conditions[0].requires)
         rows = list(filter(filter_row, rows))
     rows = sorted(rows,
-                  key=lambda idea: present_attrs(idea.get(request.order_by, idea["_pk"])),
+                  key=lambda idea: present_attrs(
+                      idea.get(request.order_by, idea["_pk"])),
                   reverse=request.dec)
     all_count = len(rows)
     rows = rows[request.offset:request.offset + request.limit]
     return rows, all_count
+
+
+def gather_max_lens(rows):
+    all_keys = set().union(*(row.keys() for row in rows))
+    max_lens = {k: len(k) for k in all_keys}
+    for row in rows:
+        for k, v in row.items():
+            max_lens[k] = max(max_lens[k], len(present_attrs(v)))
+    return max_lens
 
 
 def _filter_matches(row, f):
@@ -64,10 +74,11 @@ def _filter_matches(row, f):
         values = row[f.column] if row[f.column] else [""]
         return (f.equal_match.value in values) ^ f.negated
     elif match_type == 'contains_match':
-        return (f.contains_match.value.lower()
-                in "\n".join(row[f.column]).lower()) ^ f.negated
+        return (f.contains_match.value.lower() in "\n".join(
+            row[f.column]).lower()) ^ f.negated
     else:
         raise ValueError("Unknown filter type", match_type)
+
 
 def present_attrs(attrs):
     if len(attrs) == 0:

@@ -105,20 +105,21 @@ func (tv *TableView) WriteContents(v io.Writer) error {
 	}
 	content += "\n"
 	for i, row := range tv.Values {
-		for j, val := range row {
+		for j, rawVal := range row {
 			width := tv.Widths[j]
-			val = strings.Split(val, "\n")[0]
+			rawVal = strings.Split(rawVal, "\n")[0]
+			val := []rune(rawVal)
 			if len(val) >= width {
 				val = val[:width]
 			} else {
 				diff := width - len(val)
 				for k := 0; k < diff; k++ {
-					val += " "
+					val = append(val, ' ')
 				}
 			}
 
 			level := tv.selectionLevel(Coordinate{Row: i, Column: j})
-			content += fmt.Sprintf("%s%s%s%s", stringMult(">", level), stringMult(" ", 3-level), val, stringMult(" ", 5))
+			content += fmt.Sprintf("%s%s%s%s", stringMult(">", level), stringMult(" ", 3-level), string(val), stringMult(" ", 5))
 		}
 		content += "\n"
 	}
