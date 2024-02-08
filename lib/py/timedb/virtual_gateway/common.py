@@ -51,7 +51,7 @@ def apply_request_parameters(rows, request):
             _filter_matches(row, f) for f in request.conditions[0].requires)
         rows = list(filter(filter_row, rows))
     rows = sorted(rows,
-                  key=lambda idea: present_attrs(
+                  key=lambda idea: _sort_key(
                       idea.get(request.order_by, idea["_pk"])),
                   reverse=request.dec)
     all_count = len(rows)
@@ -84,5 +84,22 @@ def present_attrs(attrs):
     if len(attrs) == 0:
         return ""
     if len(attrs) == 1:
+        if attrs[0].startswith("@timedb:") and attrs[0].endswith(":"):
+            inner = attrs[0][len("@timedb:"):-1]
+            if inner and ":" not in inner:
+                return inner
         return attrs[0]
-    return f"{len(attrs)} items"
+    return f"{len(attrs)} entries"
+
+def _sort_key(attrs):
+    as_shown = present_attrs(attrs)
+    try:
+        # HACK use a highly padded string as the sort key for an entry that
+        # begins with a number so we can mix numerical and lexicographic sorting
+        return str(int(as_shown.split(" ")[0].replace(",", ""))).zfill(40)
+    except ValueError:
+        return as_shown
+
+def get_primary(response):
+    return [i for i, c in enumerate(response.columns) if c.primary][0]
+ 

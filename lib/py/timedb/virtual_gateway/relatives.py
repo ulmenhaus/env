@@ -16,40 +16,13 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
         selected_target = _selected_target(request)
         if not selected_target:
             return self._possible_targets(request)
-        arg1 = f"@timedb:{selected_target}:"
 
-        # Query for any related items
-        relatives_request = jql_pb2.ListRowsRequest(
-            table=schema.Tables.Assertions,
-            conditions=[
-                jql_pb2.Condition(requires=[
-                    jql_pb2.Filter(
-                        column=schema.Fields.Arg1,
-                        contains_match=jql_pb2.ContainsMatch(
-                            value=arg1,
-                        ),
-                    ),
-                ]),
-            ],
-        )
-        relatives_response = self.client.ListRows(relatives_request)
-        assn_cmap = {c.name: i for i, c in enumerate(relatives_response.columns)}
-        arg0s = {row.entries[assn_cmap[schema.Fields.Arg0]].formatted for row in relatives_response.rows}
-        relatives, _ = common.get_fields_for_items(self.client, "", arg0s)
-        for pk, relative in relatives.items():
-            relative["_pk"] = [pk]
-            relative["-> Item"] = [selected_target]
-            exact_matches = [k for k, v in relative.items() if arg1 in v]
-            if exact_matches:
-                relative["Relation"] = [f"with this {exact_matches[0]}"]
-            # TODO two edge cases for the relation
-            # 1. If it's a verb like "Defines" we want it to be "which define this {class}"
-            # 2. If there isn't an exact match we'll say "which reference this {class}"
-
+        relatives = self._query_explicit_relatives(selected_target)
+        relatives.update(self._query_implied_children(selected_target))
         # TODO Captured implied relations
         # 1. Children
         # 2. From arguments (direct/indirect of tasks, modified for nouns)
-        # 3. Inherited relationships (e.g. object whose class is a sub-class of this one)
+        # 3. Inherited relationships (e.g. object whose class is a sub-class of this one or a decended of the modifier noun tree)
         max_lens = common.gather_max_lens(relatives.values())
         final, all_count = common.apply_request_parameters(relatives.values(), request)
         first_fields = ["Class", "Relation"]
@@ -99,6 +72,61 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
             total=all_count,
             all=len(entries),
         )
+
+    def _query_explicit_relatives(self, selected_target):
+        arg1 = f"@timedb:{selected_target}:"
+        relatives_request = jql_pb2.ListRowsRequest(
+            table=schema.Tables.Assertions,
+            conditions=[
+                jql_pb2.Condition(requires=[
+                    jql_pb2.Filter(
+                        column=schema.Fields.Arg1,
+                        contains_match=jql_pb2.ContainsMatch(
+                            value=arg1,
+                        ),
+                    ),
+                ]),
+            ],
+        )
+        relatives_response = self.client.ListRows(relatives_request)
+        assn_cmap = {c.name: i for i, c in enumerate(relatives_response.columns)}
+        arg0s = {row.entries[assn_cmap[schema.Fields.Arg0]].formatted for row in relatives_response.rows}
+        relatives, _ = common.get_fields_for_items(self.client, "", arg0s)
+        for pk, relative in relatives.items():
+            relative["_pk"] = [pk]
+            relative["-> Item"] = [selected_target]
+            exact_matches = [k for k, v in relative.items() if arg1 in v]
+            if exact_matches:
+                relative["Relation"] = [f"with this {exact_matches[0]}"]
+            # TODO two edge cases for the relation
+            # 1. If it's a verb like "Defines" we want it to be "which define this {class}"
+            # 2. If there isn't an exact match we'll say "which reference this {class}"
+        return relatives
+
+    def _query_implied_children(self, selected_target):
+        children_request = jql_pb2.ListRowsRequest(
+            table=schema.Tables.Nouns,
+            conditions=[
+                jql_pb2.Condition(requires=[
+                    jql_pb2.Filter(
+                        column=schema.Fields.Parent,
+                        equal_match=jql_pb2.EqualMatch(
+                            value=selected_target,
+                        ),
+                    ),
+                ]),
+            ],
+        )
+        children_response = self.client.ListRows(children_request)
+        primary = common.get_primary(children_response)
+        arg0s = {f"nouns {row.entries[primary].formatted}" for row in children_response.rows}
+        relatives, _ = common.get_fields_for_items(self.client, "", arg0s)
+        for pk, relative in relatives.items():
+            relative["_pk"] = [pk]
+            relative["-> Item"] = [selected_target]
+            relative["Relation"] = ["Child"]
+        return relatives
+
 
 def _selected_target(request):
     for condition in request.conditions:

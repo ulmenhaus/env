@@ -59,9 +59,7 @@ class IdeasBackend(jql_pb2_grpc.JQLServicer):
             ],
         )
         ideas_response = self.client.ListRows(ideas_request)
-        primary, = [
-            i for i, c in enumerate(ideas_response.columns) if c.primary
-        ]
+        primary = common.get_primary(ideas_response)
         ideas_cmap = {c.name: i for i, c in enumerate(ideas_response.columns)}
         noun_pks = [
             row.entries[primary].formatted for row in ideas_response.rows

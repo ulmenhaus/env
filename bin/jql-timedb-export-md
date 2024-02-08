@@ -255,6 +255,7 @@ def generate_markdown(snapshot, table, pk):
         lambda: collections.defaultdict(list))
     meta_rels = [
         "Bookmark",
+        "Cadence",
         "Cheat Sheet",
         "Command",
         "Conclusion",
