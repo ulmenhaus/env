@@ -13,6 +13,7 @@ class Fields(object):
     Direct = "Direct"
     Indirect = "Indirect"
     ParamStart = "Param~Start"
+    Modifier = "A Modifier"
 
 class Values(object):
     StatusIdea = 'Idea'

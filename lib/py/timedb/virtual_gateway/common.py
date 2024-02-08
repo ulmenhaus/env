@@ -59,8 +59,8 @@ def apply_request_parameters(rows, request):
     return rows, all_count
 
 
-def gather_max_lens(rows):
-    all_keys = set().union(*(row.keys() for row in rows))
+def gather_max_lens(rows, base_cols=()):
+    all_keys = set(base_cols).union(*(row.keys() for row in rows))
     max_lens = {k: len(k) for k in all_keys}
     for row in rows:
         for k, v in row.items():

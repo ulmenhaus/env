@@ -18,15 +18,22 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
             return self._possible_targets(request)
 
         relatives = self._query_explicit_relatives(selected_target)
-        relatives.update(self._query_implied_children(selected_target))
+        relatives.update(
+            self._query_implied_relatives(selected_target, schema.Tables.Nouns,
+                                          schema.Fields.Parent, "Child"))
+        relatives.update(
+            self._query_implied_relatives(selected_target, schema.Tables.Nouns,
+                                          schema.Fields.Modifier, "with this Modifier"))
         # TODO Captured implied relations
         # 1. Children
         # 2. From arguments (direct/indirect of tasks, modified for nouns)
         # 3. Inherited relationships (e.g. object whose class is a sub-class of this one or a decended of the modifier noun tree)
-        max_lens = common.gather_max_lens(relatives.values())
-        final, all_count = common.apply_request_parameters(relatives.values(), request)
         first_fields = ["Class", "Relation"]
-        shared_fields = sorted(set().union(*(final)) - set(first_fields) - {"_pk", "-> Item"})
+        max_lens = common.gather_max_lens(relatives.values(), first_fields)
+        final, all_count = common.apply_request_parameters(
+            relatives.values(), request)
+        shared_fields = sorted(set().union(*(final)) - set(first_fields) -
+                               {"_pk", "-> Item"})
         fields = first_fields + shared_fields + ["_pk"]
         return jql_pb2.ListRowsResponse(
             table='vt.relatives',
@@ -37,16 +44,17 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
             ],
             rows=[
                 jql_pb2.Row(entries=[
-                    jql_pb2.Entry(formatted=common.present_attrs(relative[field])) for field in fields
+                    jql_pb2.Entry(
+                        formatted=common.present_attrs(relative[field]))
+                    for field in fields
                 ]) for relative in final
             ],
             total=all_count,
             all=len(relatives),
         )
+
     def _possible_targets(self, request):
-        nouns_request = jql_pb2.ListRowsRequest(
-            table=schema.Tables.Nouns,
-        )
+        nouns_request = jql_pb2.ListRowsRequest(table=schema.Tables.Nouns, )
         nouns_response = self.client.ListRows(nouns_request)
         primary, = [
             i for i, c in enumerate(nouns_response.columns) if c.primary
@@ -60,14 +68,12 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
         return jql_pb2.ListRowsResponse(
             table='vt.relatives',
             columns=[
-                jql_pb2.Column(name="-> Item",
-                               max_length=30,
-                               primary=True)
+                jql_pb2.Column(name="-> Item", max_length=30, primary=True)
             ],
             rows=[
-                jql_pb2.Row(entries=[
-                    jql_pb2.Entry(formatted=noun_pk["_pk"][0])
-                ]) for noun_pk in final
+                jql_pb2.Row(
+                    entries=[jql_pb2.Entry(formatted=noun_pk["_pk"][0])])
+                for noun_pk in final
             ],
             total=all_count,
             all=len(entries),
@@ -81,16 +87,20 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
                 jql_pb2.Condition(requires=[
                     jql_pb2.Filter(
                         column=schema.Fields.Arg1,
-                        contains_match=jql_pb2.ContainsMatch(
-                            value=arg1,
-                        ),
+                        contains_match=jql_pb2.ContainsMatch(value=arg1, ),
                     ),
                 ]),
             ],
         )
         relatives_response = self.client.ListRows(relatives_request)
-        assn_cmap = {c.name: i for i, c in enumerate(relatives_response.columns)}
-        arg0s = {row.entries[assn_cmap[schema.Fields.Arg0]].formatted for row in relatives_response.rows}
+        assn_cmap = {
+            c.name: i
+            for i, c in enumerate(relatives_response.columns)
+        }
+        arg0s = {
+            row.entries[assn_cmap[schema.Fields.Arg0]].formatted
+            for row in relatives_response.rows
+        }
         relatives, _ = common.get_fields_for_items(self.client, "", arg0s)
         for pk, relative in relatives.items():
             relative["_pk"] = [pk]
@@ -103,28 +113,31 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
             # 2. If there isn't an exact match we'll say "which reference this {class}"
         return relatives
 
-    def _query_implied_children(self, selected_target):
-        children_request = jql_pb2.ListRowsRequest(
-            table=schema.Tables.Nouns,
+    def _query_implied_relatives(self, selected_target, table, field,
+                                 relation):
+        rel_request = jql_pb2.ListRowsRequest(
+            table=table,
             conditions=[
                 jql_pb2.Condition(requires=[
                     jql_pb2.Filter(
-                        column=schema.Fields.Parent,
-                        equal_match=jql_pb2.EqualMatch(
-                            value=selected_target,
-                        ),
+                        column=field,
+                        equal_match=jql_pb2.EqualMatch(value=selected_target,
+                                                       ),
                     ),
                 ]),
             ],
         )
-        children_response = self.client.ListRows(children_request)
-        primary = common.get_primary(children_response)
-        arg0s = {f"nouns {row.entries[primary].formatted}" for row in children_response.rows}
+        rel_response = self.client.ListRows(rel_request)
+        primary = common.get_primary(rel_response)
+        arg0s = {
+            f"{table} {row.entries[primary].formatted}"
+            for row in rel_response.rows
+        }
         relatives, _ = common.get_fields_for_items(self.client, "", arg0s)
         for pk, relative in relatives.items():
             relative["_pk"] = [pk]
             relative["-> Item"] = [selected_target]
-            relative["Relation"] = ["Child"]
+            relative["Relation"] = [relation]
         return relatives
 
 
@@ -134,4 +147,3 @@ def _selected_target(request):
             match_type = f.WhichOneof('match')
             if match_type == "equal_match" and f.column == '-> Item':
                 return f.equal_match.value
-

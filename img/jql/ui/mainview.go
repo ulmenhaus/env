@@ -790,12 +790,28 @@ loop:
 }
 
 func (mv *MainView) goFromSelectedValue(tables []*jqlpb.TableMeta) error {
-	row, _ := mv.SelectedEntry()
+	row, colix := mv.SelectedEntry()
 	selected := mv.response.Rows[row].Entries[api.GetPrimary(mv.response.Columns)]
 	for _, table := range tables {
 		cols := api.GetForeign(table.Columns, mv.request.Table)
 		if len(cols) == 0 {
 			continue
+		}
+		// If we're navigating within a table then start with the column the user is on
+		// and rotate back to any others
+		if table.Name == mv.request.Table {
+			rotatedCols := []int{}
+			for _, col := range cols {
+				if col >= colix {
+					rotatedCols = append(rotatedCols, col)
+				}
+			}
+			for _, col := range cols {
+				if col < colix {
+					rotatedCols = append(rotatedCols, col)
+				}
+			}
+			cols = rotatedCols
 		}
 		var conditions []*jqlpb.Condition
 		// If there are multiple foreign key columns, ignore any that don't have any matching entries
