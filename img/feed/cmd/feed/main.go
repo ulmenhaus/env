@@ -38,7 +38,7 @@ func runFeed() error {
 	if err != nil {
 		return err
 	}
-	mv, err := ui.NewMainView(g, dbms, cfg.Path+".ignored", []string{"--path", cfg.Path})
+	mv, err := ui.NewMainView(g, dbms, "feed_ignored.json", []string{"--path", cfg.Path})
 	if err != nil {
 		return err
 	}
@@ -61,6 +61,10 @@ func runFeed() error {
 			if err != nil {
 				return err
 			}
+			err = mv.SaveIgnores()
+			if err != nil {
+				return err
+			}
 			return cfg.SwitchTool(tool, "")
 		}
 	}
@@ -80,6 +84,10 @@ func runFeed() error {
 		}
 		cfg.Table = ui.TableNouns
 		_, err = dbms.Persist(context.Background(), &jqlpb.PersistRequest{})
+		if err != nil {
+			return err
+		}
+		err = mv.SaveIgnores()
 		if err != nil {
 			return err
 		}

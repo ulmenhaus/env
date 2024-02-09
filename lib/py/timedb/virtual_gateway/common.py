@@ -1,4 +1,5 @@
 import collections
+import json
 
 from jql import jql_pb2
 from timedb import schema
@@ -87,7 +88,9 @@ def present_attrs(attrs):
         if attrs[0].startswith("@timedb:") and attrs[0].endswith(":"):
             inner = attrs[0][len("@timedb:"):-1]
             if inner and ":" not in inner:
-                return inner
+                # Disabling this behavior for now
+                # return inner
+                pass
         return attrs[0]
     return f"{len(attrs)} entries"
 
@@ -103,3 +106,9 @@ def _sort_key(attrs):
 def get_primary(response):
     return [i for i, c in enumerate(response.columns) if c.primary][0]
  
+def encode_pk(noun_pk, assn_pks):
+    return "\t".join([noun_pk, json.dumps(assn_pks)])
+
+def decode_pk(pk):
+    noun_pk, assn_pks = pk.split("\t")
+    return noun_pk, json.loads(assn_pks)

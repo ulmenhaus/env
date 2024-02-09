@@ -96,7 +96,12 @@ def main():
     elif "--relatives" in sys.argv:
         table = "vt.relatives"
         field = "-> Item"
-        formatted = iface['current_view']['primary_selection']
+        current_table = iface['current_view']['table']
+        selection = iface['current_view']['primary_selection']
+        if current_table == 'nouns':
+            formatted = selection
+        elif current_table.startswith('vt.'):
+            formatted = selection.split("\t")[0].split(' ', 1)[-1]
     elif "--habituals" in sys.argv:
         table = "vt.habituals"
         field = "Habitual"

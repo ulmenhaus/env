@@ -14,6 +14,8 @@ class Fields(object):
     Indirect = "Indirect"
     ParamStart = "Param~Start"
     Modifier = "A Modifier"
+    Description = "Description"
+    Identifier = "_Identifier"
 
 class Values(object):
     StatusIdea = 'Idea'

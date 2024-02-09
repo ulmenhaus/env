@@ -5,11 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"sort"
 	"strconv"
 	"strings"
-	"syscall"
 
 	"github.com/jroimartin/gocui"
 	"github.com/ulmenhaus/env/img/jql/api"
@@ -453,13 +451,16 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 	return nil
 }
 
-func (mv *MainView) saveContents(g *gocui.Gui, v *gocui.View) error {
-	return mv.save()
-}
-
-func (mv *MainView) save() error {
-	_, err := mv.dbms.Persist(ctx, &jqlpb.PersistRequest{})
-	return err
+func (mv *MainView) SaveIgnores() error {
+	serialized, err := json.MarshalIndent(mv.ignored, "", "    ")
+	if err != nil {
+		return err
+	}
+	err = os.WriteFile(mv.ignoredPath, serialized, 0600)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
@@ -488,10 +489,6 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 			return err
 		}
 		err = g.SetKeybinding(current, 'k', gocui.ModNone, mv.cursorUp)
-		if err != nil {
-			return err
-		}
-		err = g.SetKeybinding(current, 's', gocui.ModNone, mv.saveContents)
 		if err != nil {
 			return err
 		}
@@ -735,25 +732,6 @@ func (mv *MainView) cursorUp(g *gocui.Gui, v *gocui.View) error {
 		}
 	}
 	return mv.refreshView(g)
-}
-
-func (mv *MainView) goToJQL(extraArgs ...string) error {
-	err := mv.save()
-	if err != nil {
-		return err
-	}
-	binary, err := exec.LookPath(JQLName)
-	if err != nil {
-		return err
-	}
-
-	args := append([]string{JQLName}, mv.returnArgs...)
-	args = append(args, extraArgs...)
-
-	env := os.Environ()
-
-	err = syscall.Exec(binary, args, env)
-	return err
 }
 
 func (mv *MainView) GetSelectedPK(g *gocui.Gui, v *gocui.View) (string, error) {

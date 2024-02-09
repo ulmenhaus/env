@@ -23,12 +23,19 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
                                           schema.Fields.Parent, "Child"))
         relatives.update(
             self._query_implied_relatives(selected_target, schema.Tables.Nouns,
-                                          schema.Fields.Modifier, "with this Modifier"))
+                                          schema.Fields.Modifier, "w/ Modifier"))
+        relatives.update(
+            self._query_implied_relatives(selected_target, schema.Tables.Nouns,
+                                          schema.Fields.Description, "w/ Base Concept"))
+        relatives.update(
+            self._query_implied_relatives(selected_target, schema.Tables.Nouns,
+                                          schema.Fields.Identifier, "w/ Identity"))
         # TODO Captured implied relations
         # 1. Children
         # 2. From arguments (direct/indirect of tasks, modified for nouns)
-        # 3. Inherited relationships (e.g. object whose class is a sub-class of this one or a decended of the modifier noun tree)
-        first_fields = ["Class", "Relation"]
+        # 3. Inherited relationships (e.g. object whose class is a sub-class of this one or a descendant of the modifier noun tree "core concept")
+        # 4. Items which use a particular schema (as referenced by parent)
+        first_fields = ["Display Name", "Class", "Relation"]
         max_lens = common.gather_max_lens(relatives.values(), first_fields)
         final, all_count = common.apply_request_parameters(
             relatives.values(), request)
@@ -101,13 +108,14 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
             row.entries[assn_cmap[schema.Fields.Arg0]].formatted
             for row in relatives_response.rows
         }
-        relatives, _ = common.get_fields_for_items(self.client, "", arg0s)
+        relatives, assn_pks = common.get_fields_for_items(self.client, "", arg0s)
         for pk, relative in relatives.items():
-            relative["_pk"] = [pk]
+            relative["_pk"] = [common.encode_pk(pk, assn_pks[pk])]
+            relative["Display Name"] = [pk.split(" ", 1)[-1]]
             relative["-> Item"] = [selected_target]
             exact_matches = [k for k, v in relative.items() if arg1 in v]
             if exact_matches:
-                relative["Relation"] = [f"with this {exact_matches[0]}"]
+                relative["Relation"] = [f"w/ {exact_matches[0]}"]
             # TODO two edge cases for the relation
             # 1. If it's a verb like "Defines" we want it to be "which define this {class}"
             # 2. If there isn't an exact match we'll say "which reference this {class}"
@@ -133,12 +141,39 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
             f"{table} {row.entries[primary].formatted}"
             for row in rel_response.rows
         }
-        relatives, _ = common.get_fields_for_items(self.client, "", arg0s)
+        relatives, assn_pks = common.get_fields_for_items(self.client, "", arg0s)
         for pk, relative in relatives.items():
-            relative["_pk"] = [pk]
+            relative["_pk"] = [common.encode_pk(pk, assn_pks[pk])]
+            relative["Display Name"] = [pk.split(" ", 1)[-1]]
             relative["-> Item"] = [selected_target]
             relative["Relation"] = [relation]
         return relatives
+
+    def WriteRow(self, request, context):
+        pk, pk_map = common.decode_pk(request.pk)
+        for field, value in request.fields.items():
+            if field in pk_map:
+                assn_pk, current = pk_map[field]
+                request = jql_pb2.WriteRowRequest(
+                    table=schema.Tables.Assertions,
+                    pk=assn_pk,
+                    fields={schema.Fields.Arg1: value},
+                    update_only=True,
+                )
+                self.client.WriteRow(request)
+            else:
+                request = jql_pb2.WriteRowRequest(
+                    table=schema.Tables.Assertions,
+                    pk=str((f".{field}", pk, "0000")),
+                    fields={
+                        schema.Fields.Relation: f".{field}",
+                        schema.Fields.Arg0: pk,
+                        schema.Fields.Arg1: value,
+                    },
+                    insert_only=True,
+                )
+                self.client.WriteRow(request)
+        return jql_pb2.WriteRowResponse()
 
 
 def _selected_target(request):

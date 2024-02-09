@@ -75,7 +75,7 @@ class IdeasBackend(jql_pb2_grpc.JQLServicer):
                 row.entries[ideas_cmap[schema.Fields.Parent]].formatted
             ]
             idea["Idea"] = [noun_pk]
-            idea["_pk"] = [_encode_pk(noun_pk, assn_pks[noun_pk])]
+            idea["_pk"] = [common.encode_pk(noun_pk, assn_pks[noun_pk])]
             if idea["PE"] and idea["PE"][0] and idea["Cost"] and idea["Cost"][0]:
                 # Entries denote orders of magnitude so determine RoI through subtraction
                 idea["RoI"] = [str(int(idea["PE"][0].split(" ")[0]) - int(idea["Cost"][0].split(" ")[0]))]
@@ -113,7 +113,7 @@ class IdeasBackend(jql_pb2_grpc.JQLServicer):
         )
 
     def IncrementEntry(self, request, context):
-        noun_pk, pk_map = _decode_pk(request.pk)
+        noun_pk, pk_map = common.decode_pk(request.pk)
         if request.column == 'Idea':
             # If it's the habitual itself we're incrementing/decrementing that corresponds
             # to the status
@@ -158,7 +158,7 @@ class IdeasBackend(jql_pb2_grpc.JQLServicer):
             raise ValueError("Unknown column", request.column)
 
     def WriteRow(self, request, context):
-        noun_pk, pk_map = _decode_pk(request.pk)
+        noun_pk, pk_map = common.decode_pk(request.pk)
         for field, value in request.fields.items():
             if field in pk_map:
                 assn_pk, current = pk_map[field]
@@ -192,10 +192,3 @@ def _type_of(field):
     elif field in VALUES:
         return jql_pb2.EntryType.ENUM
     return jql_pb2.EntryType.STRING
-
-def _encode_pk(noun_pk, assn_pks):
-    return "\t".join([noun_pk, json.dumps(assn_pks)])
-
-def _decode_pk(pk):
-    noun_pk, assn_pks = pk.split("\t")
-    return noun_pk, json.loads(assn_pks)
