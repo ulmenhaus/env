@@ -21,7 +21,8 @@ func xor(a, b bool) bool {
 func (f *filterShim) init() {
 	switch match := f.filter.Match.(type) {
 	case *jqlpb.Filter_InMatch:
-		// TODO really inefficient to construct this map every time
+		// TODO really inefficient to construct this map every time. Should only be necessary
+		// on writes.
 		f.asMap = slice2map(match.InMatch.Values)
 	}
 }
@@ -54,6 +55,51 @@ func (f *filterShim) Applies(e []types.Entry) bool {
 
 	}
 	return false
+}
+
+func newFilterShim(f *jqlpb.Filter, t *types.Table) *filterShim {
+	switch match := f.Match.(type) {
+	case *jqlpb.Filter_PathToMatch:
+		return shimForPathToMatch(f, match, t)
+	default:
+		shim := &filterShim{
+			filter: f,
+			colix:  t.IndexOfField(f.GetColumn()),
+		}
+		shim.init()
+		return shim
+	}
+}
+
+func shimForPathToMatch(f *jqlpb.Filter, match *jqlpb.Filter_PathToMatch, t *types.Table) *filterShim {
+	edges := map[string][]string{}
+	colix := t.IndexOfField(f.GetColumn())
+	for pk, row := range t.Entries {
+		key := row[colix].Format("")
+		if match.PathToMatch.Reverse {
+			edges[pk] = append(edges[pk], key) 
+		} else {
+			edges[key] = append(edges[key], pk)
+		}
+	}
+	matchingPks := map[string]bool{}
+	traversal := []string{match.PathToMatch.Value}
+	var next string
+	for len(traversal) > 0 {
+		next, traversal = traversal[0], traversal[1:]
+		if matchingPks[next] {
+			continue
+		}
+		matchingPks[next] = true
+		traversal = append(traversal, edges[next]...)
+	}
+
+	return newFilterShim(&jqlpb.Filter{
+			Column: t.Columns[t.Primary()],
+			// NOTE we convert to a slice, just to convert back to a map, but it's worth the slight
+			// performance hit to keep the code simple
+			Match:  &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: map2slice(matchingPks)}},
+	}, t)
 }
 
 // PrimarySuggestion returns a suggestion for prefilling the primary key of a new
@@ -115,4 +161,12 @@ func slice2map(slice []string) map[string]bool {
 		m[s] = true
 	}
 	return m
+}
+
+func map2slice(m map[string]bool) []string {
+	slice := []string{}
+	for s := range m {
+		slice = append(slice, s)
+	}
+	return slice
 }

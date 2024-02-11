@@ -21,15 +21,29 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
         relatives.update(
             self._query_implied_relatives(selected_target, schema.Tables.Nouns,
                                           schema.Fields.Parent, "Child"))
+        # TODO when we support recursive modifiers in contexts we shouldn't have
+        # modifiers as nouns anymore and this clause should only apply when our
+        # base selected item is a context
         relatives.update(
             self._query_implied_relatives(selected_target, schema.Tables.Nouns,
-                                          schema.Fields.Modifier, "w/ Modifier"))
+                                          schema.Fields.Modifier,
+                                          "w/ Modifier"))
+        # We query all descendants first so that more immediate relatives will override
+        # with more specific relations
+        relatives.update(
+            self._query_implied_relatives(selected_target,
+                                          schema.Tables.Nouns,
+                                          schema.Fields.Description,
+                                          "w/ Ancestor Concept",
+                                          path_to_match=True))
         relatives.update(
             self._query_implied_relatives(selected_target, schema.Tables.Nouns,
-                                          schema.Fields.Description, "w/ Base Concept"))
+                                          schema.Fields.Description,
+                                          "w/ Base Concept"))
         relatives.update(
             self._query_implied_relatives(selected_target, schema.Tables.Nouns,
-                                          schema.Fields.Identifier, "w/ Identity"))
+                                          schema.Fields.Identifier,
+                                          "w/ Identity"))
         # TODO Captured implied relations
         # 1. Children
         # 2. From arguments (direct/indirect of tasks, modified for nouns)
@@ -108,7 +122,8 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
             row.entries[assn_cmap[schema.Fields.Arg0]].formatted
             for row in relatives_response.rows
         }
-        relatives, assn_pks = common.get_fields_for_items(self.client, "", arg0s)
+        relatives, assn_pks = common.get_fields_for_items(
+            self.client, "", arg0s)
         for pk, relative in relatives.items():
             relative["_pk"] = [common.encode_pk(pk, assn_pks[pk])]
             relative["Display Name"] = [pk.split(" ", 1)[-1]]
@@ -121,18 +136,23 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
             # 2. If there isn't an exact match we'll say "which reference this {class}"
         return relatives
 
-    def _query_implied_relatives(self, selected_target, table, field,
-                                 relation):
+    def _query_implied_relatives(self,
+                                 selected_target,
+                                 table,
+                                 field,
+                                 relation,
+                                 path_to_match=False):
+        requires = jql_pb2.Filter(
+            column=field,
+            equal_match=jql_pb2.EqualMatch(value=selected_target))
+        if path_to_match:
+            requires = jql_pb2.Filter(
+                column=field,
+                path_to_match=jql_pb2.PathToMatch(value=selected_target))
         rel_request = jql_pb2.ListRowsRequest(
             table=table,
             conditions=[
-                jql_pb2.Condition(requires=[
-                    jql_pb2.Filter(
-                        column=field,
-                        equal_match=jql_pb2.EqualMatch(value=selected_target,
-                                                       ),
-                    ),
-                ]),
+                jql_pb2.Condition(requires=[requires]),
             ],
         )
         rel_response = self.client.ListRows(rel_request)
@@ -141,7 +161,8 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
             f"{table} {row.entries[primary].formatted}"
             for row in rel_response.rows
         }
-        relatives, assn_pks = common.get_fields_for_items(self.client, "", arg0s)
+        relatives, assn_pks = common.get_fields_for_items(
+            self.client, "", arg0s)
         for pk, relative in relatives.items():
             relative["_pk"] = [common.encode_pk(pk, assn_pks[pk])]
             relative["Display Name"] = [pk.split(" ", 1)[-1]]

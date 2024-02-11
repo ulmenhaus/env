@@ -48,6 +48,10 @@ message ContainsMatch {
 	string value = 2;
 }
 	
+message PathToMatch {
+	string value = 1;
+	bool reverse = 2;
+}
 
 message Filter {
 	bool negated = 1;
@@ -58,6 +62,7 @@ message Filter {
 		GreaterThanMatch greather_than_match = 5;
 		InMatch in_match = 6;
 		ContainsMatch contains_match = 7;
+		PathToMatch path_to_match = 8;
 	}
 }
 
