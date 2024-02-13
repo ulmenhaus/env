@@ -1,0 +1,26 @@
+#! /usr/local/bin/python3
+"""
+Not a macro but a quick and dirty script for converting
+todoist exported CSV into task bullets
+"""
+
+import csv
+import sys
+
+def extract_content_description(csv_input):
+    reader = csv.DictReader(csv_input)
+   
+    # Iterate over each row in the CSV
+    for row in reader:
+        content = row['CONTENT']
+        description = row['DESCRIPTION']
+        print(f"* {content}")
+        if description:
+            for line in description.split("\n"):
+                print(f"  * {line}")
+
+def main():
+    extract_content_description(sys.stdin)
+    
+if __name__ == "__main__":
+    main()

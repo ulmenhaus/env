@@ -21,9 +21,6 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
         relatives.update(
             self._query_implied_relatives(selected_target, schema.Tables.Nouns,
                                           schema.Fields.Parent, "Child"))
-        # TODO when we support recursive modifiers in contexts we shouldn't have
-        # modifiers as nouns anymore and this clause should only apply when our
-        # base selected item is a context
         relatives.update(
             self._query_implied_relatives(selected_target, schema.Tables.Nouns,
                                           schema.Fields.Modifier,
@@ -130,7 +127,8 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
             relative["-> Item"] = [selected_target]
             exact_matches = [k for k, v in relative.items() if arg1 in v]
             if exact_matches:
-                relative["Relation"] = [f"w/ {exact_matches[0]}"]
+                rel = exact_matches[0]
+                relative["Relation"] = [f"{rel} this"] if is_verb(rel) else [f"w/ {rel}"]
             # TODO two edge cases for the relation
             # 1. If it's a verb like "Defines" we want it to be "which define this {class}"
             # 2. If there isn't an exact match we'll say "which reference this {class}"
@@ -203,3 +201,7 @@ def _selected_target(request):
             match_type = f.WhichOneof('match')
             if match_type == "equal_match" and f.column == '-> Item':
                 return f.equal_match.value
+
+def is_verb(attribute):
+    return attribute.endswith("es")
+
