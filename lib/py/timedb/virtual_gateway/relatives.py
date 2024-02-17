@@ -52,11 +52,12 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
             relatives.values(), request)
         shared_fields = sorted(set().union(*(final)) - set(first_fields) -
                                {"_pk", "-> Item"})
-        fields = first_fields + shared_fields + ["_pk"]
+        fields = first_fields + shared_fields + ["_pk", "_link"]
         return jql_pb2.ListRowsResponse(
             table='vt.relatives',
             columns=[
                 jql_pb2.Column(name=field,
+                               type=_type_of(field),
                                max_length=max_lens[field],
                                primary=field == '_pk') for field in fields
             ],
@@ -123,6 +124,7 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
             self.client, "", arg0s)
         for pk, relative in relatives.items():
             relative["_pk"] = [common.encode_pk(pk, assn_pks[pk])]
+            relative["_link"] = [pk]
             relative["Display Name"] = [pk.split(" ", 1)[-1]]
             relative["-> Item"] = [selected_target]
             exact_matches = [k for k, v in relative.items() if arg1 in v]
@@ -163,6 +165,7 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
             self.client, "", arg0s)
         for pk, relative in relatives.items():
             relative["_pk"] = [common.encode_pk(pk, assn_pks[pk])]
+            relative["_link"] = [pk]
             relative["Display Name"] = [pk.split(" ", 1)[-1]]
             relative["-> Item"] = [selected_target]
             relative["Relation"] = [relation]
@@ -205,3 +208,7 @@ def _selected_target(request):
 def is_verb(attribute):
     return attribute.endswith("es")
 
+def _type_of(field):
+    if field == "_link":
+        return jql_pb2.EntryType.POLYFOREIGN
+    return jql_pb2.EntryType.STRING

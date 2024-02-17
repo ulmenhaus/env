@@ -600,18 +600,18 @@ func minInt(a, b int) int {
 	return b
 }
 
-func sameColumns(respA, respB *jqlpb.ListRowsResponse) bool {
-	colsA := respA.GetColumns()
-	colsB := respB.GetColumns()
-	if len(colsA) != len(colsB) {
-		return false
-	}
-	for i := range colsA {
-		if colsA[i].Name != colsB[i].Name {
-			return false
+func (mv *MainView) selectColumn(respA, respB *jqlpb.ListRowsResponse) int {
+	// If after changing the contents, the same column in the
+	// same table exists, then we select it
+	if respA != nil && respA.Table == respB.Table {
+		for i, col := range respB.GetColumns() {
+			if col.Name == respA.GetColumns()[mv.TableView.Selections.Primary.Column].Name {
+				return i
+			}
 		}
 	}
-	return true
+	// Otherwise reset the column
+	return 0
 }
 
 func (mv *MainView) updateTableViewContents(resetCursorRow bool) error {
@@ -620,12 +620,7 @@ func (mv *MainView) updateTableViewContents(resetCursorRow bool) error {
 		return err
 	}
 	mv.request.Table = response.Table
-	selectedCol := 0
-	if sameColumns(response, mv.response) {
-		// If after changing the contents, we're still looking at the
-		// same columns, then keep the pointer in that column
-		selectedCol = mv.TableView.Selections.Primary.Column
-	}
+	selectedCol := mv.selectColumn(mv.response, response)
 	selectedRow := 0
 	if !resetCursorRow && mv.TableView != nil {
 		selectedRow = mv.TableView.Selections.Primary.Row
@@ -759,6 +754,11 @@ loop:
 		case jqlpb.EntryType_FOREIGNS:
 			table = meta.ForeignTable
 			keys = strings.Split(mv.response.Rows[row].Entries[col].Formatted, "\n")
+			if tables[table] != nil {
+				break loop
+			}
+		case jqlpb.EntryType_POLYFOREIGN:
+			table, keys = api.ParsePolyforeign(mv.response.Rows[row].Entries[col])
 			if tables[table] != nil {
 				break loop
 			}

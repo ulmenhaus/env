@@ -442,3 +442,13 @@ func (s *Router) LoadSnapshot(ctx context.Context, in *jqlpb.LoadSnapshotRequest
 func IsVirtualTable(name string) bool {
 	return strings.HasPrefix(name, "vt.")
 }
+
+func ParsePolyforeign(entry *jqlpb.Entry) (string, []string) {
+	formatted := entry.Formatted
+
+	parts := strings.SplitN(formatted, " ", 2)
+	if len(parts) < 2 {
+		return "", []string{}
+	}
+	return parts[0], []string{parts[1]}
+}

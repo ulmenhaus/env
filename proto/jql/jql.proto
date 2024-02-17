@@ -91,6 +91,7 @@ enum EntryType {
 	MONEYAMT = 6;
 	FOREIGN = 7;
 	FOREIGNS = 8;
+	POLYFOREIGN = 9;
 }
 
 message Column {
