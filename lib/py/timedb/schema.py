@@ -2,6 +2,7 @@ class Tables(object):
     Nouns = 'nouns'
     Tasks = 'tasks'
     Assertions = 'assertions'
+    Actions = "actions"
 
 class Fields(object):
     Status = 'Status'

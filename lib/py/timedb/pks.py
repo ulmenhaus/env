@@ -176,6 +176,15 @@ class PKSetter(object):
 
     def __init__(self, dbms):
         self.dbms = dbms
+        self.actions = None
+
+    def _populate_actions(self):
+        if self.actions is not None:
+            return
+        request = jql_pb2.ListRowsRequest(table=schema.Tables.Actions)
+        response = self.dbms.ListRows(request)
+        actions = _protos_to_dict(response.columns, response.rows)
+        self.actions = actions
 
     def update_noun(self, old):
         request = jql_pb2.GetRowRequest(table=schema.Tables.Nouns, pk=old)
@@ -189,8 +198,30 @@ class PKSetter(object):
         )
         self.dbms.WriteRow(update_request)
 
-    def update_task(self, task):
-        pass
+    def update_task(self, old):
+        self._populate_actions()
+        request = jql_pb2.GetRowRequest(table=schema.Tables.Tasks, pk=old)
+        response = self.dbms.GetRow(request)
+        new = pk_for_task(_proto_to_dict(response.columns, response.row),
+                          self.actions)
+        if old == new:
+            return
+        update_request = jql_pb2.WriteRowRequest(
+            table=schema.Tables.Tasks,
+            pk=old,
+            fields={schema.Fields.TaskDescription: new},
+            update_only=True,
+        )
+        self.dbms.WriteRow(update_request)
+        self._update_all(schema.Tables.Tasks, schema.Fields.PrimaryGoal, old,
+                         new)
+        self._update_all(
+            schema.Tables.Assertions,
+            schema.Fields.Arg0,
+            f"{schema.Tables.Tasks} {old}",
+            f"{schema.Tables.Tasks} {new}",
+        )
+        # TODO update logs
 
     def update(self, table, old):
         # TODO this first pass implementation needs full parity with the old implementation
@@ -204,10 +235,61 @@ class PKSetter(object):
         else:
             raise ValueError("Setting PK not supported for table", table)
 
+    def _update_all(self, table, field, old, new, exact=True):
+        requires = jql_pb2.Filter(
+            column=field, contains_match=jql_pb2.ContainsMatch(value=old))
+        if exact:
+            requires = jql_pb2.Filter(
+                column=field, equal_match=jql_pb2.EqualMatch(value=old))
+        query = jql_pb2.ListRowsRequest(
+            table=table,
+            conditions=[
+                jql_pb2.Condition(requires=[requires]),
+            ],
+        )
+        response = self.dbms.ListRows(query)
+        colix, = [i for i, c in enumerate(response.columns) if c.name == field]
+        primary_ix, = [i for i, c in enumerate(response.columns) if c.primary]
+        for row in response.rows:
+            if exact:
+                update_request = jql_pb2.WriteRowRequest(
+                    table=table,
+                    pk=row.entries[primary_ix].formatted,
+                    fields={field: new},
+                    update_only=True,
+                )
+            else:
+                updated = row.entries[colix].formatted.replace(old, new)
+                update_request = jql_pb2.WriteRowRequest(
+                    table=table,
+                    pk=row.entries[primary_ix].formatted,
+                    fields={field: updated},
+                    update_only=True,
+                )
+            self.dbms.WriteRow(update_request)
+
 
 def _proto_to_dict(columns, row):
     d = {}
     for i, col in enumerate(columns):
-        # TODO for numerical types (including datetimes) we want to convert them back into ints
-        d[col.name] = row.entries[i].formatted
+        if col.type == jql_pb2.EntryType.DATE:
+            parsed = datetime.datetime.strptime(row.entries[i].formatted,
+                                                "%d %b %Y")
+            delta = parsed - datetime.datetime(1970, 1, 1)
+            d[col.name] = int(delta.days)
+        elif col.type == jql_pb2.EntryType.INT:
+            d[col.name] = int(row.entries[i].formatted)
+        elif col.type == jql_pb2.EntryType.TIME:
+            raise NotImplementedError(
+                "conversion from time types not supported")
+        else:
+            d[col.name] = row.entries[i].formatted
     return d
+
+
+def _protos_to_dict(columns, rows):
+    ds = {}
+    primary, = [i for i, c in enumerate(columns) if c.primary]
+    for row in rows:
+        ds[row.entries[primary].formatted] = _proto_to_dict(columns, row)
+    return ds
