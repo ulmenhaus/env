@@ -189,14 +189,15 @@ class PKSetter(object):
     def update_noun(self, old):
         request = jql_pb2.GetRowRequest(table=schema.Tables.Nouns, pk=old)
         response = self.dbms.GetRow(request)
-        new_pk = pk_for_noun(_proto_to_dict(response.columns, response.row))
+        new = pk_for_noun(_proto_to_dict(response.columns, response.row))
         update_request = jql_pb2.WriteRowRequest(
             table=schema.Tables.Nouns,
             pk=old,
-            fields={schema.Fields.Identifier: new_pk},
+            fields={schema.Fields.Identifier: new},
             update_only=True,
         )
         self.dbms.WriteRow(update_request)
+        self._update_all(schema.Tables.Tasks, schema.Fields.Direct, old, new)
 
     def update_task(self, old):
         self._populate_actions()
@@ -209,7 +210,7 @@ class PKSetter(object):
         update_request = jql_pb2.WriteRowRequest(
             table=schema.Tables.Tasks,
             pk=old,
-            fields={schema.Fields.TaskDescription: new},
+            fields={schema.Fields.UDescription: new},
             update_only=True,
         )
         self.dbms.WriteRow(update_request)
@@ -221,7 +222,18 @@ class PKSetter(object):
             f"{schema.Tables.Tasks} {old}",
             f"{schema.Tables.Tasks} {new}",
         )
-        # TODO update logs
+
+    def update_assertion(self, old):
+        request = jql_pb2.GetRowRequest(table=schema.Tables.Assertions, pk=old)
+        response = self.dbms.GetRow(request)
+        new = pk_for_assertion(_proto_to_dict(response.columns, response.row))
+        update_request = jql_pb2.WriteRowRequest(
+            table=schema.Tables.Assertions,
+            pk=old,
+            fields={schema.Fields.UDescription: new},
+            update_only=True,
+        )
+        self.dbms.WriteRow(update_request)
 
     def update(self, table, old):
         # TODO this first pass implementation needs full parity with the old implementation
@@ -232,10 +244,12 @@ class PKSetter(object):
             self.update_noun(old)
         elif table == schema.Tables.Tasks:
             self.update_task(old)
+        elif table == schema.Tables.Assertions:
+            self.update_assertion(old)
         else:
             raise ValueError("Setting PK not supported for table", table)
 
-    def _update_all(self, table, field, old, new, exact=True):
+    def _update_all(self, table, field, old, new, exact=True, recursive=True):
         requires = jql_pb2.Filter(
             column=field, contains_match=jql_pb2.ContainsMatch(value=old))
         if exact:
@@ -267,6 +281,8 @@ class PKSetter(object):
                     update_only=True,
                 )
             self.dbms.WriteRow(update_request)
+            if recursive:
+                self.update(table, row.entries[primary_ix].formatted)
 
 
 def _proto_to_dict(columns, row):

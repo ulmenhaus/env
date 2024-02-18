@@ -11,7 +11,7 @@ class Fields(object):
     Relation = "A Relation"
     Parent = "Parent"
     PrimaryGoal = "Primary Goal"
-    TaskDescription = "_Description"
+    UDescription = "_Description"
     Order = "Order"
     Direct = "Direct"
     Indirect = "Indirect"
