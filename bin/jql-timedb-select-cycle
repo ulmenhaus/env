@@ -98,10 +98,10 @@ def main():
         field = "-> Item"
         current_table = iface['current_view']['table']
         selection = iface['current_view']['primary_selection']
-        if current_table == 'nouns':
-            formatted = selection
+        if current_table in ['nouns', 'tasks']:
+            formatted = f"{current_table} {selection}"
         elif current_table.startswith('vt.'):
-            formatted = selection.split("\t")[0].split(' ', 1)[-1]
+            formatted = selection.split("\t")[0]
     elif "--habituals" in sys.argv:
         table = "vt.habituals"
         field = "Habitual"

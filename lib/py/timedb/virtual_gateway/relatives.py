@@ -17,35 +17,44 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
         if not selected_target:
             return self._possible_targets(request)
 
-        relatives = self._query_explicit_relatives(selected_target)
-        relatives.update(
-            self._query_implied_relatives(selected_target, schema.Tables.Nouns,
-                                          schema.Fields.Parent, "Child"))
-        relatives.update(
-            self._query_implied_relatives(selected_target, schema.Tables.Nouns,
-                                          schema.Fields.Modifier,
-                                          "w/ Modifier"))
-        # We query all descendants first so that more immediate relatives will override
-        # with more specific relations
-        relatives.update(
-            self._query_implied_relatives(selected_target,
-                                          schema.Tables.Nouns,
-                                          schema.Fields.Description,
-                                          "w/ Ancestor Concept",
-                                          path_to_match=True))
-        relatives.update(
-            self._query_implied_relatives(selected_target, schema.Tables.Nouns,
-                                          schema.Fields.Description,
-                                          "w/ Base Concept"))
-        relatives.update(
-            self._query_implied_relatives(selected_target, schema.Tables.Nouns,
-                                          schema.Fields.Identifier,
-                                          "w/ Identity"))
+        selected_table, selected_item = selected_target.split(" ", 1)
+        relatives = {}
+        if selected_table == schema.Tables.Nouns:
+            relatives.update(self._query_explicit_relatives(selected_item))
+            relatives.update(
+                self._query_implied_relatives(selected_item, schema.Tables.Nouns,
+                                              schema.Fields.Parent, "Child"))
+            relatives.update(
+                self._query_implied_relatives(selected_item, schema.Tables.Nouns,
+                                              schema.Fields.Modifier,
+                                              "w/ Modifier"))
+            # We query all descendants first so that more immediate relatives will override
+            # with more specific relations
+            relatives.update(
+                self._query_implied_relatives(selected_item,
+                                              schema.Tables.Nouns,
+                                              schema.Fields.Description,
+                                              "w/ Ancestor Concept",
+                                              path_to_match=True))
+            relatives.update(
+                self._query_implied_relatives(selected_item, schema.Tables.Nouns,
+                                              schema.Fields.Description,
+                                              "w/ Base Concept"))
+            relatives.update(
+                self._query_implied_relatives(selected_item, schema.Tables.Nouns,
+                                              schema.Fields.Identifier,
+                                              "w/ Identity"))
+        elif selected_table == schema.Tables.Tasks:
+            relatives.update(
+                self._query_implied_relatives(selected_item, schema.Tables.Tasks,
+                                              schema.Fields.PrimaryGoal, "Child"))
+            relatives.update(
+                self._query_implied_relatives(selected_item, schema.Tables.Tasks,
+                                              schema.Fields.TaskDescription,
+                                              "w/ Identity"))
         # TODO Captured implied relations
-        # 1. Children
-        # 2. From arguments (direct/indirect of tasks, modified for nouns)
-        # 3. Inherited relationships (e.g. object whose class is a sub-class of this one or a descendant of the modifier noun tree "core concept")
-        # 4. Items which use a particular schema (as referenced by parent)
+        # 1. From arguments (direct/indirect of tasks, modified for nouns)
+        # 2. Items which use a particular schema (as referenced by parent)
         first_fields = ["Display Name", "Class", "Relation"]
         max_lens = common.gather_max_lens(relatives.values(), first_fields)
         final, all_count = common.apply_request_parameters(
@@ -82,7 +91,7 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
         noun_pks = [
             f"{row.entries[primary].formatted}" for row in nouns_response.rows
         ]
-        entries = [{"_pk": [pk], "-> Item": [pk]} for pk in noun_pks]
+        entries = [{"_pk": [pk], "-> Item": [f"{schema.Tables.Nouns} {pk}"]} for pk in noun_pks]
         final, all_count = common.apply_request_parameters(entries, request)
         return jql_pb2.ListRowsResponse(
             table='vt.relatives',
@@ -91,15 +100,15 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
             ],
             rows=[
                 jql_pb2.Row(
-                    entries=[jql_pb2.Entry(formatted=noun_pk["_pk"][0])])
-                for noun_pk in final
+                    entries=[jql_pb2.Entry(formatted=noun["-> Item"][0])])
+                for noun in final
             ],
             total=all_count,
             all=len(entries),
         )
 
-    def _query_explicit_relatives(self, selected_target):
-        arg1 = f"@timedb:{selected_target}:"
+    def _query_explicit_relatives(self, selected_item):
+        arg1 = f"@timedb:{selected_item}:"
         relatives_request = jql_pb2.ListRowsRequest(
             table=schema.Tables.Assertions,
             conditions=[
@@ -126,7 +135,7 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
             relative["_pk"] = [common.encode_pk(pk, assn_pks[pk])]
             relative["_link"] = [pk]
             relative["Display Name"] = [pk.split(" ", 1)[-1]]
-            relative["-> Item"] = [selected_target]
+            relative["-> Item"] = [f"{schema.Tables.Nouns} {selected_item}"]
             exact_matches = [k for k, v in relative.items() if arg1 in v]
             if exact_matches:
                 rel = exact_matches[0]
@@ -137,18 +146,18 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
         return relatives
 
     def _query_implied_relatives(self,
-                                 selected_target,
+                                 selected_item,
                                  table,
                                  field,
                                  relation,
                                  path_to_match=False):
         requires = jql_pb2.Filter(
             column=field,
-            equal_match=jql_pb2.EqualMatch(value=selected_target))
+            equal_match=jql_pb2.EqualMatch(value=selected_item))
         if path_to_match:
             requires = jql_pb2.Filter(
                 column=field,
-                path_to_match=jql_pb2.PathToMatch(value=selected_target))
+                path_to_match=jql_pb2.PathToMatch(value=selected_item))
         rel_request = jql_pb2.ListRowsRequest(
             table=table,
             conditions=[
@@ -167,7 +176,7 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
             relative["_pk"] = [common.encode_pk(pk, assn_pks[pk])]
             relative["_link"] = [pk]
             relative["Display Name"] = [pk.split(" ", 1)[-1]]
-            relative["-> Item"] = [selected_target]
+            relative["-> Item"] = [f"{table} {selected_item}"]
             relative["Relation"] = [relation]
         return relatives
 

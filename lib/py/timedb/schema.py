@@ -9,6 +9,8 @@ class Fields(object):
     Arg1 = "Arg1"
     Relation = "A Relation"
     Parent = "Parent"
+    PrimaryGoal = "Primary Goal"
+    TaskDescription = "_Description"
     Order = "Order"
     Direct = "Direct"
     Indirect = "Indirect"
