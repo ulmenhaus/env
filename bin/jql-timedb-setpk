@@ -9,6 +9,7 @@ For jql time management schema
 import json
 import sys
 
+from jql import macro
 from timedb import pks
 
 
@@ -18,7 +19,18 @@ def pk_for_file(f):
     return "/".join([f['A Type'] + "s", f['Project'], f['Xtended Name']])
 
 
+def main_v2():
+    with macro.macro_interface(sys.stdin, sys.stdout) as iface:
+        dbms = iface.get_dbms()
+        table, pk = iface.get_primary_selection()
+        setter = pks.PKSetter(dbms)
+        setter.update(table, pk)
+
 def main():
+    if "--v2" in sys.argv:
+        # TODO once the daemonized macro interface is fully implemented we
+        # can deprecate the old v1 flow for this
+        return main_v2()
     iface = json.load(sys.stdin)
     snapshot = json.loads(iface["snapshot"])
     current_view = iface["current_view"]
@@ -27,9 +39,7 @@ def main():
     tdb = pks.TimeDB(snapshot)
     if selected_table == "tasks":
         task = snapshot["tasks"][pk]
-        tdb.update_task_pk(
-            pk,
-            pks.pk_for_task(task, snapshot['actions']))
+        tdb.update_task_pk(pk, pks.pk_for_task(task, snapshot['actions']))
     elif selected_table == "files":
         tdb.update_files_pk(pk, pk_for_file(snapshot['files'][pk]))
     elif selected_table == "nouns":

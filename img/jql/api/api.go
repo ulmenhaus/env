@@ -26,7 +26,7 @@ func NewLocalDBMS(mapper *osm.ObjectStoreMapper, path string) (*LocalDBMS, error
 	return &LocalDBMS{
 		OSM: mapper,
 
-		path:    path,
+		path: path,
 	}, nil
 }
 
@@ -131,6 +131,7 @@ func (s *LocalDBMS) WriteRow(ctx context.Context, in *jqlpb.WriteRowRequest, opt
 	}
 	if in.GetUpdateOnly() {
 		for key, value := range in.GetFields() {
+			s.OSM.RowUpdating(in.GetTable(), in.GetPk())
 			if err := table.Update(in.GetPk(), key, value); err != nil {
 				return nil, err
 			}
@@ -140,8 +141,8 @@ func (s *LocalDBMS) WriteRow(ctx context.Context, in *jqlpb.WriteRowRequest, opt
 		}
 	} else {
 		table.InsertWithFields(in.GetPk(), in.GetFields())
+		s.OSM.RowUpdating(in.GetTable(), in.GetPk())
 	}
-	s.OSM.RowUpdating(in.GetTable(), in.GetPk())
 	return &jqlpb.WriteRowResponse{}, nil
 }
 
@@ -451,4 +452,16 @@ func ParsePolyforeign(entry *jqlpb.Entry) (string, []string) {
 		return "", []string{}
 	}
 	return parts[0], []string{parts[1]}
+}
+
+type RemoteDBMS struct {
+	jqlpb.JQLClient
+	Address string
+}
+
+func NewRemoteDBMS(addr string, client jqlpb.JQLClient) *RemoteDBMS {
+	return &RemoteDBMS{
+		JQLClient: client,
+		Address:   addr,
+	}
 }

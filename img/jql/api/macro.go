@@ -29,6 +29,7 @@ type MacroCurrentView struct {
 
 type MacroInterface struct {
 	Snapshot    string           `json:"snapshot"`
+	Address     string           `json:"address"`
 	CurrentView MacroCurrentView `json:"current_view"`
 }
 
@@ -38,15 +39,17 @@ func RunMacro(ctx context.Context, dbms JQL_DBMS, command string, currentView Ma
 		CurrentView: currentView,
 	}
 	if v2 {
-		switch dbms.(type) {
+		switch typed := dbms.(type) {
 		case *LocalDBMS:
 			snapResp, err := dbms.GetSnapshot(ctx, &jqlpb.GetSnapshotRequest{})
 			if err != nil {
 				return nil, fmt.Errorf("Could not create snapshot: %s", err)
 			}
 			input.Snapshot = string(snapResp.Snapshot)
+		case *RemoteDBMS:
+			input.Address = typed.Address
 		default:
-			// TODO pass remove info
+			return nil, fmt.Errorf("Unknown dbms type for v2 macro: %T", dbms)
 		}
 	} else {
 		snapResp, err := dbms.GetSnapshot(ctx, &jqlpb.GetSnapshotRequest{})

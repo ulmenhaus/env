@@ -137,7 +137,7 @@ func (c *JQLConfig) InitDBMS() (api.JQL_DBMS, error) {
 			return nil, err
 		}
 		// TODO return the closer so that it may be closed by the higher-level caller
-		return jqlpb.NewJQLClient(conn), nil
+		return api.NewRemoteDBMS(c.Addr, jqlpb.NewJQLClient(conn)), nil
 	}
 	return nil, fmt.Errorf("Unknown mode")
 }

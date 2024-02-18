@@ -82,7 +82,7 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
         )
 
     def _possible_targets(self, request):
-        nouns_request = jql_pb2.ListRowsRequest(table=schema.Tables.Nouns, )
+        nouns_request = jql_pb2.ListRowsRequest(table=schema.Tables.Nouns)
         nouns_response = self.client.ListRows(nouns_request)
         primary, = [
             i for i, c in enumerate(nouns_response.columns) if c.primary

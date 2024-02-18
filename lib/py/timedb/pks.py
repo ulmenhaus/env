@@ -1,5 +1,8 @@
 import datetime
 
+from jql import jql_pb2
+from timedb import schema
+
 HABIT_MODES = ("breakdown", "consistency", "continuity", "habituality",
                "incrementality", "regularity")
 
@@ -48,8 +51,10 @@ def pk_terms_for_task(task, actions):
 def pk_for_task(task, actions):
     return "".join(pk_terms_for_task(task, actions))
 
+
 def pk_for_noun(noun):
-    modifier, description, disambiguator = noun['A Modifier'], noun['Description'], noun['Disambiguator']
+    modifier, description, disambiguator = noun['A Modifier'], noun[
+        'Description'], noun['Disambiguator']
     idn = description
     if modifier:
         idn = f"{modifier} {idn}"
@@ -57,16 +62,25 @@ def pk_for_noun(noun):
         idn = f"{idn} ({disambiguator})"
     ctx, cnl = noun['Context'], noun['Coordinal']
     # we only consider the coordinal of a noun as part of its identity once we are committed to it
-    if cnl != "" and noun['Relation'] == "Item" and noun['Status'] not in ['Idea', 'Pending', 'Someday']:
+    if cnl != "" and noun['Relation'] == "Item" and noun['Status'] not in [
+            'Idea', 'Pending', 'Someday'
+    ]:
         idn = f"[{ctx}][{cnl}] {idn}" if ctx else f"[{cnl}] {idn}"
     elif ctx != "":
         idn = f"[{ctx}] {idn}"
     return idn
 
+
+# TODO the PKSetter reimplements this interface for v2 macros. Once v1 macros are deprecated we can
+# remove this class
 class TimeDB(object):
+
     def __init__(self, db):
         self.db = db
-        self.noun_to_context = {attrs['Parent']: code for code, attrs in self.db['contexts'].items()}
+        self.noun_to_context = {
+            attrs['Parent']: code
+            for code, attrs in self.db['contexts'].items()
+        }
 
     def update_files_pk(self, old, new):
         files = self.db["files"]
@@ -92,7 +106,10 @@ class TimeDB(object):
         for noun in self.db['nouns'].values():
             if noun['Parent'] == old:
                 noun['Parent'] = new
-        affected = [task_pk for task_pk, task in self.db['tasks'].items() if old in [task['Direct'], task['Indirect']]]
+        affected = [
+            task_pk for task_pk, task in self.db['tasks'].items()
+            if old in [task['Direct'], task['Indirect']]
+        ]
         for task_pk in affected:
             task = self.db['tasks'][task_pk]
             if task['Direct'] == old:
@@ -135,7 +152,8 @@ class TimeDB(object):
         # Take a snapshot of assertions to not modify while iterating
         for pk, assn in list(self.db["assertions"].items()):
             if table == "nouns" and f"@timedb:{old}:" in assn["Arg1"]:
-                assn["Arg1"] = assn["Arg1"].replace(f"@timedb:{old}:", f"@timedb:{new}:")
+                assn["Arg1"] = assn["Arg1"].replace(f"@timedb:{old}:",
+                                                    f"@timedb:{new}:")
             if assn["Arg0"] == full_id:
                 assn["Arg0"] = new_full_id
                 new_pk = pk_for_assertion(assn)
@@ -152,3 +170,44 @@ class TimeDB(object):
 def pk_for_assertion(assn):
     key = (assn["A Relation"], assn["Arg0"], assn["Order"])
     return str(key)
+
+
+class PKSetter(object):
+
+    def __init__(self, dbms):
+        self.dbms = dbms
+
+    def update_noun(self, old):
+        request = jql_pb2.GetRowRequest(table=schema.Tables.Nouns, pk=old)
+        response = self.dbms.GetRow(request)
+        new_pk = pk_for_noun(_proto_to_dict(response.columns, response.row))
+        update_request = jql_pb2.WriteRowRequest(
+            table=schema.Tables.Nouns,
+            pk=old,
+            fields={schema.Fields.Identifier: new_pk},
+            update_only=True,
+        )
+        self.dbms.WriteRow(update_request)
+
+    def update_task(self, task):
+        pass
+
+    def update(self, table, old):
+        # TODO this first pass implementation needs full parity with the old implementation
+        # 1. Support for contexts
+        # 2. Recursive updates
+        # 3. Updates in day planner
+        if table == schema.Tables.Nouns:
+            self.update_noun(old)
+        elif table == schema.Tables.Tasks:
+            self.update_task(old)
+        else:
+            raise ValueError("Setting PK not supported for table", table)
+
+
+def _proto_to_dict(columns, row):
+    d = {}
+    for i, col in enumerate(columns):
+        # TODO for numerical types (including datetimes) we want to convert them back into ints
+        d[col.name] = row.entries[i].formatted
+    return d
