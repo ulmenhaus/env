@@ -1636,18 +1636,6 @@ func (mv *MainView) insertNewTasks() error {
 	return mv.save()
 }
 
-func (mv *MainView) refreshPKs(g *gocui.Gui) error {
-	err := exec.Command("jql-timedb-set-all-pks").Run()
-	if err != nil {
-		return err
-	}
-	err = mv.load(g)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
 func (mv *MainView) refreshTasks(g *gocui.Gui, v *gocui.View) error {
 	// TODO(rabrams) this whole sequence is pretty inefficient. It involves multiple redundant
 	// O(n) operations plus loading and re-loading the data.
@@ -1968,6 +1956,7 @@ func (mv *MainView) substitutePlanSelectionsForPlan(g *gocui.Gui, v *gocui.View)
 	}
 	mv.MainViewMode = MainViewModeListBar
 	inserted := false
+	updated := []string{}
 	for _, item := range mv.planSelections {
 		if !item.Marked {
 			continue
@@ -1987,6 +1976,7 @@ func (mv *MainView) substitutePlanSelectionsForPlan(g *gocui.Gui, v *gocui.View)
 		if err != nil {
 			return err
 		}
+		updated = append(updated, taskPK)
 		mv.insertDayPlan(g, item.Plan)
 	}
 	// If the user didn't mark any selections then don't actually change anything
@@ -1998,9 +1988,17 @@ func (mv *MainView) substitutePlanSelectionsForPlan(g *gocui.Gui, v *gocui.View)
 	if err != nil {
 		return err
 	}
-	err = mv.refreshPKs(g)
-	if err != nil {
-		return err
+	// TODO it's inefficient to run this macro for each key separately when we could
+	// have a macro interface that supports multiple selected keys
+	for _, pk := range updated {
+		view := api.MacroCurrentView{
+			Table:            TableTasks,
+			PrimarySelection: pk,
+		}
+		_, err := api.RunMacro(ctx, mv.dbms, "jql-timedb-setpk --v2", view, true)
+		if err != nil {
+			return err
+		}
 	}
 	// NOTE we rely on deleteDayPlan to also save our changes
 	err = mv.deleteDayPlan(g, v)

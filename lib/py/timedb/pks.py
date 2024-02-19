@@ -227,6 +227,19 @@ class PKSetter(object):
             f"{schema.Tables.Tasks} {old}",
             f"{schema.Tables.Tasks} {new}",
         )
+        self._update_all(
+            schema.Tables.Assertions,
+            schema.Fields.Arg1,
+            f"[ ] {old}",
+            f"[ ] {new}",
+        )
+        self._update_all(
+            schema.Tables.Assertions,
+            schema.Fields.Arg1,
+            f"[x] {old}",
+            f"[x] {new}",
+        )
+        # TODO update the log table
 
     def update_assertion(self, old):
         request = jql_pb2.GetRowRequest(table=schema.Tables.Assertions, pk=old)
@@ -243,7 +256,6 @@ class PKSetter(object):
     def update(self, table, old):
         # TODO this first pass implementation needs full parity with the old implementation
         # 1. Support for contexts
-        # 2. Recursive updates
         # 3. Updates in day planner
         if table == schema.Tables.Nouns:
             self.update_noun(old)
