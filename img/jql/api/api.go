@@ -272,8 +272,10 @@ func (s *LocalDBMS) GetSnapshot(ctx context.Context, r *jqlpb.GetSnapshotRequest
 }
 
 func (s *LocalDBMS) LoadSnapshot(ctx context.Context, r *jqlpb.LoadSnapshotRequest, opts ...grpc.CallOption) (*jqlpb.LoadSnapshotResponse, error) {
-	s.OSM.AllUpdated()
 	var err error
+	// We mark all keys as updated both before and after loading the snapshot. This is because any keys which no longer
+	// exist after the load should be marked for purging and any new keys should be marked for writing.
+	s.OSM.AllUpdated()
 	if r.Snapshot == nil {
 		err = s.OSM.Load()
 	} else {
@@ -282,6 +284,7 @@ func (s *LocalDBMS) LoadSnapshot(ctx context.Context, r *jqlpb.LoadSnapshotReque
 	if err != nil {
 		return nil, err
 	}
+	s.OSM.AllUpdated()
 	return &jqlpb.LoadSnapshotResponse{}, nil
 }
 

@@ -168,7 +168,7 @@ class TimeDB(object):
 
 
 def pk_for_assertion(assn):
-    key = (assn["A Relation"], assn["Arg0"], assn["Order"])
+    key = (assn["A Relation"], assn["Arg0"], str(assn["Order"]).zfill(4))
     return str(key)
 
 
@@ -197,7 +197,12 @@ class PKSetter(object):
             update_only=True,
         )
         self.dbms.WriteRow(update_request)
+        self._update_all(schema.Tables.Assertions, schema.Fields.Arg0, old,
+                         new)
+        self._update_all(schema.Tables.Assertions, schema.Fields.Arg1,
+                         f"@timedb:{old}:", f"@timedb:{new}:", exact=False)
         self._update_all(schema.Tables.Tasks, schema.Fields.Direct, old, new)
+        self._update_all(schema.Tables.Tasks, schema.Fields.Indirect, old, new)
 
     def update_task(self, old):
         self._populate_actions()

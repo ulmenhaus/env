@@ -56,8 +56,11 @@ type ObjectStoreMapper struct {
 	// we can reconsider the handoff between the OSM and the API layer
 	db *types.Database
 
-	mu      sync.Mutex
-	updates map[GlobalKey]string // if nil a snapshot was loaded and we update everything
+	mu sync.Mutex
+
+	// Set of keys which have been updated
+	// if nil a snapshot was loaded and we update everything
+	updates map[update]bool
 }
 
 // NewObjectStoreMapper returns a new ObjectStoreMapper given a storage driver
@@ -71,35 +74,31 @@ func NewObjectStoreMapper(path string) (*ObjectStoreMapper, error) {
 	return &ObjectStoreMapper{
 		store:   store,
 		path:    path,
-		updates: map[GlobalKey]string{},
+		updates: map[update]bool{},
 	}, nil
 }
 
-func (osm *ObjectStoreMapper) getAndPurgeUpdates() map[GlobalKey]string {
-	osm.mu.Lock()
-	defer osm.mu.Unlock()
+func (osm *ObjectStoreMapper) getAndPurgeUpdates() map[update]bool {
 	updates := osm.updates
-	osm.updates = map[GlobalKey]string{}
+	osm.updates = map[update]bool{}
 	return updates
 }
 
 func (osm *ObjectStoreMapper) AllUpdated() {
 	osm.mu.Lock()
 	defer osm.mu.Unlock()
-	osm.updates = nil
+	for tname, table := range osm.db.Tables {
+		for pk := range table.Entries {
+			osm.updates[newUpdate(table, tname, pk)] = true
+		}
+	}
 }
 
 func (osm *ObjectStoreMapper) RowUpdating(tname, pk string) {
 	osm.mu.Lock()
 	defer osm.mu.Unlock()
 	if osm.updates != nil {
-		shardKey := ""
-		table := osm.db.Tables[tname]
-		strategy := getShardStrategy(table)
-		if strategy.shardBy != "" {
-			shardKey = table.Entries[pk][table.IndexOfField(strategy.shardBy)].Format("")
-		}
-		osm.updates[GlobalKey{Table: tname, PK: pk}] = shardKey
+		osm.updates[newUpdate(osm.db.Tables[tname], tname, pk)] = true
 	}
 }
 
@@ -169,6 +168,8 @@ func (osm *ObjectStoreMapper) loadDirectory() error {
 
 // Load takes the given reader of a serialized databse and returns a databse object
 func (osm *ObjectStoreMapper) LoadSnapshot(src io.Reader) error {
+	osm.mu.Lock()
+	defer osm.mu.Unlock()
 	raw, err := osm.store.Read(src)
 	if err != nil {
 		return err
@@ -392,7 +393,8 @@ func (osm *ObjectStoreMapper) encodedRow(table *types.Table, pk string) storage.
 }
 
 func (osm *ObjectStoreMapper) StoreEntries() error {
-	entries := osm.getAndPurgeUpdates()
+	osm.mu.Lock()
+	defer osm.mu.Unlock()
 	if strings.HasSuffix(osm.path, ".json") {
 		dst, err := os.OpenFile(osm.path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 		if err != nil {
@@ -401,15 +403,16 @@ func (osm *ObjectStoreMapper) StoreEntries() error {
 		defer dst.Close()
 		return osm.dumpSnapshot(osm.db, dst)
 	} else if strings.HasSuffix(osm.path, ".jql") {
-		return osm.storeAsDirectory(entries)
+		updates := osm.getAndPurgeUpdates()
+		return osm.storeAsDirectory(updates)
 	} else {
 		return fmt.Errorf("invalid path: %s", osm.path)
 	}
 }
 
-func (osm *ObjectStoreMapper) storeAsDirectory(entries map[GlobalKey]string) error {
+func (osm *ObjectStoreMapper) storeAsDirectory(updates map[update]bool) error {
 	for name, table := range osm.db.Tables {
-		err := osm.storeTableInDirectory(entries, name, table)
+		err := osm.storeTableInDirectory(updates, name, table)
 		if err != nil {
 			return err
 		}
@@ -417,39 +420,44 @@ func (osm *ObjectStoreMapper) storeAsDirectory(entries map[GlobalKey]string) err
 	return nil
 }
 
-func (osm *ObjectStoreMapper) storeTableInDirectory(selected map[GlobalKey]string, name string, table *types.Table) error {
+func (osm *ObjectStoreMapper) storeTableInDirectory(updates map[update]bool, name string, table *types.Table) error {
 	strategy := getShardStrategy(table)
 
 	if strategy.primaryShards == 0 && strategy.secondaryShards == 0 {
 		encodedTable := storage.EncodedTable{}
-		for pk := range selectEntries(selected, name, table) {
-			encodedTable[pk] = osm.encodedRow(table, pk)
+		for update := range updates {
+			encodedTable[update.pk] = osm.encodedRow(table, update.pk)
 		}
 		return osm.writeShard(
 			filepath.Join(osm.path, fmt.Sprintf("%s.json", name)),
 			encodedTable,
-			selected != nil,
 		)
 	} else if strategy.primaryShards == 256 && strategy.secondaryShards == 0 {
 		encodedTables := map[string]storage.EncodedTable{}
-		for pk, entries := range selectEntries(selected, name, table) {
-			key := ""
-			if selected == nil {
-				key = sanitizeKey(entries[table.IndexOfField(strategy.shardBy)].Format(""))
-			} else {
-				key = sanitizeKey(selected[GlobalKey{Table: name, PK: pk}])
+		for update := range updates {
+			if update.table != name {
+				continue
 			}
-			hash := byteHex(byteHash([]byte(key)))
+			hash := update.hash()
 			if _, ok := encodedTables[hash]; !ok {
 				encodedTables[hash] = storage.EncodedTable{}
 			}
-			encodedTables[hash][pk] = osm.encodedRow(table, pk)
+			if update.stale(table) && encodedTables[hash][update.pk] != nil {
+				// If the shard hash changed or the pk was deleted, purge it from the shard
+				if _, ok := encodedTables[hash]; !ok {
+					// The shard key may change while keeping the shard hash the same, so only
+					// purge it if we're not also writing a new value
+					encodedTables[hash][update.pk] = nil
+				}
+			} else {
+				// Otherwise store the encoded row
+				encodedTables[hash][update.pk] = osm.encodedRow(table, update.pk)
+			}
 		}
 		for hash, encoded := range encodedTables {
 			err := osm.writeShard(
 				filepath.Join(osm.path, name, fmt.Sprintf("%s.json", hash)),
 				encoded,
-				selected != nil,
 			)
 			if err != nil {
 				return err
@@ -457,28 +465,31 @@ func (osm *ObjectStoreMapper) storeTableInDirectory(selected map[GlobalKey]strin
 		}
 	} else if strategy.primaryShards == 256 && strategy.secondaryShards == -1 {
 		encodedTables := map[string](map[string]storage.EncodedTable){}
-		for pk, entries := range selectEntries(selected, name, table) {
-			key := ""
-			if selected == nil {
-				key = sanitizeKey(entries[table.IndexOfField(strategy.shardBy)].Format(""))
-			} else {
-				key = sanitizeKey(selected[GlobalKey{Table: name, PK: pk}])
+		for update := range updates {
+			if update.table != name {
+				continue
 			}
-			hash := byteHex(byteHash([]byte(key)))
+			hash := update.hash()
+			key := update.sanitized()
 			if _, ok := encodedTables[hash]; !ok {
 				encodedTables[hash] = map[string]storage.EncodedTable{}
 			}
 			if _, ok := encodedTables[hash][key]; !ok {
 				encodedTables[hash][key] = storage.EncodedTable{}
 			}
-			encodedTables[hash][key][pk] = osm.encodedRow(table, pk)
+			if update.stale(table) {
+				// If the shard key changed or the pk was deleted, purge it from the shard
+				encodedTables[hash][key][update.pk] = nil
+			} else {
+				// Otherwise store the encoded row
+				encodedTables[hash][key][update.pk] = osm.encodedRow(table, update.pk)
+			}
 		}
 		for hash, tables := range encodedTables {
 			for key, encoded := range tables {
 				err := osm.writeShard(
 					filepath.Join(osm.path, name, hash, fmt.Sprintf("%s.json", key)),
 					encoded,
-					selected != nil,
 				)
 				if err != nil {
 					return err
@@ -492,12 +503,12 @@ func (osm *ObjectStoreMapper) storeTableInDirectory(selected map[GlobalKey]strin
 }
 
 // writeShard upserts the provided entries into the shard. Any entries that are nil get deleted.
-func (osm *ObjectStoreMapper) writeShard(path string, t storage.EncodedTable, upsert bool) error {
+func (osm *ObjectStoreMapper) writeShard(path string, t storage.EncodedTable) error {
 	shard := storage.EncodedTable{}
 	_, err := os.Stat(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
-	} else if err == nil && upsert {
+	} else if err == nil {
 		reader, err := os.Open(path)
 		if err != nil {
 			return err
@@ -515,6 +526,9 @@ func (osm *ObjectStoreMapper) writeShard(path string, t storage.EncodedTable, up
 		} else {
 			shard[pk] = row
 		}
+	}
+	if len(shard) == 0 {
+		return os.RemoveAll(path)
 	}
 	dst, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
@@ -554,23 +568,38 @@ func sanitizeKey(s string) string {
 	return strings.ReplaceAll(s, "/", "_")
 }
 
-type GlobalKey struct {
-	Table string
-	PK    string
+type update struct {
+	table string
+	pk    string
+	key   string
 }
 
-func selectEntries(entries map[GlobalKey]string, name string, table *types.Table) map[string][]types.Entry {
-	if entries == nil {
-		return table.Entries
+func newUpdate(table *types.Table, tname, pk string) update {
+	shardKey := ""
+	strategy := getShardStrategy(table)
+	if strategy.shardBy != "" {
+		shardKey = table.Entries[pk][table.IndexOfField(strategy.shardBy)].Format("")
 	}
-	selections := map[string][]types.Entry{}
-	for gk := range entries {
-		if gk.Table != name {
-			continue
-		}
-		selections[gk.PK] = table.Entries[gk.PK]
+	return update{table: tname, pk: pk, key: shardKey}
+}
+
+func (u update) hash() string {
+	return byteHex(byteHash([]byte(u.sanitized())))
+}
+
+func (u update) sanitized() string {
+	return sanitizeKey(u.key)
+}
+
+// matches returns true if the provided row no longer uses the same shard as
+// when it was updated
+func (u update) stale(table *types.Table) bool {
+	row := table.Entries[u.pk]
+	if row == nil {
+		return true
 	}
-	return selections
+	strategy := getShardStrategy(table)
+	return row[table.IndexOfField(strategy.shardBy)].Format("") != u.key
 }
 
 type shardStrategy struct {
