@@ -177,6 +177,7 @@ class PKSetter(object):
     def __init__(self, dbms):
         self.dbms = dbms
         self.actions = None
+        self.parent_to_context = None
 
     def _populate_actions(self):
         if self.actions is not None:
@@ -186,17 +187,36 @@ class PKSetter(object):
         actions = _protos_to_dict(response.columns, response.rows)
         self.actions = actions
 
+    def _populate_contexts(self):
+        if self.parent_to_context is not None:
+            return
+        request = jql_pb2.ListRowsRequest(table=schema.Tables.Contexts)
+        response = self.dbms.ListRows(request)
+        contexts = _protos_to_dict(response.columns, response.rows)
+        self.parent_to_context = {}
+        for context in contexts.values():
+            self.parent_to_context[context[schema.Fields.Parent]] = context
+
     def update_noun(self, old):
+        self._populate_contexts()
         request = jql_pb2.GetRowRequest(table=schema.Tables.Nouns, pk=old)
         response = self.dbms.GetRow(request)
-        new = pk_for_noun(_proto_to_dict(response.columns, response.row))
+        noun = _proto_to_dict(response.columns, response.row)
+        noun[schema.Fields.Context] = self.parent_to_context.get(noun[schema.Fields.Parent], "")
+        if not noun[schema.Fields.Description]:
+            noun[schema.Fields.Description] = old
+        new = pk_for_noun(noun)
+        noun[schema.Fields.Identifier] = new
+        possibly_changed = [schema.Fields.Identifier, schema.Fields.Description, schema.Fields.Context]
         update_request = jql_pb2.WriteRowRequest(
             table=schema.Tables.Nouns,
             pk=old,
-            fields={schema.Fields.Identifier: new},
+            fields={k: noun[k] for k in possibly_changed},
             update_only=True,
         )
         self.dbms.WriteRow(update_request)
+        if old == new:
+            return
         self._update_all(schema.Tables.Assertions, schema.Fields.Arg0, old,
                          new)
         self._update_all(schema.Tables.Assertions, schema.Fields.Arg1,
@@ -318,7 +338,6 @@ def _proto_to_dict(columns, row):
         else:
             d[col.name] = row.entries[i].formatted
     return d
-
 
 def _protos_to_dict(columns, rows):
     ds = {}

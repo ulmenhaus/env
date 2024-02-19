@@ -660,9 +660,15 @@ func (mv *MainView) updateTableViewContents(resetCursorRow bool) error {
 	for _, row := range mv.response.Rows {
 		formatted := []string{}
 		for _, i := range mv.getColumnIndices() {
+			meta := mv.response.Columns[i]
 			entry := row.Entries[i]
-			// TODO extract actual formatting
-			formatted = append(formatted, entry.Formatted)
+			if meta.Type == jqlpb.EntryType_POLYFOREIGN {
+				// For cleaner UX we only display the pk of polyforeigns, not their tables
+				_, keys := api.ParsePolyforeign(entry)
+				formatted = append(formatted, strings.Join(keys, ","))
+			} else {
+				formatted = append(formatted, entry.Formatted)
+			}
 		}
 		mv.TableView.Values = append(mv.TableView.Values, formatted)
 	}

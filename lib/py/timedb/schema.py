@@ -3,6 +3,7 @@ class Tables(object):
     Tasks = 'tasks'
     Assertions = 'assertions'
     Actions = "actions"
+    Contexts = "contexts"
 
 class Fields(object):
     Status = 'Status'
@@ -19,6 +20,7 @@ class Fields(object):
     Modifier = "A Modifier"
     Description = "Description"
     Identifier = "_Identifier"
+    Context = "Context"
 
 class Values(object):
     StatusIdea = 'Idea'
