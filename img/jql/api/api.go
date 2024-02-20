@@ -80,6 +80,11 @@ func (s *LocalDBMS) ListRows(ctx context.Context, in *jqlpb.ListRowsRequest, opt
 			filters = append(filters, shim)
 		}
 	}
+	groupings, additionalFilters, err := s.calculateGroupings(in, table, filters)
+	if err != nil {
+		return nil, err
+	}
+	filters = append(filters, additionalFilters...)
 	orderBy := in.GetOrderBy()
 	if orderBy == "" {
 		orderBy = table.Columns[table.Primary()]
@@ -114,11 +119,12 @@ func (s *LocalDBMS) ListRows(ctx context.Context, in *jqlpb.ListRowsRequest, opt
 		})
 	}
 	return &jqlpb.ListRowsResponse{
-		Table:   name,
-		Columns: columns,
-		Rows:    rows,
-		Total:   uint32(resp.Total),
-		All:     uint32(len(table.Entries)),
+		Table:     name,
+		Columns:   columns,
+		Rows:      rows,
+		Total:     uint32(resp.Total),
+		All:       uint32(len(table.Entries)),
+		Groupings: groupings,
 	}, nil
 }
 
@@ -286,6 +292,44 @@ func (s *LocalDBMS) LoadSnapshot(ctx context.Context, r *jqlpb.LoadSnapshotReque
 	}
 	s.OSM.AllUpdated()
 	return &jqlpb.LoadSnapshotResponse{}, nil
+}
+
+func (s *LocalDBMS) calculateGroupings(in *jqlpb.ListRowsRequest, table *types.Table, filters []types.Filter) ([]*jqlpb.Grouping, []types.Filter, error) {
+	if in.GroupBy == nil {
+		return nil, nil, nil
+	}
+	resp, err := table.Query(types.QueryParams{
+		Filters: filters,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	rows := resp.Entries
+	groupings := []*jqlpb.Grouping{}
+	additionalFilters := []types.Filter{}
+	for _, requestedGrouping := range in.GroupBy.Groupings {
+		values := map[string]int64{}
+		filteredRows := [][]types.Entry{}
+		for _, row := range rows {
+			value := row[table.IndexOfField(requestedGrouping.Field)].Format("")
+			values[value] += 1
+			if value == requestedGrouping.Selected {
+				filteredRows = append(filteredRows, row)
+			}
+		}
+		groupings = append(groupings, &jqlpb.Grouping{
+			Field:    requestedGrouping.Field,
+			Values:   values,
+			Selected: requestedGrouping.Selected,
+		})
+		additionalFilters = append(additionalFilters, newFilterShim(&jqlpb.Filter{
+			Column: requestedGrouping.Field,
+			Match:  &jqlpb.Filter_EqualMatch{EqualMatch: &jqlpb.EqualMatch{Value: requestedGrouping.Selected}},
+		}, table))
+		rows = filteredRows
+	}
+	return groupings, additionalFilters, nil
 }
 
 // DBMSShim is a layer on top of the LocalDBMS that provides gRPC handles for exposing the DBMS as a daemon

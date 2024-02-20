@@ -79,6 +79,7 @@ message ListRowsRequest {
 	bool dec = 4;
 	uint32 offset = 5;
 	uint32 limit = 6;
+	GroupBy group_by = 7;
 }
 
 enum EntryType {
@@ -119,6 +120,7 @@ message ListRowsResponse {
 	repeated Row rows = 3;
 	uint32 total = 4;
 	uint32 all = 5;
+	repeated Grouping groupings = 6;
 }
 
 message GetRowRequest {
@@ -174,3 +176,18 @@ message LoadSnapshotRequest {
 }
 
 message LoadSnapshotResponse {}
+
+message RequestedGrouping {
+	string field = 1;
+	string selected = 2;
+}
+
+message GroupBy {
+	repeated RequestedGrouping groupings = 1;
+}
+
+message Grouping {
+	string field = 1;
+	map<string, int64> values = 2;
+	string selected = 3;
+}

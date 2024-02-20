@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -51,6 +52,11 @@ const (
 	// MacroV2Col is teh name of the column of the macros table
 	// indicating if the macro supports the v2 interface
 	MacroV2Col = "V2"
+
+	blackTextEscape = "\033[30m"
+	whiteBackEscape = "\033[47m"
+	boldTextEscape  = "\033[1m"
+	resetEscape     = "\033[0m"
 )
 
 // A MainView is the overall view of the table including headers,
@@ -86,6 +92,7 @@ func (mv *MainView) loadTable(t string) error {
 	mv.request = jqlpb.ListRowsRequest{
 		Table:      t,
 		Conditions: []*jqlpb.Condition{{}},
+		GroupBy:    &jqlpb.GroupBy{},
 	}
 	return mv.updateTableViewContents(true)
 }
@@ -112,8 +119,24 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 
 	// TODO hide prompt and header if not in prompt mode or alert mode
 	maxX, maxY := g.Size()
-	// HACK maxY - 8 is the max number of visible rows when header and prompt are present
+	groupingsOffset := 0
+	groupingHeight := 2
+	if len(mv.response.Groupings) > 0 {
+		groupingsOffset = groupingHeight*len(mv.response.Groupings) + 1
+		v, err := g.SetView("groupings", 0, 3, maxX-2, 3+groupingsOffset)
+		if err != nil && err != gocui.ErrUnknownView {
+			return err
+		}
+		mv.writeGroupings(v)
+	} else {
+		err := g.DeleteView("groupings")
+		if err != nil && err != gocui.ErrUnknownView {
+			return err
+		}
+	}
+	maxY -= groupingsOffset
 	maxRows := uint32(maxY - 8)
+	// HACK maxY - 8 is the max number of visible rows when header and prompt are present
 	if mv.request.Limit != maxRows {
 		mv.request.Limit = maxRows
 		if err := mv.updateTableViewContents(true); err != nil {
@@ -124,7 +147,7 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	}
-	v, err := g.SetView("table", 0, 3, maxX-2, maxY-5)
+	v, err := g.SetView("table", 0, 3+groupingsOffset, maxX-2, maxY+groupingsOffset-5)
 	if err != nil {
 		if err != gocui.ErrUnknownView {
 			return err
@@ -136,7 +159,7 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 	if err := mv.TableView.WriteContents(v); err != nil {
 		return err
 	}
-	prompt, err := g.SetView("prompt", 0, maxY-3, maxX-2, maxY-1)
+	prompt, err := g.SetView("prompt", 0, maxY+groupingsOffset-3, maxX-2, maxY+groupingsOffset-1)
 	if err != nil {
 		if err != gocui.ErrUnknownView {
 			return err
@@ -149,7 +172,7 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 	if switching {
 		prompt.Clear()
 	}
-	location, err := g.SetView("location", 0, maxY-5, maxX-2, maxY-3)
+	location, err := g.SetView("location", 0, maxY+groupingsOffset-5, maxX-2, maxY+groupingsOffset-3)
 	if err != nil {
 		if err != gocui.ErrUnknownView {
 			return err
@@ -483,7 +506,9 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		})
 		err = mv.updateTableViewContents(true)
 	case 'q':
-		if len(mv.request.Conditions[0].Requires) > 0 {
+		if len(mv.request.GroupBy.Groupings) > 0 {
+			mv.request.GroupBy.Groupings = mv.request.GroupBy.Groupings[:len(mv.request.GroupBy.Groupings)-1]
+		} else if len(mv.request.Conditions[0].Requires) > 0 {
 			mv.request.Conditions[0].Requires = mv.request.Conditions[0].Requires[:len(mv.request.Conditions[0].Requires)-1]
 		}
 		err = mv.updateTableViewContents(true)
@@ -555,6 +580,12 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		err = mv.copyValue()
 	case 'Y':
 		err = mv.pasteValue()
+	case 'b':
+		err = mv.addGrouping()
+	case 'L':
+		err = mv.shiftSelectedGrouping(1)
+	case 'H':
+		err = mv.shiftSelectedGrouping(-1)
 	default:
 		err = mv.runMacro(ch)
 	}
@@ -1000,6 +1031,38 @@ func (mv *MainView) pasteValue() error {
 	return mv.updateEntryValue(strings.TrimSpace(string(out)))
 }
 
+func (mv *MainView) addGrouping() error {
+	row, col := mv.SelectedEntry()
+	mv.request.GroupBy.Groupings = append(mv.request.GroupBy.Groupings, &jqlpb.RequestedGrouping{
+		Field:    mv.response.Columns[col].Name,
+		Selected: mv.response.Rows[row].Entries[col].Formatted,
+	})
+	mv.request.Offset = 0
+	return mv.updateTableViewContents(true)
+}
+
+func (mv *MainView) shiftSelectedGrouping(offset int) error {
+	if len(mv.request.GroupBy.Groupings) == 0 {
+		return nil
+	}
+	if len(mv.response.Groupings) == 0 {
+		return nil
+	}
+
+	requestedGrouping := mv.request.GroupBy.Groupings[len(mv.request.GroupBy.Groupings)-1]
+	grouping := mv.response.Groupings[len(mv.response.Groupings)-1]
+	sorted := sortedKeys(grouping.Values)
+	selectedIX := 0
+	for i, k := range sorted {
+		if k == requestedGrouping.Selected {
+			selectedIX = i
+		}
+	}
+	requestedGrouping.Selected = sorted[(selectedIX+len(sorted)+offset)%len(sorted)]
+	mv.request.Offset = 0
+	return mv.updateTableViewContents(true)
+}
+
 func (mv *MainView) cursorDown(g *gocui.Gui, v *gocui.View) error {
 	if v == nil {
 		return nil
@@ -1126,4 +1189,33 @@ func (mv *MainView) GoToPrimaryKey(pk string) error {
 		},
 	}
 	return mv.updateTableViewContents(true)
+}
+
+func (mv *MainView) writeGroupings(v *gocui.View) {
+	v.Clear()
+	for _, grouping := range mv.response.Groupings {
+		sorted := sortedKeys(grouping.Values)
+		v.Write([]byte(grouping.Field + ":    "))
+		for _, k := range sorted {
+			if k == grouping.Selected {
+				v.Write([]byte(blackTextEscape + whiteBackEscape + boldTextEscape))
+			}
+			v.Write([]byte(fmt.Sprintf("    %s (%d)    ", k, grouping.Values[k])))
+			if k == grouping.Selected {
+				v.Write([]byte(resetEscape))
+			}
+		}
+		v.Write([]byte("\n"))
+	}
+}
+
+func sortedKeys(m map[string]int64) []string {
+	sorted := []string{}
+	for k := range m {
+		sorted = append(sorted, k)
+	}
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i] < sorted[j]
+	})
+	return sorted
 }
