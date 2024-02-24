@@ -89,8 +89,8 @@ class IdeasBackend(jql_pb2_grpc.JQLServicer):
         for idea in noun_to_idea.values():
             idea["Domain"] = domains[idea["Parent"][0]]["Domain"]
         # apply sorting, filtering, and limiting -- this portion can be made generic
-        ideas, all_count = common.apply_request_parameters(
-            noun_to_idea.values(), request)
+        grouped, groupings = common.apply_grouping(noun_to_idea.values(), request)
+        ideas, all_count = common.apply_request_parameters(grouped, request)
         return jql_pb2.ListRowsResponse(
             table='vt.ideas',
             columns=[
@@ -110,6 +110,7 @@ class IdeasBackend(jql_pb2_grpc.JQLServicer):
             ],
             total=all_count,
             all=len(ideas_response.rows),
+            groupings=groupings,
         )
 
     def IncrementEntry(self, request, context):

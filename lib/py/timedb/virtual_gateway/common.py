@@ -51,13 +51,31 @@ def apply_request_parameters(rows, request):
         filter_row = lambda row: all(
             _filter_matches(row, f) for f in request.conditions[0].requires)
         rows = list(filter(filter_row, rows))
-    rows = sorted(rows,
-                  key=lambda idea: _sort_key(
-                      idea.get(request.order_by, idea["_pk"])),
-                  reverse=request.dec)
+    rows = sorted(
+        rows,
+        key=lambda idea: _sort_key(idea.get(request.order_by, idea["_pk"])),
+        reverse=request.dec)
     all_count = len(rows)
     rows = rows[request.offset:request.offset + request.limit]
     return rows, all_count
+
+
+def apply_grouping(rows, request):
+    if not (request.group_by and request.group_by.groupings):
+        return rows, []
+    groupings = []
+    for requested in request.group_by.groupings:
+        field = requested.field
+        selected = requested.selected
+        grouping = jql_pb2.Grouping(
+            field=field,
+            selected=selected,
+            values=dict(collections.Counter(map(lambda row: row[field][0] if row[field] else "",
+                                                rows))),
+        )
+        rows = [row for row in rows if selected in row[field]]
+        groupings.append(grouping)
+    return rows, groupings
 
 
 def gather_max_lens(rows, base_cols=()):
@@ -94,6 +112,7 @@ def present_attrs(attrs):
         return attrs[0]
     return f"{len(attrs)} entries"
 
+
 def _sort_key(attrs):
     as_shown = present_attrs(attrs)
     try:
@@ -103,11 +122,14 @@ def _sort_key(attrs):
     except ValueError:
         return as_shown
 
+
 def get_primary(response):
     return [i for i, c in enumerate(response.columns) if c.primary][0]
- 
+
+
 def encode_pk(noun_pk, assn_pks):
     return "\t".join([noun_pk, json.dumps(assn_pks)])
+
 
 def decode_pk(pk):
     noun_pk, assn_pks = pk.split("\t")

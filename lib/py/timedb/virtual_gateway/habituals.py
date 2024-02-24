@@ -74,8 +74,8 @@ class HabitualsBackend(jql_pb2_grpc.JQLServicer):
                     days_until_s = str(days_until).zfill(5)
                 habitual["Days Until"] = [days_until_s]
         # apply sorting, filtering, and limiting -- this portion can be made generic
-        habituals, all_count = common.apply_request_parameters(
-            noun_to_habitual.values(), request)
+        grouped, groupings = common.apply_grouping(noun_to_habitual.values(), request)
+        habituals, all_count = common.apply_request_parameters(grouped, request)
         return jql_pb2.ListRowsResponse(
             table='vt.habituals',
             columns=[
@@ -93,6 +93,7 @@ class HabitualsBackend(jql_pb2_grpc.JQLServicer):
             ],
             total=all_count,
             all=len(habituals_response.rows),
+            groupings=groupings,
         )
 
     def IncrementEntry(self, request, context):

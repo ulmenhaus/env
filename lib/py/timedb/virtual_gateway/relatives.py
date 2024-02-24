@@ -59,8 +59,9 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
         first_fields = ["Display Name", "Class", "Relation"]
         foreign_fields = _foreign_fields(relatives.values())
         initial = _convert_foreign_fields(relatives.values(), foreign_fields)
-        max_lens = common.gather_max_lens(initial, first_fields)
-        final, all_count = common.apply_request_parameters(initial, request)
+        grouped, groupings = common.apply_grouping(initial, request)
+        max_lens = common.gather_max_lens(grouped, first_fields)
+        final, all_count = common.apply_request_parameters(grouped, request)
         shared_fields = sorted(set().union(*(final)) - set(first_fields) -
                                {"_pk", "-> Item"})
         fields = first_fields + shared_fields + ["_pk"]
@@ -81,6 +82,7 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
             ],
             total=all_count,
             all=len(relatives),
+            groupings=groupings,
         )
 
     def _possible_targets(self, request):
