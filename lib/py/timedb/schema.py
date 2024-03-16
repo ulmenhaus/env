@@ -21,6 +21,7 @@ class Fields(object):
     Description = "Description"
     Identifier = "_Identifier"
     Context = "Context"
+    Code = "Code"
 
 class Values(object):
     StatusIdea = 'Idea'

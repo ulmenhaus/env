@@ -195,32 +195,46 @@ class PKSetter(object):
         contexts = _protos_to_dict(response.columns, response.rows)
         self.parent_to_context = {}
         for context in contexts.values():
-            self.parent_to_context[context[schema.Fields.Parent]] = context
+            self.parent_to_context[context[schema.Fields.Parent]] = context[
+                schema.Fields.Code]
 
     def update_noun(self, old):
         self._populate_contexts()
         request = jql_pb2.GetRowRequest(table=schema.Tables.Nouns, pk=old)
         response = self.dbms.GetRow(request)
         noun = _proto_to_dict(response.columns, response.row)
-        noun[schema.Fields.Context] = self.parent_to_context.get(noun[schema.Fields.Parent], "")
+        noun[schema.Fields.Context] = self.parent_to_context.get(
+            noun[schema.Fields.Parent], "")
         if not noun[schema.Fields.Description]:
             noun[schema.Fields.Description] = old
         new = pk_for_noun(noun)
         noun[schema.Fields.Identifier] = new
-        possibly_changed = [schema.Fields.Identifier, schema.Fields.Description, schema.Fields.Context]
+        possibly_changed = [
+            schema.Fields.Identifier, schema.Fields.Description,
+            schema.Fields.Context
+        ]
         update_request = jql_pb2.WriteRowRequest(
             table=schema.Tables.Nouns,
             pk=old,
-            fields={k: noun[k] for k in possibly_changed},
+            fields={k: noun[k]
+                    for k in possibly_changed},
             update_only=True,
         )
         self.dbms.WriteRow(update_request)
         if old == new:
             return
-        self._update_all(schema.Tables.Assertions, schema.Fields.Arg0, old,
-                         new)
-        self._update_all(schema.Tables.Assertions, schema.Fields.Arg1,
-                         f"@timedb:{old}:", f"@timedb:{new}:", exact=False)
+        self._update_all(schema.Tables.Nouns, schema.Fields.Parent, old, new)
+        self._update_all(
+            schema.Tables.Assertions,
+            schema.Fields.Arg0,
+            f"{schema.Tables.Nouns} {old}",
+            f"{schema.Tables.Nouns} {new}",
+        )
+        self._update_all(schema.Tables.Assertions,
+                         schema.Fields.Arg1,
+                         f"@timedb:{old}:",
+                         f"@timedb:{new}:",
+                         exact=False)
         self._update_all(schema.Tables.Tasks, schema.Fields.Direct, old, new)
         self._update_all(schema.Tables.Tasks, schema.Fields.Indirect, old, new)
 
@@ -338,6 +352,7 @@ def _proto_to_dict(columns, row):
         else:
             d[col.name] = row.entries[i].formatted
     return d
+
 
 def _protos_to_dict(columns, rows):
     ds = {}
