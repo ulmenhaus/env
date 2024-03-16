@@ -84,16 +84,6 @@ func (osm *ObjectStoreMapper) getAndPurgeUpdates() map[update]bool {
 	return updates
 }
 
-func (osm *ObjectStoreMapper) AllUpdated() {
-	osm.mu.Lock()
-	defer osm.mu.Unlock()
-	for tname, table := range osm.db.Tables {
-		for pk := range table.Entries {
-			osm.updates[newUpdate(table, tname, pk)] = true
-		}
-	}
-}
-
 func (osm *ObjectStoreMapper) RowUpdating(tname, pk string) {
 	osm.mu.Lock()
 	defer osm.mu.Unlock()
@@ -356,6 +346,9 @@ func (osm *ObjectStoreMapper) loadEncodedDB(raw storage.EncodedDatabase) error {
 		// columns by name
 		table := types.NewTable(fieldsByTable[name], entries, primary, constructorsByTable[name], featuresByColumnByTable[name], columnMetaByTable[name])
 		db.Tables[name] = table
+	}
+	if osm.db != nil {
+		osm.updates = changedKeys(osm.db, db)
 	}
 	osm.db = db
 	return nil
@@ -621,4 +614,41 @@ func getShardStrategy(table *types.Table) shardStrategy {
 		}
 	}
 	return strategy
+}
+
+func changedKeys(old, new *types.Database) map[update]bool {
+	updates := map[update]bool{}
+	for name, oldTable := range old.Tables {
+		newTable := new.Tables[name]
+		for pk, oldRow := range oldTable.Entries {
+			u := newUpdate(oldTable, name, pk)
+			newRow := newTable.Entries[pk]
+			if newRow == nil {
+				updates[u] = true
+				continue
+			}
+			for i := range oldRow {
+				if oldRow[i].Format("") != newRow[i].Format("") {
+					updates[u] = true
+				}
+			}
+		}
+	}
+	for name, newTable := range new.Tables {
+		oldTable := old.Tables[name]
+		for pk, newRow := range newTable.Entries {
+			u := newUpdate(newTable, name, pk)
+			oldRow := oldTable.Entries[pk]
+			if oldRow == nil {
+				updates[u] = true
+				continue
+			}
+			for i := range newRow {
+				if oldRow[i].Format("") != newRow[i].Format("") {
+					updates[u] = true
+				}
+			}
+		}
+	}
+	return updates
 }
