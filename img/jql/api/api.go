@@ -136,8 +136,8 @@ func (s *LocalDBMS) WriteRow(ctx context.Context, in *jqlpb.WriteRowRequest, opt
 		return nil, err
 	}
 	if in.GetUpdateOnly() {
+		s.OSM.RowUpdating(in.GetTable(), in.GetPk())
 		for key, value := range in.GetFields() {
-			s.OSM.RowUpdating(in.GetTable(), in.GetPk())
 			if err := table.Update(in.GetPk(), key, value); err != nil {
 				return nil, err
 			}
