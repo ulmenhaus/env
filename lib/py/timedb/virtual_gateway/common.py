@@ -134,3 +134,37 @@ def encode_pk(noun_pk, assn_pks):
 def decode_pk(pk):
     noun_pk, assn_pks = pk.split("\t")
     return noun_pk, json.loads(assn_pks)
+
+def possible_targets(client, request, table):
+    nouns_request = jql_pb2.ListRowsRequest(table=schema.Tables.Nouns)
+    nouns_response = client.ListRows(nouns_request)
+    primary, = [
+        i for i, c in enumerate(nouns_response.columns) if c.primary
+    ]
+    nouns_cmap = {c.name: i for i, c in enumerate(nouns_response.columns)}
+    noun_pks = [
+        f"{row.entries[primary].formatted}" for row in nouns_response.rows
+    ]
+    entries = [{"_pk": [pk], "-> Item": [f"{schema.Tables.Nouns} {pk}"]} for pk in noun_pks]
+    final, all_count = apply_request_parameters(entries, request)
+    return jql_pb2.ListRowsResponse(
+        table=table,
+        columns=[
+            jql_pb2.Column(name="-> Item", max_length=30, primary=True)
+        ],
+        rows=[
+            jql_pb2.Row(
+                entries=[jql_pb2.Entry(formatted=noun["-> Item"][0])])
+            for noun in final
+        ],
+        total=all_count,
+        all=len(entries),
+    )
+
+def selected_target(request):
+    for condition in request.conditions:
+        for f in condition.requires:
+            match_type = f.WhichOneof('match')
+            if match_type == "equal_match" and f.column == '-> Item':
+                return f.equal_match.value
+

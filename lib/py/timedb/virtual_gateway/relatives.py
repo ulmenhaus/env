@@ -14,9 +14,9 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
         self.client = client
 
     def ListRows(self, request, context):
-        selected_target = _selected_target(request)
+        selected_target = common.selected_target(request)
         if not selected_target:
-            return self._possible_targets(request)
+            return common.possible_targets(self.client, request, 'vt.relatives')
 
         selected_table, selected_item = selected_target.split(" ", 1)
         relatives = {}
@@ -83,32 +83,6 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
             total=all_count,
             all=len(relatives),
             groupings=groupings,
-        )
-
-    def _possible_targets(self, request):
-        nouns_request = jql_pb2.ListRowsRequest(table=schema.Tables.Nouns)
-        nouns_response = self.client.ListRows(nouns_request)
-        primary, = [
-            i for i, c in enumerate(nouns_response.columns) if c.primary
-        ]
-        nouns_cmap = {c.name: i for i, c in enumerate(nouns_response.columns)}
-        noun_pks = [
-            f"{row.entries[primary].formatted}" for row in nouns_response.rows
-        ]
-        entries = [{"_pk": [pk], "-> Item": [f"{schema.Tables.Nouns} {pk}"]} for pk in noun_pks]
-        final, all_count = common.apply_request_parameters(entries, request)
-        return jql_pb2.ListRowsResponse(
-            table='vt.relatives',
-            columns=[
-                jql_pb2.Column(name="-> Item", max_length=30, primary=True)
-            ],
-            rows=[
-                jql_pb2.Row(
-                    entries=[jql_pb2.Entry(formatted=noun["-> Item"][0])])
-                for noun in final
-            ],
-            total=all_count,
-            all=len(entries),
         )
 
     def _query_explicit_relatives(self, selected_item):
@@ -208,13 +182,6 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
                 self.client.WriteRow(request)
         return jql_pb2.WriteRowResponse()
 
-
-def _selected_target(request):
-    for condition in request.conditions:
-        for f in condition.requires:
-            match_type = f.WhichOneof('match')
-            if match_type == "equal_match" and f.column == '-> Item':
-                return f.equal_match.value
 
 def is_verb(attribute):
     return attribute.endswith("es")
