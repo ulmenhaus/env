@@ -23,13 +23,13 @@ class CycleManager(object):
 
         if tasks[parent_task_pk]['Indirect'] == "":
             # if this is the root task for this cycle
-            if lineage[:2] != ["root", "models"]:
+            if lineage[:1] != ["root"]:
                 raise ValueError(
-                    "attention cycles can only be automatically created for models"
+                    "attention cycles can only be automatically created for models:", pk
                 )
-            if lineage[2] != pk:
+            if lineage[1] != pk:
                 # create a cycle for root's grandchild and then add this cycle to it
-                self.add_cycle_for(lineage[2])
+                self.add_cycle_for(lineage[1])
                 return self.add_cycle_for(pk)
         new_task = dict(tasks[root_task_pk])
         new_task['Action'] = "Attend"

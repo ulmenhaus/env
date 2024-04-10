@@ -137,13 +137,25 @@ func (s *LocalDBMS) WriteRow(ctx context.Context, in *jqlpb.WriteRowRequest, opt
 	}
 	if in.GetUpdateOnly() {
 		s.OSM.RowUpdating(in.GetTable(), in.GetPk())
+		// Take two passes here, one for updating non-pk fields
+		// and one for updating the pk. If the pk is updated before other
+		// fields, subsequent updates can't work
 		for key, value := range in.GetFields() {
+			if table.Primary() == table.IndexOfField(key) {
+				continue
+			}
 			if err := table.Update(in.GetPk(), key, value); err != nil {
 				return nil, err
 			}
-			if table.Primary() == table.IndexOfField(key) {
-				s.OSM.RowUpdating(in.GetTable(), value)
+		}
+		for key, value := range in.GetFields() {
+			if table.Primary() != table.IndexOfField(key) {
+				continue
 			}
+			if err := table.Update(in.GetPk(), key, value); err != nil {
+				return nil, err
+			}
+			s.OSM.RowUpdating(in.GetTable(), value)
 		}
 	} else {
 		table.InsertWithFields(in.GetPk(), in.GetFields())
