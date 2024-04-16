@@ -478,11 +478,15 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		}
 		tables := map[string]*jqlpb.TableMeta{}
 		for _, table := range resp.Tables {
-			if (table.Name == mv.request.Table) == (ch == 'u') {
+			// 'g' includes all foreign keys where as 'u' includes just this table
+			// and goes in reverse order. This allows a more elegant UX when there
+			// are two columns that map to this same table because each gets a unique
+			// key
+			if ch == 'g' || (ch == 'u' && table.Name == mv.request.Table) {
 				tables[table.Name] = table
 			}
 		}
-		err = mv.goToSelectedValue(tables)
+		err = mv.goToSelectedValue(tables, ch == 'u')
 	case 'G', 'U':
 		var resp *jqlpb.ListTablesResponse
 		resp, err = mv.dbms.ListTables(ctx, &jqlpb.ListTablesRequest{})
@@ -491,11 +495,12 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		}
 		var tables []*jqlpb.TableMeta
 		for _, table := range resp.Tables {
-			if (table.Name == mv.request.Table) == (ch == 'U') {
+			// See the 'g', 'u' case for why we construct the table set in this way
+			if ch == 'G' || (ch == 'U' && table.Name == mv.request.Table) {
 				tables = append(tables, table)
 			}
 		}
-		err = mv.goFromSelectedValue(tables)
+		err = mv.goFromSelectedValue(tables, ch == 'U')
 	case 'f', 'F':
 		row, col := mv.SelectedEntry()
 		filterTarget := mv.response.Rows[row].Entries[col].Formatted
@@ -772,7 +777,7 @@ func (mv *MainView) promptExit(contents string, finish bool, err error) {
 	}
 }
 
-func (mv *MainView) goToSelectedValue(tables map[string]*jqlpb.TableMeta) error {
+func (mv *MainView) goToSelectedValue(tables map[string]*jqlpb.TableMeta, reverse bool) error {
 	row, col := mv.SelectedEntry()
 	var table string
 	var keys []string
@@ -800,7 +805,11 @@ loop:
 				break loop
 			}
 		}
-		col = (col + 1) % len(mv.response.Columns)
+		delta := 1
+		if reverse {
+			delta = -1
+		}
+		col = (col + delta + len(mv.response.Columns)) % len(mv.response.Columns)
 		if col == mv.TableView.Selections.Primary.Column {
 			return fmt.Errorf("no foreign key found in entry")
 		}
@@ -826,7 +835,7 @@ loop:
 	return mv.updateTableViewContents(true)
 }
 
-func (mv *MainView) goFromSelectedValue(tables []*jqlpb.TableMeta) error {
+func (mv *MainView) goFromSelectedValue(tables []*jqlpb.TableMeta, reverse bool) error {
 	row, colix := mv.SelectedEntry()
 	selected := mv.response.Rows[row].Entries[api.GetPrimary(mv.response.Columns)]
 	for _, table := range tables {
@@ -839,13 +848,19 @@ func (mv *MainView) goFromSelectedValue(tables []*jqlpb.TableMeta) error {
 		if table.Name == mv.request.Table {
 			rotatedCols := []int{}
 			for _, col := range cols {
-				if col >= colix {
+				if reverse {
+					rotatedCols = append([]int{col}, rotatedCols...)
+				} else {
 					rotatedCols = append(rotatedCols, col)
 				}
 			}
 			for _, col := range cols {
 				if col < colix {
-					rotatedCols = append(rotatedCols, col)
+					if reverse {
+						rotatedCols = append([]int{col}, rotatedCols...)
+					} else {
+						rotatedCols = append(rotatedCols, col)
+					}
 				}
 			}
 			cols = rotatedCols
