@@ -59,7 +59,12 @@ def pk_for_noun(noun):
     if modifier:
         idn = f"{modifier} {idn}"
     if disambiguator:
-        idn = f"{idn} ({disambiguator})"
+        if modifier and disambiguator == "approach":
+            idn = f"{modifier} approach to {description}"
+        elif modifier and disambiguator == "concept":
+            idn = f"{modifier} concept of {description}"
+        else:
+            idn = f"{idn} ({disambiguator})"
     ctx, cnl = noun['Context'], noun['Coordinal']
     # we only consider the coordinal of a noun as part of its identity once we are committed to it
     if cnl != "" and noun['Relation'] == "Item" and noun['Status'] not in [
