@@ -168,3 +168,35 @@ def selected_target(request):
             if match_type == "equal_match" and f.column == '-> Item':
                 return f.equal_match.value
 
+def _is_foreign(entry):
+    return len(entry) > len("@timedb:") and entry.startswith(
+        "@timedb:") and entry.endswith(":") and ":" not in _strip_foreign(
+            entry)
+
+
+def foreign_fields(rows):
+    all_fields = set()
+    not_foreign = set()
+    for row in rows:
+        for k, v in row.items():
+            all_fields.add(k)
+            for item in v:
+                if not _is_foreign(item):
+                    not_foreign.add(k)
+    return all_fields - not_foreign
+
+def _strip_foreign(entry):
+    return entry[len("@timedb:"):-1]
+
+def convert_foreign_fields(before, foreign):
+    after = []
+    for row in before:
+        new_row = collections.defaultdict(list)
+        for k, v in row.items():
+            if k in foreign:
+                # For now we only allow referencing nouns from assertions, but we may support other tables in the future
+                new_row[k] = [f"nouns {_strip_foreign(item)}" for item in v]
+            else:
+                new_row[k] = v
+        after.append(new_row)
+    return after

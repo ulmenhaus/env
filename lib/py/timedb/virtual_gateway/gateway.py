@@ -30,3 +30,6 @@ class Gateway(jql_pb2_grpc.JQLServicer):
     def WriteRow(self, request, context):
         return self._handle_request(request, context, "WriteRow")
 
+    def DeleteRow(self, request, context):
+        return self._handle_request(request, context, "DeleteRow")
+

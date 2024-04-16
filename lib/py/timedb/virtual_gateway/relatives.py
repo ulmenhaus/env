@@ -57,11 +57,11 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
         # 1. From arguments (direct/indirect of tasks, modified for nouns)
         # 2. Items which use a particular schema (as referenced by parent)
         first_fields = ["Display Name", "Class", "Relation"]
-        foreign_fields = _foreign_fields(relatives.values())
-        initial = _convert_foreign_fields(relatives.values(), foreign_fields)
-        grouped, groupings = common.apply_grouping(initial, request)
+        grouped, groupings = common.apply_grouping(relatives.values(), request)
         max_lens = common.gather_max_lens(grouped, first_fields)
-        final, all_count = common.apply_request_parameters(grouped, request)
+        filtered, all_count = common.apply_request_parameters(grouped, request)
+        foreign_fields = common.foreign_fields(filtered)
+        final = common.convert_foreign_fields(filtered, foreign_fields)
         shared_fields = sorted(set().union(*(final)) - set(first_fields) -
                                {"_pk", "-> Item"})
         fields = first_fields + shared_fields + ["_pk"]
@@ -192,33 +192,3 @@ def _type_of(field, foreign):
     if field in foreign:
         return jql_pb2.EntryType.POLYFOREIGN
     return jql_pb2.EntryType.STRING
-
-def _is_foreign(entry):
-    return len(entry) > len("@timedb:") and entry.startswith("@timedb:") and entry.endswith(":") and ":" not in _strip_foreign(entry)
-
-def _strip_foreign(entry):
-    return entry[len("@timedb:"):-1]
-
-def _foreign_fields(rows):
-    all_fields = set()
-    not_foreign = set()
-    for row in rows:
-        for k, v in row.items():
-            all_fields.add(k)
-            for item in v:
-                if not _is_foreign(item):
-                    not_foreign.add(k)
-    return all_fields - not_foreign
-
-def _convert_foreign_fields(before, foreign_fields):
-    after = []
-    for row in before:
-        new_row = collections.defaultdict(list)
-        for k, v in row.items():
-            if k in foreign_fields:
-                # For now we only allow referencing nouns from assertions, but we may support other tables in the future
-                new_row[k] = [f"nouns {_strip_foreign(item)}" for item in v]
-            else:
-                new_row[k] = v
-        after.append(new_row)
-    return after
