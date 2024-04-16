@@ -16,7 +16,7 @@ import time
 
 from timedb import pks
 
-STANDARD_PROPERTIES = ("Description", "Point")
+STANDARD_PROPERTIES = ("Description", "Note")
 TERMINAL_STATUSES = ("Satisfied", "Revisit", "Failed")
 
 
@@ -80,7 +80,7 @@ def convert_assertions_to_markdown(subject, assertions, snapshot):
     md = ["# {}".format(subject)]
     sorted_rels = list(sorted(by_relation))
     # Put some meta relations at the end for easy editing
-    for meta_rel in [".Description", ".Thought", ".Point"]:
+    for meta_rel in [".Description", ".Thought", ".Note"]:
         if meta_rel in sorted_rels:
             sorted_rels.remove(meta_rel)
             sorted_rels.append(meta_rel)

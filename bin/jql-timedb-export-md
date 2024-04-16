@@ -144,7 +144,7 @@ def tabulate_entries(
         for rel in all_relations:
             orobs = key2rel2orobs[full_pk][rel]
             # NOTE tight coupling with parent procedure here that constructs
-            # pseudo "Meta" relations for Points, Thoughts, &c
+            # pseudo "Meta" relations for Notes, Thoughts, &c
             if rel == "Meta":
                 counts = collections.Counter(
                     [orig_rel for orig_rel, _ in orobs])
@@ -264,7 +264,7 @@ def generate_markdown(snapshot, table, pk):
         "Implements",
         "Memo",
         "Plan",
-        "Point",
+        "Note",
         "Procedure",
         "Quote",
         "Resource",
