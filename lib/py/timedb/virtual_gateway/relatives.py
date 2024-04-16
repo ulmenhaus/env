@@ -70,7 +70,7 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
             columns=[
                 jql_pb2.Column(name=field,
                                type=_type_of(field, foreign_fields),
-                               max_length=max_lens[field],
+                               max_length=max_lens.get(field, len(field)),
                                primary=field == '_pk') for field in fields
             ],
             rows=[
