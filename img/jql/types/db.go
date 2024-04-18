@@ -158,7 +158,11 @@ func (t *Table) Query(params QueryParams) (*Response, error) {
 	if params.Limit != 0 {
 		cap = IntMin(params.Offset+params.Limit, cap)
 	}
-	entries = entries[params.Offset:cap]
+	offset := params.Offset
+	if offset > cap {
+		offset = cap
+	}
+	entries = entries[offset:cap]
 	resp := &Response{
 		Entries: entries,
 		Total:   total,

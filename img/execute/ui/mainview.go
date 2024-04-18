@@ -306,23 +306,32 @@ func (mv *MainView) insertDayPlan(g *gocui.Gui, description string) error {
 			}
 		}
 	}
+	updated := []string{}
 	for _, row := range existingTodos.Rows {
 		orderInt, err := strconv.Atoi(row.Entries[api.IndexOfField(assnTable.Columns, FieldOrder)].Formatted)
 		if err != nil {
-			continue
+			return err
 		}
 		if orderInt > dayOrder {
+			pk := row.Entries[api.GetPrimary(assnTable.Columns)].Formatted
 			_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
 				UpdateOnly: true,
 				Table:      TableAssertions,
-				Pk:         row.Entries[api.GetPrimary(assnTable.Columns)].Formatted,
+				Pk:         pk,
 				Fields:     map[string]string{FieldOrder: fmt.Sprintf("%d", orderInt+1)},
 			})
 			if err != nil {
 				return err
 			}
+			// NOTE We sync the row pks in reverse order so that we avoid a row overwriting its successor
+			updated = append([]string{pk}, updated...)
 		}
 	}
+	err = mv.syncPKs(TableAssertions, updated)
+	if err != nil {
+		return err
+	}
+
 	fields := map[string]string{
 		FieldArg0:      dayPlanLink,
 		FieldArg1:      fmt.Sprintf("[ ] %s", description),
@@ -331,12 +340,32 @@ func (mv *MainView) insertDayPlan(g *gocui.Gui, description string) error {
 	}
 	pk := fmt.Sprintf("%d", rand.Int63())
 	_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
-		Table:  TableAssertions,
-		Pk:     pk,
-		Fields: fields,
+		Table:      TableAssertions,
+		Pk:         pk,
+		Fields:     fields,
+		InsertOnly: true,
 	})
 	if err != nil {
 		return err
+	}
+	return nil
+}
+
+func (mv *MainView) syncPKs(table string, updated []string) error {
+	// TODO it's inefficient to run this macro for each key separately when we could
+	// have a macro interface that supports multiple selected keys
+	//
+	// When we implement this, the interface must preserve row order to prevent pks overwriting
+	// each other
+	for _, pk := range updated {
+		view := api.MacroCurrentView{
+			Table:            table,
+			PrimarySelection: pk,
+		}
+		_, err := api.RunMacro(ctx, mv.dbms, "jql-timedb-setpk --v2", view, true)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -1977,7 +2006,10 @@ func (mv *MainView) substitutePlanSelectionsForPlan(g *gocui.Gui, v *gocui.View)
 			return err
 		}
 		updated = append(updated, taskPK)
-		mv.insertDayPlan(g, item.Plan)
+		err = mv.insertDayPlan(g, item.Plan)
+		if err != nil {
+			return err
+		}
 	}
 	// If the user didn't mark any selections then don't actually change anything
 	if !inserted {
@@ -1988,17 +2020,9 @@ func (mv *MainView) substitutePlanSelectionsForPlan(g *gocui.Gui, v *gocui.View)
 	if err != nil {
 		return err
 	}
-	// TODO it's inefficient to run this macro for each key separately when we could
-	// have a macro interface that supports multiple selected keys
-	for _, pk := range updated {
-		view := api.MacroCurrentView{
-			Table:            TableTasks,
-			PrimarySelection: pk,
-		}
-		_, err := api.RunMacro(ctx, mv.dbms, "jql-timedb-setpk --v2", view, true)
-		if err != nil {
-			return err
-		}
+	err = mv.syncPKs(TableTasks, updated)
+	if err != nil {
+		return err
 	}
 	// NOTE we rely on deleteDayPlan to also save our changes
 	err = mv.deleteDayPlan(g, v)

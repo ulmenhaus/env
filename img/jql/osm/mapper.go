@@ -348,7 +348,9 @@ func (osm *ObjectStoreMapper) loadEncodedDB(raw storage.EncodedDatabase) error {
 		db.Tables[name] = table
 	}
 	if osm.db != nil {
-		osm.updates = changedKeys(osm.db, db)
+		for key := range changedKeys(osm.db, db) {
+			osm.updates[key] = true
+		}
 	}
 	osm.db = db
 	return nil

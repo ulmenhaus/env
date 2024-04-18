@@ -1,6 +1,6 @@
 import datetime
 
-from jql import jql_pb2
+from jql import jql_pb2, macro
 from timedb import schema
 
 HABIT_MODES = ("breakdown", "consistency", "continuity", "habituality",
@@ -189,7 +189,7 @@ class PKSetter(object):
             return
         request = jql_pb2.ListRowsRequest(table=schema.Tables.Actions)
         response = self.dbms.ListRows(request)
-        actions = _protos_to_dict(response.columns, response.rows)
+        actions = macro.protos_to_dict(response.columns, response.rows)
         self.actions = actions
 
     def _populate_contexts(self):
@@ -197,7 +197,7 @@ class PKSetter(object):
             return
         request = jql_pb2.ListRowsRequest(table=schema.Tables.Contexts)
         response = self.dbms.ListRows(request)
-        contexts = _protos_to_dict(response.columns, response.rows)
+        contexts = macro.protos_to_dict(response.columns, response.rows)
         self.parent_to_context = {}
         for context in contexts.values():
             self.parent_to_context[context[schema.Fields.Parent]] = context[
@@ -207,7 +207,7 @@ class PKSetter(object):
         self._populate_contexts()
         request = jql_pb2.GetRowRequest(table=schema.Tables.Nouns, pk=old)
         response = self.dbms.GetRow(request)
-        noun = _proto_to_dict(response.columns, response.row)
+        noun = macro.proto_to_dict(response.columns, response.row)
         noun[schema.Fields.Context] = self.parent_to_context.get(
             noun[schema.Fields.Parent], "")
         if not noun[schema.Fields.Description]:
@@ -247,7 +247,7 @@ class PKSetter(object):
         self._populate_actions()
         request = jql_pb2.GetRowRequest(table=schema.Tables.Tasks, pk=old)
         response = self.dbms.GetRow(request)
-        new = pk_for_task(_proto_to_dict(response.columns, response.row),
+        new = pk_for_task(macro.proto_to_dict(response.columns, response.row),
                           self.actions)
         if old == new:
             return
@@ -283,7 +283,8 @@ class PKSetter(object):
     def update_assertion(self, old):
         request = jql_pb2.GetRowRequest(table=schema.Tables.Assertions, pk=old)
         response = self.dbms.GetRow(request)
-        new = pk_for_assertion(_proto_to_dict(response.columns, response.row))
+        new = pk_for_assertion(
+            macro.proto_to_dict(response.columns, response.row))
         update_request = jql_pb2.WriteRowRequest(
             table=schema.Tables.Assertions,
             pk=old,
@@ -339,29 +340,3 @@ class PKSetter(object):
             self.dbms.WriteRow(update_request)
             if recursive:
                 self.update(table, row.entries[primary_ix].formatted)
-
-
-def _proto_to_dict(columns, row):
-    d = {}
-    for i, col in enumerate(columns):
-        if col.type == jql_pb2.EntryType.DATE:
-            parsed = datetime.datetime.strptime(row.entries[i].formatted,
-                                                "%d %b %Y")
-            delta = parsed - datetime.datetime(1970, 1, 1)
-            d[col.name] = int(delta.days)
-        elif col.type == jql_pb2.EntryType.INT:
-            d[col.name] = int(row.entries[i].formatted)
-        elif col.type == jql_pb2.EntryType.TIME:
-            raise NotImplementedError(
-                "conversion from time types not supported")
-        else:
-            d[col.name] = row.entries[i].formatted
-    return d
-
-
-def _protos_to_dict(columns, rows):
-    ds = {}
-    primary, = [i for i, c in enumerate(columns) if c.primary]
-    for row in rows:
-        ds[row.entries[primary].formatted] = _proto_to_dict(columns, row)
-    return ds
