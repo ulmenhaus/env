@@ -166,8 +166,7 @@ func (mv *MainView) fetchResources() error {
 		add it.
 	*/
 	for _, row := range resp.Rows {
-		feed := row.Entries[api.IndexOfField(resp.Columns, FieldFeed)].Formatted
-		if (!strings.Contains(feed, "://")) && feed != "manual" {
+		if !isTrackedFeed(row, resp.Columns) {
 			continue
 		}
 		entryName := row.Entries[api.IndexOfField(resp.Columns, FieldIdentifier)].Formatted
@@ -226,7 +225,7 @@ func (mv *MainView) fetchNewItems(g *gocui.Gui, v *gocui.View) error {
 			entry := mv.id2channel[name]
 			entryName := entry.row.Entries[api.IndexOfField(allItems.Columns, FieldIdentifier)].Formatted
 			channel := mv.id2channel[entryName]
-			channel.status2items[FreshView] = nil
+			channel.status2items[StatusFresh] = nil
 
 			feedURL := entry.row.Entries[api.IndexOfField(allItems.Columns, FieldFeed)].Formatted
 			if !strings.Contains(feedURL, "://") {
@@ -245,7 +244,7 @@ func (mv *MainView) fetchNewItems(g *gocui.Gui, v *gocui.View) error {
 				}
 				for _, item := range latest {
 					if !(allIDs[item.Identifier] || mv.ignored[entryName][item.Identifier]) {
-						channel.status2items[FreshView] = append(channel.status2items[FreshView], item)
+						channel.status2items[StatusFresh] = append(channel.status2items[StatusFresh], item)
 					}
 				}
 				return nil
@@ -269,7 +268,7 @@ func (mv *MainView) addFreshItem(g *gocui.Gui, v *gocui.View) error {
 	entryName := feed.row.Entries[api.IndexOfField(nounsTable.Columns, FieldIdentifier)].Formatted
 	_, cy := v.Cursor()
 	_, oy := v.Origin()
-	item := mv.id2channel[entryName].status2items[FreshView][oy+cy]
+	item := mv.id2channel[entryName].status2items[StatusFresh][oy+cy]
 	fields := map[string]string{
 		FieldLink:        item.Link,
 		FieldParent:      entryName,
@@ -303,7 +302,7 @@ func (mv *MainView) addFreshItem(g *gocui.Gui, v *gocui.View) error {
 	}
 
 	channel := mv.id2channel[entryName]
-	channel.status2items[FreshView] = append(channel.status2items[FreshView][:oy+cy], channel.status2items[FreshView][oy+cy+1:]...)
+	channel.status2items[StatusFresh] = append(channel.status2items[StatusFresh][:oy+cy], channel.status2items[StatusFresh][oy+cy+1:]...)
 	return mv.refreshView(g)
 }
 
@@ -332,7 +331,7 @@ func (mv *MainView) layoutDomains(g *gocui.Gui, domainHeight int) error {
 		}
 		totalFresh := 0
 		for _, channel := range domain.channels {
-			totalFresh += len(mv.id2channel[channel].status2items[FreshView])
+			totalFresh += len(mv.id2channel[channel].status2items[StatusFresh])
 		}
 		lenCorrection := 0
 		if totalFresh > 0 {
@@ -369,19 +368,19 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 	pipeOffset := func(i int) int {
 		return domainHeight + 1 + pipeHeight*i
 	}
-	active, err := g.SetView(StatusActive, resourcesWidth+1, pipeOffset(0), maxX-1, pipeOffset(0)+pipeHeight-1)
+	active, err := g.SetView(Stage4View, resourcesWidth+1, pipeOffset(0), maxX-1, pipeOffset(0)+pipeHeight-1)
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	}
-	pending, err := g.SetView(StatusPending, resourcesWidth+1, pipeOffset(1), maxX-1, pipeOffset(1)+pipeHeight-1)
+	planning, err := g.SetView(Stage3View, resourcesWidth+1, pipeOffset(1), maxX-1, pipeOffset(1)+pipeHeight-1)
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	}
-	idea, err := g.SetView(StatusIdea, resourcesWidth+1, pipeOffset(2), maxX-1, pipeOffset(2)+pipeHeight-1)
+	stage2, err := g.SetView(Stage2View, resourcesWidth+1, pipeOffset(2), maxX-1, pipeOffset(2)+pipeHeight-1)
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	}
-	fresh, err := g.SetView(FreshView, resourcesWidth+1, pipeOffset(3), maxX-1, pipeOffset(3)+pipeHeight-1)
+	stage1, err := g.SetView(Stage1View, resourcesWidth+1, pipeOffset(3), maxX-1, pipeOffset(3)+pipeHeight-1)
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	}
@@ -406,7 +405,7 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 		return err
 	}
 	stats.Write(statsContents)
-	for _, view := range []*gocui.View{active, pending, idea, fresh, resources} {
+	for _, view := range []*gocui.View{active, planning, stage2, stage1, resources} {
 		view.SelBgColor = gocui.ColorWhite
 		view.SelFgColor = gocui.ColorBlack
 		view.Highlight = view == g.CurrentView()
@@ -416,8 +415,8 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 	for ix, name := range mv.domains[mv.selectedDomain].channels {
 		channel := mv.id2channel[name]
 		description := channel.row.Entries[api.IndexOfField(nounsTable.Columns, FieldDescription)].Formatted
-		if len(channel.status2items[FreshView]) > 0 {
-			description += fmt.Sprintf(" %s(%d)%s", boldTextEscape, len(channel.status2items[FreshView]), resetEscape)
+		if len(channel.status2items[StatusFresh]) > 0 {
+			description += fmt.Sprintf(" %s(%d)%s", boldTextEscape, len(channel.status2items[StatusFresh]), resetEscape)
 		}
 		// If resources are not selected we'll bold the selected channel
 		_, cy := resources.Cursor()
@@ -432,23 +431,51 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 	if err != nil {
 		return err
 	}
+
 	for status, items := range channel.status2items {
 		for _, item := range items {
-			switch status {
-			case FreshView, StatusActive, StatusPending, StatusIdea:
-				view, err := g.View(status)
-				if err != nil {
-					return err
-				}
-				padding := item.Coordinal
-				if padding == "" {
-					padding = "   "
-				}
-				fmt.Fprintf(view, "  %s\t%s\n", padding, item.Description)
+			stages := mv.status2stage(channel)
+			stage, ok := stages[status]
+			if !ok {
+				continue
 			}
+			view, err := g.View(stage)
+			if err != nil {
+				return err
+			}
+			padding := item.Coordinal
+			if padding == "" {
+				padding = "   "
+			}
+			fmt.Fprintf(view, "  %s\t%s\n", padding, item.Description)
 		}
 	}
 	return nil
+}
+
+func reverseMap(m map[string]string) map[string]string {
+	out := map[string]string{}
+	for k, v := range m {
+		out[v] = k
+	}
+	return out
+}
+
+func (mv *MainView) status2stage(ch *channel) map[string]string {
+	if isAutomatedFeed(ch.row, mv.tables[TableNouns].Columns) {
+		return map[string]string{
+			StatusFresh:        Stage1View,
+			StatusIdea:         Stage2View,
+			StatusPlanning:     Stage3View,
+			StatusImplementing: Stage4View,
+		}
+	}
+	return map[string]string{
+		StatusIdea:         Stage1View,
+		StatusExploring:    Stage2View,
+		StatusPlanning:     Stage3View,
+		StatusImplementing: Stage4View,
+	}
 }
 
 func (mv *MainView) SaveIgnores() error {
@@ -465,11 +492,11 @@ func (mv *MainView) SaveIgnores() error {
 
 func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 	nextMap := map[string]string{
-		ResourcesView: FreshView,
-		FreshView:     StatusIdea,
-		StatusIdea:    StatusPending,
-		StatusPending: StatusActive,
-		StatusActive:  ResourcesView,
+		ResourcesView: Stage1View,
+		Stage1View:    Stage2View,
+		Stage2View:    Stage3View,
+		Stage3View:    Stage4View,
+		Stage4View:    ResourcesView,
 	}
 	for current, next := range nextMap {
 		err := g.SetKeybinding(current, 'f', gocui.ModNone, mv.fetchNewItems)
@@ -535,7 +562,7 @@ func (mv *MainView) moveDownInPipe(g *gocui.Gui, v *gocui.View) error {
 		return nil
 	}
 	name := v.Name()
-	if name == ResourcesView || name == FreshView {
+	if name == ResourcesView || name == StatusFresh {
 		return nil
 	}
 	_, cy := v.Cursor()
@@ -544,7 +571,8 @@ func (mv *MainView) moveDownInPipe(g *gocui.Gui, v *gocui.View) error {
 	if err != nil {
 		return err
 	}
-	pk := channel.status2items[name][oy+cy].Identifier
+	stage2status := reverseMap(mv.status2stage(channel))
+	pk := channel.status2items[stage2status[name]][oy+cy].Identifier
 	_, err = mv.dbms.IncrementEntry(ctx, &jqlpb.IncrementEntryRequest{
 		Table:  TableNouns,
 		Pk:     pk,
@@ -554,8 +582,8 @@ func (mv *MainView) moveDownInPipe(g *gocui.Gui, v *gocui.View) error {
 	if err != nil {
 		return err
 	}
-	if oy+cy+1 < len(channel.status2items[name]) {
-		successor := channel.status2items[name][oy+cy+1].Identifier
+	if oy+cy+1 < len(channel.status2items[stage2status[name]]) {
+		successor := channel.status2items[stage2status[name]][oy+cy+1].Identifier
 		_, err = mv.dbms.IncrementEntry(ctx, &jqlpb.IncrementEntryRequest{
 			Table:  TableNouns,
 			Pk:     successor,
@@ -574,7 +602,7 @@ func (mv *MainView) moveUpInPipe(g *gocui.Gui, v *gocui.View) error {
 		return nil
 	}
 	name := v.Name()
-	if name == ResourcesView || name == FreshView {
+	if name == ResourcesView || name == StatusFresh {
 		return nil
 	}
 	_, cy := v.Cursor()
@@ -583,7 +611,8 @@ func (mv *MainView) moveUpInPipe(g *gocui.Gui, v *gocui.View) error {
 	if err != nil {
 		return err
 	}
-	pk := channel.status2items[name][oy+cy].Identifier
+	stage2status := reverseMap(mv.status2stage(channel))
+	pk := channel.status2items[stage2status[name]][oy+cy].Identifier
 	_, err = mv.dbms.IncrementEntry(ctx, &jqlpb.IncrementEntryRequest{
 		Table:  TableNouns,
 		Pk:     pk,
@@ -594,7 +623,7 @@ func (mv *MainView) moveUpInPipe(g *gocui.Gui, v *gocui.View) error {
 		return err
 	}
 	if oy+cy-1 >= 0 {
-		predecessor := channel.status2items[name][oy+cy-1].Identifier
+		predecessor := channel.status2items[stage2status[name]][oy+cy-1].Identifier
 		_, err = mv.dbms.IncrementEntry(ctx, &jqlpb.IncrementEntryRequest{
 			Table:  TableNouns,
 			Pk:     predecessor,
@@ -626,8 +655,9 @@ func (mv *MainView) moveDown(g *gocui.Gui, v *gocui.View) error {
 	if err != nil {
 		return err
 	}
-	pk := channel.status2items[name][oy+cy].Identifier
-	if name == FreshView {
+	stage2status := reverseMap(mv.status2stage(channel))
+	pk := channel.status2items[stage2status[name]][oy+cy].Identifier
+	if name == StatusFresh {
 		resources, err := g.View(ResourcesView)
 		if err != nil {
 			return err
@@ -638,13 +668,18 @@ func (mv *MainView) moveDown(g *gocui.Gui, v *gocui.View) error {
 		entryName := row.Entries[api.IndexOfField(nounsTable.Columns, FieldIdentifier)].Formatted
 		mv.ignored[entryName][pk] = true
 		channel := mv.id2channel[entryName]
-		channel.status2items[FreshView] = append(channel.status2items[FreshView][:oy+cy], channel.status2items[FreshView][oy+cy+1:]...)
+		channel.status2items[StatusFresh] = append(channel.status2items[StatusFresh][:oy+cy], channel.status2items[StatusFresh][oy+cy+1:]...)
 	} else {
+		amt := -1
+		// Automated feeds jump straight from idea to planning stage
+		if isAutomatedFeed(channel.row, mv.tables[TableNouns].Columns) && stage2status[name] == StatusPlanning {
+			amt = -2
+		}
 		_, err = mv.dbms.IncrementEntry(ctx, &jqlpb.IncrementEntryRequest{
 			Table:  TableNouns,
 			Pk:     pk,
 			Column: FieldStatus,
-			Amount: -1,
+			Amount: int32(amt),
 		})
 		if err != nil {
 			return err
@@ -671,21 +706,27 @@ func (mv *MainView) moveUp(g *gocui.Gui, v *gocui.View) error {
 	if name == ResourcesView {
 		return nil
 	}
-	if name == FreshView {
-		return mv.addFreshItem(g, v)
-	}
 	channel, err := mv.selectedChannel(g)
 	if err != nil {
 		return err
 	}
+	stage2status := reverseMap(mv.status2stage(channel))
+	if stage2status[name] == StatusFresh {
+		return mv.addFreshItem(g, v)
+	}
+	amt := 1
+	// Automated feeds jump straight from idea to planning stage
+	if isAutomatedFeed(channel.row, mv.tables[TableNouns].Columns) && stage2status[name] == StatusIdea {
+		amt = 2
+	}
 	_, cy := v.Cursor()
 	_, oy := v.Origin()
-	pk := channel.status2items[name][oy+cy].Identifier
+	pk := channel.status2items[stage2status[name]][oy+cy].Identifier
 	_, err = mv.dbms.IncrementEntry(ctx, &jqlpb.IncrementEntryRequest{
 		Table:  TableNouns,
 		Pk:     pk,
 		Column: FieldStatus,
-		Amount: 1,
+		Amount: int32(amt),
 	})
 	if err != nil {
 		return err
@@ -705,7 +746,8 @@ func (mv *MainView) cursorDown(g *gocui.Gui, v *gocui.View) error {
 		if err != nil {
 			return err
 		}
-		max = len(channel.status2items[v.Name()])
+		stage2status := reverseMap(mv.status2stage(channel))
+		max = len(channel.status2items[stage2status[v.Name()]])
 	}
 	cx, cy := v.Cursor()
 	ox, oy := v.Origin()
@@ -748,7 +790,8 @@ func (mv *MainView) GetSelectedPK(g *gocui.Gui, v *gocui.View) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		return channel.status2items[v.Name()][oy+cy].Identifier, nil
+		stage2status := reverseMap(mv.status2stage(channel))
+		return channel.status2items[stage2status[v.Name()]][oy+cy].Identifier, nil
 	}
 }
 
@@ -756,7 +799,7 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 	// We refresh all channels here so we can be sure the status UI reflects the current
 	// state even though most likely only the current selected channel changed
 	for _, chn := range mv.id2channel {
-		for _, status := range []string{StatusActive, StatusPending, StatusIdea} {
+		for _, status := range []string{StatusImplementing, StatusExploring, StatusIdea, StatusPlanning} {
 			chn.status2items[status] = nil
 		}
 	}
@@ -780,7 +823,7 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 	}
 	for _, channel := range mv.id2channel {
 		for status, items := range channel.status2items {
-			if status != StatusIdea && status != StatusPending && status != StatusActive {
+			if status != StatusIdea && status != StatusExploring && status != StatusImplementing && status != StatusPlanning {
 				continue
 			}
 			sort.Slice(items, func(i, j int) bool {
@@ -835,31 +878,34 @@ func (mv *MainView) statsContents(g *gocui.Gui) ([]byte, error) {
 	}
 	domainCounts := mv.domainCounts()
 	allCounts := mv.allCounts()
-	stats := fmt.Sprintf(`      U    I    P    A
+	stats := fmt.Sprintf(`      U    I    E    P    I
 
-C     %s%s%s%s
+C     %s%s%s%s%s
 
-D     %s%s%s%s
+D     %s%s%s%s%s
 
-A     %s%s%s%s
+A     %s%s%s%s%s
 `,
 		// Channel
-		fmt.Sprintf("%-*d", colW, len(channel.status2items[FreshView])),
+		fmt.Sprintf("%-*d", colW, len(channel.status2items[StatusFresh])),
 		fmt.Sprintf("%-*d", colW, len(channel.status2items[StatusIdea])),
-		fmt.Sprintf("%-*d", colW, len(channel.status2items[StatusPending])),
-		fmt.Sprintf("%-*d", colW, len(channel.status2items[StatusActive])),
+		fmt.Sprintf("%-*d", colW, len(channel.status2items[StatusExploring])),
+		fmt.Sprintf("%-*d", colW, len(channel.status2items[StatusPlanning])),
+		fmt.Sprintf("%-*d", colW, len(channel.status2items[StatusImplementing])),
 
 		// Domain
-		fmt.Sprintf("%-*d", colW, domainCounts[FreshView]),
+		fmt.Sprintf("%-*d", colW, domainCounts[StatusFresh]),
 		fmt.Sprintf("%-*d", colW, domainCounts[StatusIdea]),
-		fmt.Sprintf("%-*d", colW, domainCounts[StatusPending]),
-		fmt.Sprintf("%-*d", colW, domainCounts[StatusActive]),
+		fmt.Sprintf("%-*d", colW, domainCounts[StatusExploring]),
+		fmt.Sprintf("%-*d", colW, domainCounts[StatusPlanning]),
+		fmt.Sprintf("%-*d", colW, domainCounts[StatusImplementing]),
 
 		// All
-		fmt.Sprintf("%-*d", colW, allCounts[FreshView]),
+		fmt.Sprintf("%-*d", colW, allCounts[StatusFresh]),
 		fmt.Sprintf("%-*d", colW, allCounts[StatusIdea]),
-		fmt.Sprintf("%-*d", colW, allCounts[StatusPending]),
-		fmt.Sprintf("%-*d", colW, allCounts[StatusActive]),
+		fmt.Sprintf("%-*d", colW, allCounts[StatusExploring]),
+		fmt.Sprintf("%-*d", colW, allCounts[StatusPlanning]),
+		fmt.Sprintf("%-*d", colW, allCounts[StatusImplementing]),
 	)
 	return []byte(stats), nil
 }
@@ -888,7 +934,7 @@ func (mv *MainView) allCounts() map[string]int {
 // resetView resets all cursors and the selected view for use
 // when user switches the selected domain
 func (mv *MainView) resetView(g *gocui.Gui) error {
-	for _, viewName := range []string{ResourcesView, FreshView, StatusIdea, StatusPending, StatusActive} {
+	for _, viewName := range []string{ResourcesView, Stage1View, Stage2View, Stage3View, Stage4View} {
 		view, err := g.View(viewName)
 		if err != nil {
 			return err
@@ -904,4 +950,14 @@ func (mv *MainView) resetView(g *gocui.Gui) error {
 		return err
 	}
 	return mv.refreshView(g)
+}
+
+func isAutomatedFeed(row *jqlpb.Row, columns []*jqlpb.Column) bool {
+	feed := row.Entries[api.IndexOfField(columns, FieldFeed)].Formatted
+	return feed != FeedManual
+}
+
+func isTrackedFeed(row *jqlpb.Row, columns []*jqlpb.Column) bool {
+	feed := row.Entries[api.IndexOfField(columns, FieldFeed)].Formatted
+	return strings.Contains(feed, "://") || feed == FeedManual
 }
