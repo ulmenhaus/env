@@ -122,6 +122,24 @@ func runExecute() error {
 		return err
 	}
 
+	substituteOrGoSelect := func(g *gocui.Gui, v *gocui.View) error {
+		count, err := mv.SubstituteTaskWithAllMatching(g, v)
+		if err != nil {
+			return err
+		}
+		if count != 0 {
+			return nil
+		}
+		cfg.Table = ui.TableNouns
+		return mv.GetCurrentDomain(g, v, func(pk string) error {
+			return cfg.SwitchTool("jql", pk)
+		})
+	}
+	err = g.SetKeybinding("", 'S', gocui.ModNone, substituteOrGoSelect)
+	if err != nil {
+		return err
+	}
+
 	if err := g.MainLoop(); err != nil && err != gocui.ErrQuit {
 		return err
 	}

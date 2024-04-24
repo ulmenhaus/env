@@ -38,7 +38,7 @@ func runFeed() error {
 	if err != nil {
 		return err
 	}
-	mv, err := ui.NewMainView(g, dbms, "feed_ignored.json", []string{"--path", cfg.Path})
+	mv, err := ui.NewMainView(g, dbms, "feed_ignored.json", []string{"--path", cfg.Path}, cfg.PK)
 	if err != nil {
 		return err
 	}

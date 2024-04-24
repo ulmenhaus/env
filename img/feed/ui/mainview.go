@@ -49,6 +49,8 @@ type MainView struct {
 	selectedDomain int
 	domains        []*domain
 	id2channel     map[string]*channel
+
+	channelToSelect string // Used to specify which channel should be initially selected when feed starts up
 }
 
 type domain struct {
@@ -62,7 +64,7 @@ type channel struct {
 }
 
 // NewMainView returns a MainView initialized with a given Table
-func NewMainView(g *gocui.Gui, dbms api.JQL_DBMS, ignoredPath string, returnArgs []string) (*MainView, error) {
+func NewMainView(g *gocui.Gui, dbms api.JQL_DBMS, ignoredPath string, returnArgs []string, selected string) (*MainView, error) {
 	mv := &MainView{
 		dbms: dbms,
 
@@ -95,6 +97,20 @@ func NewMainView(g *gocui.Gui, dbms api.JQL_DBMS, ignoredPath string, returnArgs
 	err = mv.fetchResources()
 	if err != nil {
 		return nil, err
+	}
+	err = mv.refreshView(g)
+	if err != nil {
+		return nil, err
+	}
+	if selected != "" {
+		for i, domain := range mv.domains {
+			for _, channel := range domain.channels {
+				if channel == selected {
+					mv.selectedDomain = i
+					mv.channelToSelect = channel
+				}
+			}
+		}
 	}
 	return mv, mv.refreshView(g)
 }
@@ -412,6 +428,17 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 		view.Clear()
 	}
 
+	if mv.channelToSelect != "" {
+		for ix, name := range mv.domains[mv.selectedDomain].channels {
+			if name == mv.channelToSelect {
+				err = resources.SetCursor(0, ix)
+				if err != nil {
+					return err
+				}
+			}
+		}
+		mv.channelToSelect = ""
+	}
 	for ix, name := range mv.domains[mv.selectedDomain].channels {
 		channel := mv.id2channel[name]
 		description := channel.row.Entries[api.IndexOfField(nounsTable.Columns, FieldDescription)].Formatted

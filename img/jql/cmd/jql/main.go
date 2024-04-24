@@ -118,7 +118,7 @@ func runUI(cfg *cli.JQLConfig, dbms api.JQL_DBMS) error {
 			if tool == "" {
 				tool = defaultVal
 			}
-			return cfg.SwitchTool(tool, "")
+			return cfg.SwitchTool(tool, mv.GetPrimarySelection())
 		}
 	}
 

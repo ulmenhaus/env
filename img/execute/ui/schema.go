@@ -44,6 +44,7 @@ const (
 	TableTasks      string = "tasks"
 	TableAssertions string = "assertions"
 	TableNouns      string = "nouns"
+	TablePractices  string = "vt.practices"
 
 	JQLName string = "jql"
 

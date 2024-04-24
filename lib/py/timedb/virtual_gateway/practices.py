@@ -85,15 +85,18 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
         for row in nouns.rows:
             pk = row.entries[primary].formatted
             parent = row.entries[cmap[schema.Fields.Parent]].formatted
+            local_action_map = dict(action_map)
+            if "Feed.Action" in feed_attrs[parent]:
+                local_action_map[schema.Values.StatusImplementing] = feed_attrs[parent]["Feed.Action"][0]
             domain = feed_attrs[parent].get("Domain", [''])[0]
             genre = feed_attrs[parent].get("Feed.Genre", [''])[0]
             motivation = feed_attrs[parent].get("Feed.Motivation", [''])[0]
             towards = feed_attrs[parent].get("Feed.Towards", [''])[0]
             children[pk] = {
                 "_pk": [pk],
-                "Action": [action_map[row.entries[cmap[schema.Fields.Status]].formatted]],
+                "Action": [local_action_map[row.entries[cmap[schema.Fields.Status]].formatted]],
                 "Object": [pk],
-                "Source": [parent],
+                "Source": [f"@timedb:{parent}:"],
                 "Domain": [domain],
                 "Genre": [genre],
                 "Motivation": [motivation],

@@ -835,6 +835,11 @@ loop:
 	return mv.updateTableViewContents(true)
 }
 
+func (mv *MainView) GetPrimarySelection() string {
+	row, _ := mv.SelectedEntry()
+	return mv.response.Rows[row].Entries[api.GetPrimary(mv.response.Columns)].Formatted
+}
+
 func (mv *MainView) goFromSelectedValue(tables []*jqlpb.TableMeta, reverse bool) error {
 	row, colix := mv.SelectedEntry()
 	selected := mv.response.Rows[row].Entries[api.GetPrimary(mv.response.Columns)]

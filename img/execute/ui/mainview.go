@@ -644,10 +644,6 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(TasksView, 's', gocui.ModNone, mv.saveContents)
-	if err != nil {
-		return err
-	}
 	if err := g.SetKeybinding(TasksView, gocui.KeyEnter, gocui.ModNone, mv.logTime); err != nil {
 		return err
 	}
@@ -695,7 +691,7 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(TasksView, 'S', gocui.ModNone, mv.substituteTask)
+	err = g.SetKeybinding(TasksView, 's', gocui.ModNone, mv.substituteTaskWithPrompt)
 	if err != nil {
 		return err
 	}
@@ -1797,7 +1793,27 @@ func (mv *MainView) deleteDayPlan(g *gocui.Gui, v *gocui.View) error {
 	return mv.refreshView(g)
 }
 
-func (mv *MainView) substituteTask(g *gocui.Gui, v *gocui.View) error {
+func (mv *MainView) GetCurrentDomain(g *gocui.Gui, v *gocui.View, callback func(string) error) error {
+	tasksTable := mv.tables[TableTasks]
+	taskPk, err := mv.ResolveSelectedPK(g)
+	if err != nil {
+		return err
+	}
+	resp, err := mv.dbms.GetRow(ctx, &jqlpb.GetRowRequest{
+		Table: TableTasks,
+		Pk:    taskPk,
+	})
+	direct := resp.Row.Entries[api.IndexOfField(tasksTable.Columns, FieldDirect)].Formatted
+	return callback(direct)
+}
+
+func (mv *MainView) SubstituteTaskWithAllMatching(g *gocui.Gui, v *gocui.View) (int, error) {
+	// Return the count of added items so that a higher level caller can decide to redirect
+	// the user to populate new items or not
+	return 0, nil
+}
+
+func (mv *MainView) substituteTaskWithPrompt(g *gocui.Gui, v *gocui.View) error {
 	if mv.span != Today {
 		return nil
 	}
