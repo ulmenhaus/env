@@ -14,26 +14,30 @@ def class_for_task(action, task):
 def pk_terms_for_task(task, actions):
     action_name, direct, indirect = task['Action'], task['Direct'], task[
         'Indirect']
-    # Legacy behavior for actions that don't yet exist in the actions table
-    # TODO we can get rid of this legacy behavior once we migrate
-    # all actions to use the new actions table
     prepreposition = " " if direct else ""
     preposition = " with " if indirect else ""
     if action_name in actions:
         action = actions[action_name]
-        direct_parts = action['Direct'].split(" ")
-        indirect_parts = action['Indirect'].split(" ")
+        direct_parts = action['Direct'].split(" ") if action['Direct'] else []
+        indirect_parts = action['Indirect'].split(
+            " ") if action['Indirect'] else []
+        parent_parts = action['Parent'].split(" ") if action['Parent'] else []
         if direct and len(direct_parts) > 1:
             prepreposition = f" {direct_parts[0]} "
         if indirect and len(indirect_parts) > 1:
             preposition = f" {indirect_parts[0]} "
+        if parent_parts and (direct_parts or indirect_parts):
+            raise ValueError(
+                "parent parts override other values so both should not be provided"
+            )
+        if parent_parts:
+            direct = task['Primary Goal']
+            if len(parent_parts) > 1:
+                prepreposition = f" {parent_parts[0]} "
 
     if indirect in HABIT_MODES:
         preposition = " with "
-    mandate = [
-        action_name, prepreposition, task['Direct'], preposition,
-        task['Indirect']
-    ]
+    mandate = [action_name, prepreposition, direct, preposition, indirect]
     if task["Parameters"]:
         marker = " at" if action_name in ("Extend", "Improve",
                                           "Sustain") else ","
@@ -226,7 +230,7 @@ class PKSetter(object):
             update_only=True,
         )
         self.dbms.WriteRow(update_request)
-        if old == new:
+        if old == new or old == "":
             return
         self._update_all(schema.Tables.Nouns, schema.Fields.Parent, old, new)
         self._update_all(
