@@ -1,4 +1,4 @@
-from timedb.virtual_gateway import attributes, ideas, habituals, relatives
+from timedb.virtual_gateway import attributes, ideas, habituals, practices, relatives
 
 from jql import jql_pb2_grpc
 
@@ -11,6 +11,7 @@ class Gateway(jql_pb2_grpc.JQLServicer):
             "vt.attributes": attributes.AttributesBackend(client),
             "vt.habituals": habituals.HabitualsBackend(client),
             "vt.ideas": ideas.IdeasBackend(client),
+            "vt.practices": practices.PracticesBackend(client),
             "vt.relatives": relatives.RelativesBackend(client),
         }
 

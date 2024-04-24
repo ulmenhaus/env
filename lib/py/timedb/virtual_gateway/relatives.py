@@ -45,6 +45,14 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
                 self._query_implied_relatives(selected_item, schema.Tables.Nouns,
                                               schema.Fields.Identifier,
                                               "w/ Identity"))
+            if selected_item == "Feed":
+                # Nouns with a non-empty Feed field are implicitly
+                # instances of the Feed class
+                relatives.update(
+                    self._query_implied_relatives(selected_item, schema.Tables.Nouns,
+                                                  schema.Fields.Feed,
+                                                  "w/ Class", negated=True, value=""))
+                
         elif selected_table == schema.Tables.Tasks:
             relatives.update(
                 self._query_implied_relatives(selected_item, schema.Tables.Tasks,
@@ -127,14 +135,20 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
                                  table,
                                  field,
                                  relation,
-                                 path_to_match=False):
+                                 path_to_match=False,
+                                 negated = False,
+                                 value = None,
+                                 ):
+        to_match = value if value is not None else selected_item
         requires = jql_pb2.Filter(
             column=field,
-            equal_match=jql_pb2.EqualMatch(value=selected_item))
+            negated=negated,
+            equal_match=jql_pb2.EqualMatch(value=to_match))
         if path_to_match:
             requires = jql_pb2.Filter(
                 column=field,
-                path_to_match=jql_pb2.PathToMatch(value=selected_item))
+                negated=negated,
+                path_to_match=jql_pb2.PathToMatch(value=to_match))
         rel_request = jql_pb2.ListRowsRequest(
             table=table,
             conditions=[
