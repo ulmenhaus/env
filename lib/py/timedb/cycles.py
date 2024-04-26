@@ -1,6 +1,7 @@
 import collections
 
-from timedb import pks
+from jql import jql_pb2
+from timedb import pks, schema
 
 
 class CycleManager(object):
@@ -133,3 +134,58 @@ class CycleManager(object):
                 child for child in node2children[elem] if is_ac(tasks[child])
             ])
         return d
+
+def add_task_from_template(dbms, table, pk):
+    resp = dbms.GetRow(jql_pb2.GetRowRequest(table=table, pk=pk))
+    cmap = {c.name: i for i, c in enumerate(resp.columns)}
+    domain_pk = resp.row.entries[cmap[schema.Fields.Domain]].formatted
+    domain = domain_pk.split(" ", 1)[1]
+    parent_resp = dbms.ListRows(jql_pb2.ListRowsRequest(
+        table=schema.Tables.Tasks,
+        conditions=[
+            jql_pb2.Condition(requires=[
+                jql_pb2.Filter(column=schema.Fields.Indirect, equal_match=jql_pb2.EqualMatch(value=domain)),
+                jql_pb2.Filter(column=schema.Fields.Status, equal_match=jql_pb2.EqualMatch(value=schema.Values.StatusHabitual)),
+            ]),
+        ],
+    ))
+    parent_cmap = {c.name: i for i, c in enumerate(parent_resp.columns)}
+    primary_ix, = [i for i, c in enumerate(parent_resp.columns) if c.primary]
+    parent = parent_resp.rows[0].entries[primary_ix].formatted
+    fields = {
+        schema.Fields.Action: resp.row.entries[cmap[schema.Fields.Action]].formatted,
+        schema.Fields.Direct: resp.row.entries[cmap[schema.Fields.Direct]].formatted,
+        schema.Fields.PrimaryGoal: parent,
+        schema.Fields.ParamStart: "",
+        schema.Fields.Status: schema.Values.StatusActive,
+    }
+    dbms.WriteRow(jql_pb2.WriteRowRequest(
+        table=schema.Tables.Tasks,
+        pk=pk, # temporarily set the pk to match the pk from the original table
+        fields=fields,
+        insert_only=True,
+    ))
+    # set the pk after the fact so the jql daemon will first
+    # set the date to today
+    setter = pks.PKSetter(dbms)
+    new_pk = setter.update_task(pk)
+    
+    # finally add the attributes
+    attrs = {
+        schema.Fields.Motivation: resp.row.entries[cmap[schema.Fields.Motivation]].formatted,
+        schema.Fields.Source: resp.row.entries[cmap[schema.Fields.Source]].formatted,
+        schema.Fields.Towards: resp.row.entries[cmap[schema.Fields.Towards]].formatted,
+    }
+    for key, value in attrs.items():
+        fields = {
+            schema.Fields.Relation: f".{key}",
+            schema.Fields.Arg0: f"{schema.Tables.Tasks} {new_pk}",
+            schema.Fields.Arg1: value,
+            schema.Fields.Order: "0",
+        }
+        assn_pk = pks.pk_for_assertion(fields)
+        dbms.WriteRow(jql_pb2.WriteRowRequest(
+            table=schema.Tables.Assertions,
+            pk=assn_pk,
+            fields=fields,
+        ))

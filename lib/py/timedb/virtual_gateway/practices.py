@@ -64,6 +64,17 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
             schema.Values.StatusExploring: "Explore",
             schema.Values.StatusPlanning: "Plan",
             schema.Values.StatusImplementing: "Implement",
+            schema.Values.StatusHabitual: "Implement",
+            schema.Values.StatusSatisfied: "Implement",
+            schema.Values.StatusRevisit: "Implement",
+        }
+        towards_map = {
+            schema.Values.StatusExploring: "something new",
+            schema.Values.StatusPlanning: "something new",
+            schema.Values.StatusImplementing: "something new",
+            schema.Values.StatusHabitual: "something regular",
+            schema.Values.StatusSatisfied: "something old",
+            schema.Values.StatusRevisit: "something past",
         }
         nouns_request = jql_pb2.ListRowsRequest(
             table=schema.Tables.Nouns,
@@ -88,14 +99,21 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
             local_action_map = dict(action_map)
             if "Feed.Action" in feed_attrs[parent]:
                 local_action_map[schema.Values.StatusImplementing] = feed_attrs[parent]["Feed.Action"][0]
+                local_action_map[schema.Values.StatusHabitual] = feed_attrs[parent]["Feed.Action"][0]
+                local_action_map[schema.Values.StatusSatisfied] = feed_attrs[parent]["Feed.Action"][0]
+                local_action_map[schema.Values.StatusRevisit] = feed_attrs[parent]["Feed.Action"][0]
+            towards = towards_map[row.entries[cmap[schema.Fields.Status]].formatted]
+            action = local_action_map[row.entries[cmap[schema.Fields.Status]].formatted]
             domain = feed_attrs[parent].get("Domain", [''])[0]
             genre = feed_attrs[parent].get("Feed.Genre", [''])[0]
             motivation = feed_attrs[parent].get("Feed.Motivation", [''])[0]
-            towards = feed_attrs[parent].get("Feed.Towards", [''])[0]
+            direct = pk
+            if 'yes' in feed_attrs[parent].get("Feed.StripContext", []):
+                direct = row.entries[cmap[schema.Fields.Description]].formatted
             children[pk] = {
-                "_pk": [pk],
-                "Action": [local_action_map[row.entries[cmap[schema.Fields.Status]].formatted]],
-                "Object": [pk],
+                "_pk": [f"{action} {pk}"],
+                "Action": [action],
+                "Direct": [direct],
                 "Source": [f"@timedb:{parent}:"],
                 "Domain": [domain],
                 "Genre": [genre],
@@ -103,6 +121,19 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
                 "Towards": [towards],
             }
         return children
+
+    def GetRow(self, request, context):
+        resp = self.ListRows(jql_pb2.ListRowsRequest(), context)
+        primary = common.get_primary(resp)
+        for row in resp.rows:
+            if row.entries[primary].formatted == request.pk:
+                return jql_pb2.GetRowResponse(
+                    table='vt.practices',
+                    columns = resp.columns,
+                    row=row,
+                )
+        raise ValueError(request.pk)
+
 
 def _type_of(field, foreign):
     if field in foreign:

@@ -254,7 +254,7 @@ class PKSetter(object):
         new = pk_for_task(macro.proto_to_dict(response.columns, response.row),
                           self.actions)
         if old == new:
-            return
+            return new
         update_request = jql_pb2.WriteRowRequest(
             table=schema.Tables.Tasks,
             pk=old,
@@ -283,6 +283,7 @@ class PKSetter(object):
             f"[x] {new}",
         )
         # TODO update the log table
+        return new
 
     def update_assertion(self, old):
         request = jql_pb2.GetRowRequest(table=schema.Tables.Assertions, pk=old)

@@ -56,7 +56,8 @@ def apply_request_parameters(rows, request):
         key=lambda idea: _sort_key(idea.get(request.order_by, idea["_pk"])),
         reverse=request.dec)
     all_count = len(rows)
-    rows = rows[request.offset:request.offset + request.limit]
+    limit = request.limit if request.limit else all_count
+    rows = rows[request.offset:request.offset + limit]
     return rows, all_count
 
 
