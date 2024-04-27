@@ -21,7 +21,7 @@ def pk_terms_for_task(task, actions):
         direct_parts = action['Direct'].split(" ") if action['Direct'] else []
         indirect_parts = action['Indirect'].split(
             " ") if action['Indirect'] else []
-        parent_parts = action['Parent'].split(" ") if action['Parent'] else []
+        parent_parts = action['Parent'].split(" ") if action.get('Parent') else []
         if direct and len(direct_parts) > 1:
             prepreposition = f" {direct_parts[0]} "
         if indirect and len(indirect_parts) > 1:

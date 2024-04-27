@@ -489,12 +489,12 @@ func reverseMap(m map[string]string) map[string]string {
 }
 
 func (mv *MainView) status2stage(ch *channel) map[string]string {
-	if isAutomatedFeed(ch.row, mv.tables[TableNouns].Columns) {
+	if len(ch.status2items[StatusFresh]) > 0 {
 		return map[string]string{
-			StatusFresh:        Stage1View,
-			StatusIdea:         Stage2View,
-			StatusPlanning:     Stage3View,
-			StatusImplementing: Stage4View,
+			StatusFresh:     Stage1View,
+			StatusIdea:      Stage2View,
+			StatusExploring: Stage3View,
+			StatusPlanning:  Stage4View,
 		}
 	}
 	return map[string]string{
@@ -697,16 +697,11 @@ func (mv *MainView) moveDown(g *gocui.Gui, v *gocui.View) error {
 		channel := mv.id2channel[entryName]
 		channel.status2items[StatusFresh] = append(channel.status2items[StatusFresh][:oy+cy], channel.status2items[StatusFresh][oy+cy+1:]...)
 	} else {
-		amt := -1
-		// Automated feeds jump straight from idea to planning stage
-		if isAutomatedFeed(channel.row, mv.tables[TableNouns].Columns) && stage2status[name] == StatusPlanning {
-			amt = -2
-		}
 		_, err = mv.dbms.IncrementEntry(ctx, &jqlpb.IncrementEntryRequest{
 			Table:  TableNouns,
 			Pk:     pk,
 			Column: FieldStatus,
-			Amount: int32(amt),
+			Amount: -1,
 		})
 		if err != nil {
 			return err
@@ -741,11 +736,6 @@ func (mv *MainView) moveUp(g *gocui.Gui, v *gocui.View) error {
 	if stage2status[name] == StatusFresh {
 		return mv.addFreshItem(g, v)
 	}
-	amt := 1
-	// Automated feeds jump straight from idea to planning stage
-	if isAutomatedFeed(channel.row, mv.tables[TableNouns].Columns) && stage2status[name] == StatusIdea {
-		amt = 2
-	}
 	_, cy := v.Cursor()
 	_, oy := v.Origin()
 	pk := channel.status2items[stage2status[name]][oy+cy].Identifier
@@ -753,7 +743,7 @@ func (mv *MainView) moveUp(g *gocui.Gui, v *gocui.View) error {
 		Table:  TableNouns,
 		Pk:     pk,
 		Column: FieldStatus,
-		Amount: int32(amt),
+		Amount: 1,
 	})
 	if err != nil {
 		return err

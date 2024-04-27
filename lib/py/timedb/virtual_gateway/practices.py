@@ -73,8 +73,8 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
             schema.Values.StatusPlanning: "something new",
             schema.Values.StatusImplementing: "something new",
             schema.Values.StatusHabitual: "something regular",
-            schema.Values.StatusSatisfied: "something old",
-            schema.Values.StatusRevisit: "something past",
+            schema.Values.StatusRevisit: "something special",
+            schema.Values.StatusSatisfied: "something vintage",
         }
         nouns_request = jql_pb2.ListRowsRequest(
             table=schema.Tables.Nouns,
