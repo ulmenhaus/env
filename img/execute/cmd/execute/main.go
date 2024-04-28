@@ -135,7 +135,7 @@ func runExecute() error {
 			return cfg.SwitchTool("jql", pk)
 		})
 	}
-	err = g.SetKeybinding("", 'S', gocui.ModNone, substituteOrGoSelect)
+	err = g.SetKeybinding(ui.TasksView, 'S', gocui.ModNone, substituteOrGoSelect)
 	if err != nil {
 		return err
 	}

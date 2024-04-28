@@ -93,6 +93,25 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
         cmap = {c.name: i for i, c in enumerate(nouns.columns)}
         primary = common.get_primary(nouns)
         children = {}
+        active_tasks = self.client.ListRows(jql_pb2.ListRowsRequest(
+            table=schema.Tables.Tasks,
+            conditions=[
+                jql_pb2.Condition(requires=[
+                    jql_pb2.Filter(
+                        column=schema.Fields.Status,
+                        in_match=jql_pb2.InMatch(values=[
+                            schema.Values.StatusPending,
+                            schema.Values.StatusPlanned,
+                            schema.Values.StatusActive,
+                        ]),
+                    ),
+                ]),
+            ],
+        ))
+        tasks_cmap = {c.name: i for i, c in enumerate(active_tasks.columns)}
+        active_pairs = {
+            (task.entries[tasks_cmap[schema.Fields.Action]].formatted, task.entries[tasks_cmap[schema.Fields.Direct]].formatted)
+            for task in active_tasks.rows}
         for row in nouns.rows:
             parent = row.entries[cmap[schema.Fields.Parent]].formatted
             local_action_map = dict(action_map)
@@ -109,6 +128,9 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
             direct = row.entries[primary].formatted
             if 'yes' in feed_attrs[parent].get("Feed.StripContext", []) or row.entries[cmap[schema.Fields.Modifier]].formatted == common.ALIAS_MODIFIER:
                 direct = row.entries[cmap[schema.Fields.Description]].formatted
+            if (action, direct) in active_pairs:
+                # Don't show practices that already have active tasks
+                continue
             children[direct] = {
                 "_pk": [f"{action} {direct}"],
                 "Action": [action],

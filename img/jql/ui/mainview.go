@@ -837,6 +837,9 @@ loop:
 
 func (mv *MainView) GetPrimarySelection() string {
 	row, _ := mv.SelectedEntry()
+	if row >= len(mv.response.Rows) {
+		return ""
+	}
 	return mv.response.Rows[row].Entries[api.GetPrimary(mv.response.Columns)].Formatted
 }
 

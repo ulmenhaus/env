@@ -37,6 +37,9 @@ class Values(object):
     StatusHabitual = 'Habitual'
     StatusIdea = 'Idea'
     StatusImplementing = "Implementing"
+    StatusPending = "Pending"
+    StatusPlanned = "Planned"
     StatusPlanning = "Planning"
+    StatusRevisit = 'Revisit'
     StatusRevisit = 'Revisit'
     StatusSatisfied = 'Satisfied'
