@@ -574,7 +574,7 @@ func (mv *MainView) todayTasks() ([]string, error) {
 			brks = append(brks, currentBreak)
 		}
 		currentBreak.items = append(currentBreak.items, item)
-		if strings.HasPrefix(item.Description, "[x]") {
+		if isDayTaskDone(item.Description) {
 			currentBreak.done += 1
 		}
 	}
@@ -683,7 +683,15 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(TasksView, 'x', gocui.ModNone, mv.markTask)
+	err = g.SetKeybinding(TasksView, 'x', gocui.ModNone, mv.taskMarker(StatusSatisfied))
+	if err != nil {
+		return err
+	}
+	err = g.SetKeybinding(TasksView, 'z', gocui.ModNone, mv.taskMarker(StatusFailed))
+	if err != nil {
+		return err
+	}
+	err = g.SetKeybinding(TasksView, 'Z', gocui.ModNone, mv.taskMarker(StatusAbandoned))
 	if err != nil {
 		return err
 	}
@@ -1524,7 +1532,7 @@ func (mv *MainView) copyOldTasks() error {
 		val := oldBullet.Entries[api.IndexOfField(assnTable.Columns, FieldArg1)].Formatted
 		order := oldBullet.Entries[api.IndexOfField(assnTable.Columns, FieldOrder)].Formatted
 
-		if strings.HasPrefix(val, "[x] ") {
+		if isDayTaskDone(val) {
 			continue
 		}
 		// pk doesn't really matter here so using a random integer
@@ -1687,7 +1695,13 @@ func (mv *MainView) refreshTasks(g *gocui.Gui, v *gocui.View) error {
 	return mv.refreshView(g)
 }
 
-func (mv *MainView) markTask(g *gocui.Gui, v *gocui.View) error {
+func (mv *MainView) taskMarker(status string) func(g *gocui.Gui, v *gocui.View) error {
+	return func(g *gocui.Gui, v *gocui.View) error {
+		return mv.markTask(g, v, status)
+	}
+}
+
+func (mv *MainView) markTask(g *gocui.Gui, v *gocui.View, status string) error {
 	if mv.span != Today {
 		return nil
 	}
@@ -1709,7 +1723,10 @@ func (mv *MainView) markTask(g *gocui.Gui, v *gocui.View) error {
 		return nil
 	}
 
-	newVal := strings.Replace(selection, "[ ]", "[x]", 1)
+	newVal := strings.Replace(selection, "[ ]", "[-]", 1)
+	if status == StatusSatisfied {
+		newVal = strings.Replace(selection, "[ ]", "[x]", 1)
+	}
 	// TODO(rabrams) this code predates having ix2item. See if it can be cleaned up with it.
 	for _, item := range mv.today {
 		if item.Description != selection {
@@ -1748,7 +1765,7 @@ func (mv *MainView) markTask(g *gocui.Gui, v *gocui.View) error {
 			UpdateOnly: true,
 			Table:      TableTasks,
 			Pk:         meta.TaskPK,
-			Fields:     map[string]string{FieldStatus: StatusSatisfied},
+			Fields:     map[string]string{FieldStatus: status},
 		})
 		if err != nil {
 			return err
@@ -2032,7 +2049,7 @@ func (mv *MainView) substitutePlanSelectionsForPlan(g *gocui.Gui, v *gocui.View)
 		return nil
 	}
 	// NOTE we rely on markTask to also save our changes
-	err = mv.markTask(g, v)
+	err = mv.markTask(g, v, StatusSatisfied)
 	if err != nil {
 		return err
 	}
@@ -2136,4 +2153,8 @@ func (mv *MainView) queryPendingNoImplements() ([]*jqlpb.Row, error) {
 		rows = append(rows, pk2task[pk])
 	}
 	return rows, nil
+}
+
+func isDayTaskDone(description string) bool {
+	return strings.HasPrefix(description, "[x] ")  || strings.HasPrefix(description, "[-] ")
 }

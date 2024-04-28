@@ -18,6 +18,8 @@ const (
 	StatusActive     string = "Active"
 	StatusSatisfied  string = "Satisfied"
 	StatusSomeday    string = "Someday"
+	StatusFailed     string = "Failed"
+	StatusAbandoned  string = "Abandoned"
 
 	ProjectsView string = "Projects"
 

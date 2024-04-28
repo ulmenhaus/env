@@ -174,6 +174,9 @@ class TimeDB(object):
             if assn["A Relation"] == ".Do Today" and assn[
                     "Arg1"] == f"[x] {old}":
                 assn["Arg1"] = f"[x] {new}"
+            if assn["A Relation"] == ".Do Today" and assn[
+                    "Arg1"] == f"[-] {old}":
+                assn["Arg1"] = f"[-] {new}"
 
 
 def pk_for_assertion(assn):
@@ -281,6 +284,12 @@ class PKSetter(object):
             schema.Fields.Arg1,
             f"[x] {old}",
             f"[x] {new}",
+        )
+        self._update_all(
+            schema.Tables.Assertions,
+            schema.Fields.Arg1,
+            f"[-] {old}",
+            f"[-] {new}",
         )
         # TODO update the log table
         return new
