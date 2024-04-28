@@ -42,22 +42,39 @@ class HabitualsBackend(jql_pb2_grpc.JQLServicer):
         primary, = [
             i for i, c in enumerate(habituals_response.columns) if c.primary
         ]
-        habituals_cmap = {c.name: i for i, c in enumerate(habituals_response.columns)}
-        noun_pks = [
-            row.entries[primary].formatted for row in habituals_response.rows
-        ]
+        habituals_cmap = {
+            c.name: i
+            for i, c in enumerate(habituals_response.columns)
+        }
+        noun_pks = sorted(
+            set([
+                row.entries[primary].formatted if
+                row.entries[habituals_cmap[schema.Fields.Modifier]].formatted
+                != common.ALIAS_MODIFIER else row.entries[habituals_cmap[
+                    schema.Fields.Description]].formatted
+                for row in habituals_response.rows
+            ]))
+
         # Populate all relevant fields for the given nouns
         fields = ["Cadence"]
         noun_to_habitual, assn_pks = common.get_fields_for_items(
             self.client, schema.Tables.Nouns, noun_pks, fields)
         for row in habituals_response.rows:
+            if row.entries[habituals_cmap[
+                    schema.Fields.
+                    Modifier]].formatted == common.ALIAS_MODIFIER:
+                continue
             noun_pk = row.entries[primary].formatted
-            noun_to_habitual[noun_pk]["Parent"] = [row.entries[habituals_cmap[
-                schema.Fields.Parent]].formatted]
+            noun_to_habitual[noun_pk]["Parent"] = [
+                row.entries[habituals_cmap[schema.Fields.Parent]].formatted
+            ]
             noun_to_habitual[noun_pk]["Habitual"] = [noun_pk]
-            noun_to_habitual[noun_pk]["_pk"] = [common.encode_pk(noun_pk, assn_pks[noun_pk])]
+            noun_to_habitual[noun_pk]["_pk"] = [
+                common.encode_pk(noun_pk, assn_pks[noun_pk])
+            ]
 
-        fields = ["Parent", "Habitual"] + fields + ["Days Since", "Days Until", "_pk"]
+        fields = ["Parent", "Habitual"
+                  ] + fields + ["Days Since", "Days Until", "_pk"]
         # Populate "Days Since" as the number of days since a task has featured this
         # habitual
         #
@@ -67,28 +84,34 @@ class HabitualsBackend(jql_pb2_grpc.JQLServicer):
             habitual = noun_to_habitual[noun_pk]
             habitual["Days Since"] = [str(days_since).zfill(4)]
             if "Cadence" in habitual:
-                days_until = int(habitual["Cadence"][0].split(" ")[0]) - days_since
+                days_until = int(
+                    habitual["Cadence"][0].split(" ")[0]) - days_since
                 if days_until > 0:
                     days_until_s = "+" + str(days_until).zfill(4)
                 else:
                     days_until_s = str(days_until).zfill(5)
                 habitual["Days Until"] = [days_until_s]
         # apply sorting, filtering, and limiting -- this portion can be made generic
-        grouped, groupings = common.apply_grouping(noun_to_habitual.values(), request)
-        habituals, all_count = common.apply_request_parameters(grouped, request)
+        grouped, groupings = common.apply_grouping(noun_to_habitual.values(),
+                                                   request)
+        habituals, all_count = common.apply_request_parameters(
+            grouped, request)
         return jql_pb2.ListRowsResponse(
             table='vt.habituals',
             columns=[
-                jql_pb2.Column(name=field,
-                               max_length=30,
-                               type=_type_of(field),
-                               foreign_table='nouns' if field == 'Habitual' else '',
-                               values=VALUES.get(field, []),
-                               primary=field == '_pk') for field in fields
+                jql_pb2.Column(
+                    name=field,
+                    max_length=30,
+                    type=_type_of(field),
+                    foreign_table='nouns' if field == 'Habitual' else '',
+                    values=VALUES.get(field, []),
+                    primary=field == '_pk') for field in fields
             ],
             rows=[
                 jql_pb2.Row(entries=[
-                    jql_pb2.Entry(formatted=common.present_attrs(habitual[field])) for field in fields
+                    jql_pb2.Entry(
+                        formatted=common.present_attrs(habitual[field]))
+                    for field in fields
                 ]) for habitual in habituals
             ],
             total=all_count,
@@ -114,8 +137,7 @@ class HabitualsBackend(jql_pb2_grpc.JQLServicer):
             assn_pk, current = pk_map[request.column]
             values = VALUES[request.column]
             current_index = values.index(current) if current in values else 0
-            next_value = values[(current_index + request.amount) %
-                                len(values)]
+            next_value = values[(current_index + request.amount) % len(values)]
             request = jql_pb2.WriteRowRequest(
                 table=schema.Tables.Assertions,
                 pk=assn_pk,
@@ -159,8 +181,7 @@ class HabitualsBackend(jql_pb2_grpc.JQLServicer):
                     jql_pb2.Condition(requires=[
                         jql_pb2.Filter(
                             column=column,
-                            in_match=jql_pb2.InMatch(
-                                values=noun_pks),
+                            in_match=jql_pb2.InMatch(values=noun_pks),
                         ),
                     ]),
                 ],
@@ -170,15 +191,17 @@ class HabitualsBackend(jql_pb2_grpc.JQLServicer):
         tasks_cmap = {c.name: i for i, c in enumerate(tasks_response.columns)}
         noun_pks_set = set(noun_pks)
         for row in rows:
-            start_formatted = row.entries[tasks_cmap[schema.Fields.ParamStart]].formatted
-            days_since = (datetime.now() - datetime.strptime(start_formatted, "%d %b %Y")).days
+            start_formatted = row.entries[tasks_cmap[
+                schema.Fields.ParamStart]].formatted
+            days_since = (datetime.now() -
+                          datetime.strptime(start_formatted, "%d %b %Y")).days
             for obj in [schema.Fields.Direct, schema.Fields.Indirect]:
                 value = row.entries[tasks_cmap[obj]].formatted
                 if value not in noun_pks_set:
                     continue
                 if (value not in ret) or (ret[value] > days_since):
                     ret[value] = days_since
-                
+
         return ret
 
     def WriteRow(self, request, context):
@@ -208,6 +231,7 @@ class HabitualsBackend(jql_pb2_grpc.JQLServicer):
             else:
                 raise ValueError("Unknown column", request.column)
         return jql_pb2.WriteRowResponse()
+
 
 def _type_of(field):
     if field == 'Habitual':

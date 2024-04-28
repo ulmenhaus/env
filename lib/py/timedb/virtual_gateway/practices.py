@@ -94,7 +94,6 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
         primary = common.get_primary(nouns)
         children = {}
         for row in nouns.rows:
-            pk = row.entries[primary].formatted
             parent = row.entries[cmap[schema.Fields.Parent]].formatted
             local_action_map = dict(action_map)
             if "Feed.Action" in feed_attrs[parent]:
@@ -107,11 +106,11 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
             domain = feed_attrs[parent].get("Domain", [''])[0]
             genre = feed_attrs[parent].get("Feed.Genre", [''])[0]
             motivation = feed_attrs[parent].get("Feed.Motivation", [''])[0]
-            direct = pk
-            if 'yes' in feed_attrs[parent].get("Feed.StripContext", []):
+            direct = row.entries[primary].formatted
+            if 'yes' in feed_attrs[parent].get("Feed.StripContext", []) or row.entries[cmap[schema.Fields.Modifier]].formatted == common.ALIAS_MODIFIER:
                 direct = row.entries[cmap[schema.Fields.Description]].formatted
-            children[pk] = {
-                "_pk": [f"{action} {pk}"],
+            children[direct] = {
+                "_pk": [f"{action} {direct}"],
                 "Action": [action],
                 "Direct": [direct],
                 "Source": [f"@timedb:{parent}:"],

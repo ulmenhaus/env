@@ -4,6 +4,8 @@ import json
 from jql import jql_pb2
 from timedb import schema
 
+ALIAS_MODIFIER = 'alias of'
+
 
 def get_fields_for_items(client, table, pks, fields=()):
     prefix = f"{table} " if table else ""
@@ -71,8 +73,10 @@ def apply_grouping(rows, request):
         grouping = jql_pb2.Grouping(
             field=field,
             selected=selected,
-            values=dict(collections.Counter(map(lambda row: row[field][0] if row[field] else "",
-                                                rows))),
+            values=dict(
+                collections.Counter(
+                    map(lambda row: row[field][0]
+                        if row[field] else "", rows))),
         )
         rows = [row for row in rows if selected in row[field]]
         groupings.append(grouping)
@@ -136,31 +140,31 @@ def decode_pk(pk):
     noun_pk, assn_pks = pk.split("\t")
     return noun_pk, json.loads(assn_pks)
 
+
 def possible_targets(client, request, table):
     nouns_request = jql_pb2.ListRowsRequest(table=schema.Tables.Nouns)
     nouns_response = client.ListRows(nouns_request)
-    primary, = [
-        i for i, c in enumerate(nouns_response.columns) if c.primary
-    ]
+    primary, = [i for i, c in enumerate(nouns_response.columns) if c.primary]
     nouns_cmap = {c.name: i for i, c in enumerate(nouns_response.columns)}
     noun_pks = [
         f"{row.entries[primary].formatted}" for row in nouns_response.rows
     ]
-    entries = [{"_pk": [pk], "-> Item": [f"{schema.Tables.Nouns} {pk}"]} for pk in noun_pks]
+    entries = [{
+        "_pk": [pk],
+        "-> Item": [f"{schema.Tables.Nouns} {pk}"]
+    } for pk in noun_pks]
     final, all_count = apply_request_parameters(entries, request)
     return jql_pb2.ListRowsResponse(
         table=table,
-        columns=[
-            jql_pb2.Column(name="-> Item", max_length=30, primary=True)
-        ],
+        columns=[jql_pb2.Column(name="-> Item", max_length=30, primary=True)],
         rows=[
-            jql_pb2.Row(
-                entries=[jql_pb2.Entry(formatted=noun["-> Item"][0])])
+            jql_pb2.Row(entries=[jql_pb2.Entry(formatted=noun["-> Item"][0])])
             for noun in final
         ],
         total=all_count,
         all=len(entries),
     )
+
 
 def selected_target(request):
     for condition in request.conditions:
@@ -168,6 +172,7 @@ def selected_target(request):
             match_type = f.WhichOneof('match')
             if match_type == "equal_match" and f.column == '-> Item':
                 return f.equal_match.value
+
 
 def _is_foreign(entry):
     return len(entry) > len("@timedb:") and entry.startswith(
@@ -186,8 +191,10 @@ def foreign_fields(rows):
                     not_foreign.add(k)
     return all_fields - not_foreign
 
+
 def _strip_foreign(entry):
     return entry[len("@timedb:"):-1]
+
 
 def convert_foreign_fields(before, foreign):
     after = []
