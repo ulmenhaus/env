@@ -11,6 +11,7 @@ import (
 
 	"github.com/jroimartin/gocui"
 	"github.com/ulmenhaus/env/img/jql/api"
+	"github.com/ulmenhaus/env/img/jql/cli"
 	"github.com/ulmenhaus/env/img/jql/types"
 	"github.com/ulmenhaus/env/proto/jql/jqlpb"
 )
@@ -1210,6 +1211,16 @@ func (mv *MainView) GoToPrimaryKey(pk string) error {
 				},
 			},
 		},
+	}
+	return mv.updateTableViewContents(true)
+}
+
+func (mv *MainView) AddFilters(filters []cli.Filter) error {
+	for _, filter := range filters {
+		mv.request.Conditions[0].Requires = append(mv.request.Conditions[0].Requires, &jqlpb.Filter{
+			Column: mv.response.Columns[api.IndexOfField(mv.response.Columns, filter.Key)].Name,
+			Match:  &jqlpb.Filter_EqualMatch{EqualMatch: &jqlpb.EqualMatch{Value: filter.Value}},
+		})
 	}
 	return mv.updateTableViewContents(true)
 }

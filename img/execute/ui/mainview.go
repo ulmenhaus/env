@@ -679,6 +679,10 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 	if err != nil {
 		return err
 	}
+	err = g.SetKeybinding(TasksView, 'p', gocui.ModNone, mv.wrapTaskInRamps)
+	if err != nil {
+		return err
+	}
 	err = g.SetKeybinding(NewPlansView, 'x', gocui.ModNone, mv.toggleAllPlans)
 	if err != nil {
 		return err
@@ -1810,18 +1814,26 @@ func (mv *MainView) deleteDayPlan(g *gocui.Gui, v *gocui.View) error {
 	return mv.refreshView(g)
 }
 
-func (mv *MainView) GetCurrentDomain(g *gocui.Gui, v *gocui.View, callback func(string) error) error {
-	tasksTable := mv.tables[TableTasks]
+func (mv *MainView) GetCurrentDomain(g *gocui.Gui, v *gocui.View) (bool, string, error) {
 	taskPk, err := mv.ResolveSelectedPK(g)
 	if err != nil {
-		return err
+		return false, "", err
 	}
 	resp, err := mv.dbms.GetRow(ctx, &jqlpb.GetRowRequest{
 		Table: TableTasks,
 		Pk:    taskPk,
 	})
-	direct := resp.Row.Entries[api.IndexOfField(tasksTable.Columns, FieldDirect)].Formatted
-	return callback(direct)
+	tasksTable := mv.tables[TableTasks]
+	isPrepareTask := (resp.Row.Entries[api.IndexOfField(tasksTable.Columns, FieldDirect)].Formatted == "" && resp.Row.Entries[api.IndexOfField(tasksTable.Columns, FieldIndirect)].Formatted == "")
+	if err != nil {
+		return false, "", err
+	}
+	cycle, err := mv.retrieveAttentionCycle(tasksTable, resp.Row)
+	if err != nil {
+		return false, "", err
+	}
+	direct := cycle.Entries[api.IndexOfField(tasksTable.Columns, FieldIndirect)].Formatted
+	return isPrepareTask, direct, nil
 }
 
 func (mv *MainView) SubstituteTaskWithAllMatching(g *gocui.Gui, v *gocui.View) (int, error) {
@@ -1980,6 +1992,75 @@ func (mv *MainView) queryForPlanSubsetLayout(g *gocui.Gui) error {
 		newPlansView.Write([]byte(item.Plan + "\n"))
 	}
 	return nil
+}
+
+func (mv *MainView) wrapTaskInRamps(g *gocui.Gui, v *gocui.View) error {
+	if mv.span != Today || mv.MainViewMode != MainViewModeListBar {
+		return nil
+	}
+	pk, err := mv.ResolveSelectedPK(g)
+	if err != nil {
+		return err
+	}
+	for _, action := range []string{"Prepare", "Wrap-up"} {
+		fields := map[string]string{
+			FieldAction:      action,
+			FieldPrimaryGoal: pk,
+			FieldStart:       "",
+			FieldStatus:      StatusActive,
+		}
+		_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
+			Table:  TableTasks,
+			Pk:     "",
+			Fields: fields,
+		})
+		if err != nil {
+			return err
+		}
+		view := api.MacroCurrentView{
+			Table:            TableTasks,
+			PrimarySelection: "",
+		}
+		_, err = api.RunMacro(ctx, mv.dbms, "jql-timedb-setpk --v2", view, true)
+		if err != nil {
+			return err
+		}
+	}
+	created, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
+		Table: TableTasks,
+		Conditions: []*jqlpb.Condition{
+			{
+				Requires: []*jqlpb.Filter{
+					{
+						Column: FieldPrimaryGoal,
+						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: pk}},
+					},
+					{
+						Column: FieldDirect,
+						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ""}},
+					},
+					{
+						Column: FieldIndirect,
+						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ""}},
+					},
+				},
+			},
+		},
+		OrderBy: FieldAction,
+		Dec:     true,
+	})
+	if err != nil {
+		return err
+	}
+	primary := api.GetPrimary(created.Columns)
+	for _, row := range created.Rows {
+		pk := row.Entries[primary].Formatted
+		err = mv.insertDayPlan(g, pk)
+		if err != nil {
+			return err
+		}
+	}
+	return mv.refreshView(g)
 }
 
 func (mv *MainView) toggleAllPlans(g *gocui.Gui, v *gocui.View) error {
@@ -2156,5 +2237,5 @@ func (mv *MainView) queryPendingNoImplements() ([]*jqlpb.Row, error) {
 }
 
 func isDayTaskDone(description string) bool {
-	return strings.HasPrefix(description, "[x] ")  || strings.HasPrefix(description, "[-] ")
+	return strings.HasPrefix(description, "[x] ") || strings.HasPrefix(description, "[-] ")
 }

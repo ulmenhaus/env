@@ -34,6 +34,8 @@ def pk_terms_for_task(task, actions):
             direct = task['Primary Goal']
             if len(parent_parts) > 1:
                 prepreposition = f" {parent_parts[0]} "
+            else:
+                prepreposition = " "
 
     if indirect in HABIT_MODES:
         preposition = " with "

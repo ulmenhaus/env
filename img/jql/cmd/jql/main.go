@@ -94,6 +94,13 @@ func runUI(cfg *cli.JQLConfig, dbms api.JQL_DBMS) error {
 			return err
 		}
 	}
+	filters := cfg.GetFilters()
+	if len(filters) > 0 {
+		err = mv.AddFilters(filters)
+		if err != nil {
+			return err
+		}
+	}
 	g, err := gocui.NewGui(gocui.OutputNormal)
 	if err != nil {
 		return err

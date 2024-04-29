@@ -26,6 +26,7 @@ const (
 	FieldAction         string = "Action"
 	FieldBegin          string = "Begin"
 	FieldDescription    string = "_Description"
+	FieldDomain         string = "Domain"
 	FieldEnd            string = "End"
 	FieldFeed           string = "Feed"
 	FieldDirect         string = "Direct"
@@ -47,6 +48,7 @@ const (
 	TableAssertions string = "assertions"
 	TableNouns      string = "nouns"
 	TablePractices  string = "vt.practices"
+	TableKits       string = "vt.kits"
 
 	JQLName string = "jql"
 
@@ -66,7 +68,7 @@ const (
 	SpanPending string = "Pending"
 )
 
-var Spans []string = []string{"Today", SpanDay, SpanWeek, SpanMonth, SpanPending}
+var Spans []string = []string{Today, SpanDay, SpanWeek, SpanMonth, SpanPending}
 
 var Span2Title map[string]string = map[string]string{
 	Today:       "Today",

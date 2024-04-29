@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/jroimartin/gocui"
 	"github.com/spf13/cobra"
@@ -130,10 +131,24 @@ func runExecute() error {
 		if count != 0 {
 			return nil
 		}
-		cfg.Table = ui.TableNouns
-		return mv.GetCurrentDomain(g, v, func(pk string) error {
-			return cfg.SwitchTool("jql", pk)
-		})
+		isPrepareTask, domain, err := mv.GetCurrentDomain(g, v)
+		if err != nil {
+			return err
+		}
+		if isPrepareTask {
+			cfg.Table = ui.TableKits
+			return cfg.SwitchTool("jql", "", cli.Filter{
+				Key:   ui.FieldDomain,
+				Value: fmt.Sprintf("@timedb:%s:", domain),
+			})
+		} else {
+			cfg.Table = ui.TablePractices
+			return cfg.SwitchTool("jql", "", cli.Filter{
+				Key:   ui.FieldDomain,
+				Value: fmt.Sprintf("@timedb:%s:", domain),
+			})
+		}
+		return nil
 	}
 	err = g.SetKeybinding(ui.TasksView, 'S', gocui.ModNone, substituteOrGoSelect)
 	if err != nil {

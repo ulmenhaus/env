@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 
 	flag "github.com/spf13/pflag"
@@ -21,15 +22,22 @@ const (
 	MaxPayloadSize = 50000000 // 50 Mb
 )
 
+type Filter struct {
+	Key   string
+	Value string
+}
+
 type JQLConfig struct {
 	Mode string
 
-	Path  string
-	Table string
-	Addr  string
+	Path           string
+	Table          string
+	Addr           string
 	VirtualGateway string
 
 	PK string
+
+	filters []string
 }
 
 func (c *JQLConfig) Validate() error {
@@ -74,15 +82,19 @@ func (c *JQLConfig) Register(f *flag.FlagSet) {
 	f.StringVarP(&c.Table, "table", "t", "", "The table to start on")
 	f.StringVarP(&c.PK, "pk", "", "", "The primary key to initially select")
 	f.StringVarP(&c.VirtualGateway, "virtual-gateway", "", "", "The address where the virtual gateway runs")
+	f.StringSliceVar(&c.filters, "filter", []string{}, "Add initial filters to the table")
 }
 
-func (c *JQLConfig) SwitchTool(tool, pk string) error {
+func (c *JQLConfig) SwitchTool(tool, pk string, filters ...Filter) error {
 	binary, err := exec.LookPath(tool)
 	if err != nil {
 		return err
 	}
 
 	args := []string{tool, "--mode", c.Mode, "--addr", c.Addr, "--path", c.Path, "--table", c.Table, "--pk", pk}
+	for _, filter := range filters {
+		args = append(args, "--filter", fmt.Sprintf("%s=%s", filter.Key, filter.Value))
+	}
 
 	env := os.Environ()
 
@@ -140,6 +152,21 @@ func (c *JQLConfig) InitDBMS() (api.JQL_DBMS, error) {
 		return api.NewRemoteDBMS(c.Addr, jqlpb.NewJQLClient(conn)), nil
 	}
 	return nil, fmt.Errorf("Unknown mode")
+}
+
+func (c *JQLConfig) GetFilters() []Filter {
+	filters := []Filter{}
+	for _, s := range c.filters {
+		if !strings.Contains(s, "=") {
+			continue
+		}
+		parts := strings.SplitN(s, "=", 2)
+		filters = append(filters, Filter{
+			Key:   parts[0],
+			Value: parts[1],
+		})
+	}
+	return filters
 }
 
 func clearTerminal() {
