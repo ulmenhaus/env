@@ -1814,10 +1814,16 @@ func (mv *MainView) deleteDayPlan(g *gocui.Gui, v *gocui.View) error {
 	return mv.refreshView(g)
 }
 
-func (mv *MainView) GetCurrentDomain(g *gocui.Gui, v *gocui.View) (bool, string, error) {
+type CurrentDomainInfo struct {
+	Domain     string
+	IsPrepTask bool
+	TaskPK     string
+}
+
+func (mv *MainView) GetCurrentDomain(g *gocui.Gui, v *gocui.View) (CurrentDomainInfo, error) {
 	taskPk, err := mv.ResolveSelectedPK(g)
 	if err != nil {
-		return false, "", err
+		return CurrentDomainInfo{}, err
 	}
 	resp, err := mv.dbms.GetRow(ctx, &jqlpb.GetRowRequest{
 		Table: TableTasks,
@@ -1826,14 +1832,18 @@ func (mv *MainView) GetCurrentDomain(g *gocui.Gui, v *gocui.View) (bool, string,
 	tasksTable := mv.tables[TableTasks]
 	isPrepareTask := (resp.Row.Entries[api.IndexOfField(tasksTable.Columns, FieldDirect)].Formatted == "" && resp.Row.Entries[api.IndexOfField(tasksTable.Columns, FieldIndirect)].Formatted == "")
 	if err != nil {
-		return false, "", err
+		return CurrentDomainInfo{}, err
 	}
 	cycle, err := mv.retrieveAttentionCycle(tasksTable, resp.Row)
 	if err != nil {
-		return false, "", err
+		return CurrentDomainInfo{}, err
 	}
-	direct := cycle.Entries[api.IndexOfField(tasksTable.Columns, FieldIndirect)].Formatted
-	return isPrepareTask, direct, nil
+	domain := cycle.Entries[api.IndexOfField(tasksTable.Columns, FieldIndirect)].Formatted
+	return CurrentDomainInfo{
+		IsPrepTask: isPrepareTask,
+		Domain:     domain,
+		TaskPK:     taskPk,
+	}, nil
 }
 
 func (mv *MainView) SubstituteTaskWithAllMatching(g *gocui.Gui, v *gocui.View) (int, error) {

@@ -14,7 +14,8 @@ class KitsBackend(jql_pb2_grpc.JQLServicer):
         self.client = client
 
     def ListRows(self, request, context):
-        kits = self._query_kits()
+        selected_domain = _extract_selected_domain(request)
+        kits = self._query_kits(selected_domain)
         grouped, groupings = common.apply_grouping(kits.values(),
                                                    request)
         max_lens = common.gather_max_lens(grouped, [])
@@ -42,7 +43,7 @@ class KitsBackend(jql_pb2_grpc.JQLServicer):
             groupings=groupings,
         )
 
-    def _query_kits(self):
+    def _query_kits(self, selected_domain):
         assns = self.client.ListRows(jql_pb2.ListRowsRequest(
             table=schema.Tables.Assertions,
             conditions=[
@@ -59,19 +60,27 @@ class KitsBackend(jql_pb2_grpc.JQLServicer):
             if table != schema.Tables.Nouns:
                 continue
             rows[kit] = {
-                "_pk": [kit],
+                "_pk": [_encode_pk(kit, selected_domain)],
                 "Action": ["Warm-up"],
                 "Direct": [kit],
                 "Motivation": ["Preparation"],
                 "Source": [""],
                 "Towards": [""],
-                "Domain": [row.entries[assn_cmap[schema.Fields.Arg1]].formatted],
+                "Domain": [selected_domain],
             }
         return rows
 
 
     def GetRow(self, request, context):
-        resp = self.ListRows(jql_pb2.ListRowsRequest(), context)
+        _, domain = _decode_pk(request.pk)
+        resp = self.ListRows(jql_pb2.ListRowsRequest(
+            conditions=[
+                jql_pb2.Condition(requires=[
+                    jql_pb2.Filter(column='Domain',
+                                   equal_match=jql_pb2.EqualMatch(value=domain)),
+                ], ),
+            ],
+        ), context)
         primary = common.get_primary(resp)
         for row in resp.rows:
             if row.entries[primary].formatted == request.pk:
@@ -83,7 +92,22 @@ class KitsBackend(jql_pb2_grpc.JQLServicer):
         raise ValueError(request.pk)
 
 def _type_of(field, foreign):
-    if field in foreign:
+    if field == "Domain":
         return jql_pb2.EntryType.POLYFOREIGN
     # TODO make the object field a foreign field to nouns
     return jql_pb2.EntryType.STRING
+
+def _extract_selected_domain(request):
+    for condition in request.conditions:
+        for f in condition.requires:
+            match_type = f.WhichOneof('match')
+            if match_type == "equal_match" and f.column == 'Domain':
+                return f.equal_match.value
+    return ""
+
+def _encode_pk(kit, domain):
+    return "\t".join([kit, domain])
+
+def _decode_pk(pk):
+    kit, domain = pk.split("\t")
+    return kit, domain

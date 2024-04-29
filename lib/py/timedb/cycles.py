@@ -139,19 +139,23 @@ def add_task_from_template(dbms, table, pk):
     resp = dbms.GetRow(jql_pb2.GetRowRequest(table=table, pk=pk))
     cmap = {c.name: i for i, c in enumerate(resp.columns)}
     domain_pk = resp.row.entries[cmap[schema.Fields.Domain]].formatted
-    domain = domain_pk.split(" ", 1)[1]
-    parent_resp = dbms.ListRows(jql_pb2.ListRowsRequest(
-        table=schema.Tables.Tasks,
-        conditions=[
-            jql_pb2.Condition(requires=[
-                jql_pb2.Filter(column=schema.Fields.Indirect, equal_match=jql_pb2.EqualMatch(value=domain)),
-                jql_pb2.Filter(column=schema.Fields.Status, equal_match=jql_pb2.EqualMatch(value=schema.Values.StatusHabitual)),
-            ]),
-        ],
-    ))
-    parent_cmap = {c.name: i for i, c in enumerate(parent_resp.columns)}
-    primary_ix, = [i for i, c in enumerate(parent_resp.columns) if c.primary]
-    parent = parent_resp.rows[0].entries[primary_ix].formatted
+    domain_table, domain = domain_pk.split(" ", 1)
+    parent = domain
+    if domain_table == schema.Tables.Nouns:
+        # Domain references an attention cycle
+        parent_resp = dbms.ListRows(jql_pb2.ListRowsRequest(
+            table=schema.Tables.Tasks,
+            conditions=[
+                jql_pb2.Condition(requires=[
+                    jql_pb2.Filter(column=schema.Fields.Action, equal_match=jql_pb2.EqualMatch(value="Attend")),
+                    jql_pb2.Filter(column=schema.Fields.Indirect, equal_match=jql_pb2.EqualMatch(value=domain)),
+                    jql_pb2.Filter(column=schema.Fields.Status, equal_match=jql_pb2.EqualMatch(value=schema.Values.StatusHabitual)),
+                ]),
+            ],
+        ))
+        parent_cmap = {c.name: i for i, c in enumerate(parent_resp.columns)}
+        primary_ix, = [i for i, c in enumerate(parent_resp.columns) if c.primary]
+        parent = parent_resp.rows[0].entries[primary_ix].formatted
     fields = {
         schema.Fields.Action: resp.row.entries[cmap[schema.Fields.Action]].formatted,
         schema.Fields.Direct: resp.row.entries[cmap[schema.Fields.Direct]].formatted,

@@ -131,21 +131,21 @@ func runExecute() error {
 		if count != 0 {
 			return nil
 		}
-		isPrepareTask, domain, err := mv.GetCurrentDomain(g, v)
+		info, err := mv.GetCurrentDomain(g, v)
 		if err != nil {
 			return err
 		}
-		if isPrepareTask {
+		if info.IsPrepTask {
 			cfg.Table = ui.TableKits
 			return cfg.SwitchTool("jql", "", cli.Filter{
 				Key:   ui.FieldDomain,
-				Value: fmt.Sprintf("@timedb:%s:", domain),
+				Value: "tasks " + info.TaskPK,
 			})
 		} else {
 			cfg.Table = ui.TablePractices
 			return cfg.SwitchTool("jql", "", cli.Filter{
 				Key:   ui.FieldDomain,
-				Value: fmt.Sprintf("@timedb:%s:", domain),
+				Value: fmt.Sprintf("@timedb:%s:", info.Domain),
 			})
 		}
 		return nil
