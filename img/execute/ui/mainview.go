@@ -528,15 +528,16 @@ func (mv *MainView) todayBreakdown() ([]DayItem, error) {
 		// cycle if this is a one-off or we can't find its primary for some
 		// reason
 		brk := item.Description
-		meta, ok := mv.today2item[item.Description]
+		meta := mv.today2item[item.Description]
+		taskPK := meta.TaskPK
+		if taskPK == "" {
+			taskPK = stripDayPlanPrefix(item.Description)
+		}
 		resp, err := mv.dbms.GetRow(ctx, &jqlpb.GetRowRequest{
 			Table: TableTasks,
-			Pk:    meta.TaskPK,
+			Pk:    taskPK,
 		})
-		if err != nil {
-			return nil, err
-		}
-		if ok {
+		if err == nil {
 			task, err := mv.retrieveAttentionCycle(tasksTable, resp.Row)
 			if err == nil {
 				brk = task.Entries[api.GetPrimary(tasksTable.Columns)].Formatted
@@ -1061,11 +1062,11 @@ func (mv *MainView) ResolveSelectedPK(g *gocui.Gui) (string, error) {
 	if mv.span == Today {
 		item, ok := mv.ix2item[ix]
 		if !ok {
-			return "", nil
+			return stripDayPlanPrefix(item.Description), nil
 		}
 		meta, ok := mv.today2item[item.Description]
 		if !ok {
-			return "", nil
+			return stripDayPlanPrefix(item.Description), nil
 		}
 		return meta.TaskPK, nil
 	} else {
@@ -1816,11 +1817,14 @@ func (mv *MainView) deleteDayPlan(g *gocui.Gui, v *gocui.View) error {
 
 type CurrentDomainInfo struct {
 	Domain     string
-	IsPrepTask bool
+	Direct     string
 	TaskPK     string
+	IsPrepTask bool
+	IsWarmup   bool
 }
 
 func (mv *MainView) GetCurrentDomain(g *gocui.Gui, v *gocui.View) (CurrentDomainInfo, error) {
+	tasksTable := mv.tables[TableTasks]
 	taskPk, err := mv.ResolveSelectedPK(g)
 	if err != nil {
 		return CurrentDomainInfo{}, err
@@ -1829,11 +1833,13 @@ func (mv *MainView) GetCurrentDomain(g *gocui.Gui, v *gocui.View) (CurrentDomain
 		Table: TableTasks,
 		Pk:    taskPk,
 	})
-	tasksTable := mv.tables[TableTasks]
-	isPrepareTask := (resp.Row.Entries[api.IndexOfField(tasksTable.Columns, FieldDirect)].Formatted == "" && resp.Row.Entries[api.IndexOfField(tasksTable.Columns, FieldIndirect)].Formatted == "")
 	if err != nil {
 		return CurrentDomainInfo{}, err
 	}
+	direct := resp.Row.Entries[api.IndexOfField(tasksTable.Columns, FieldDirect)].Formatted
+	indirect := resp.Row.Entries[api.IndexOfField(tasksTable.Columns, FieldIndirect)].Formatted
+	isPrepareTask := (direct == "" &&  indirect == "")
+	isWarmup := resp.Row.Entries[api.IndexOfField(tasksTable.Columns, FieldAction)].Formatted == "Warm-up"
 	cycle, err := mv.retrieveAttentionCycle(tasksTable, resp.Row)
 	if err != nil {
 		return CurrentDomainInfo{}, err
@@ -1841,8 +1847,10 @@ func (mv *MainView) GetCurrentDomain(g *gocui.Gui, v *gocui.View) (CurrentDomain
 	domain := cycle.Entries[api.IndexOfField(tasksTable.Columns, FieldIndirect)].Formatted
 	return CurrentDomainInfo{
 		IsPrepTask: isPrepareTask,
+		Direct:     direct,
 		Domain:     domain,
 		TaskPK:     taskPk,
+		IsWarmup:   isWarmup,
 	}, nil
 }
 
@@ -2248,4 +2256,8 @@ func (mv *MainView) queryPendingNoImplements() ([]*jqlpb.Row, error) {
 
 func isDayTaskDone(description string) bool {
 	return strings.HasPrefix(description, "[x] ") || strings.HasPrefix(description, "[-] ")
+}
+
+func stripDayPlanPrefix(s string) string {
+	return s[len("[ ] "):]
 }

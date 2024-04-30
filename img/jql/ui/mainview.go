@@ -1218,7 +1218,7 @@ func (mv *MainView) GoToPrimaryKey(pk string) error {
 func (mv *MainView) AddFilters(filters []cli.Filter) error {
 	for _, filter := range filters {
 		mv.request.Conditions[0].Requires = append(mv.request.Conditions[0].Requires, &jqlpb.Filter{
-			Column: mv.response.Columns[api.IndexOfField(mv.response.Columns, filter.Key)].Name,
+			Column: filter.Key,
 			Match:  &jqlpb.Filter_EqualMatch{EqualMatch: &jqlpb.EqualMatch{Value: filter.Value}},
 		})
 	}

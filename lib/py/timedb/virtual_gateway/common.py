@@ -174,9 +174,9 @@ def selected_target(request):
                 return f.equal_match.value
 
 
-def _is_foreign(entry):
+def is_foreign(entry):
     return len(entry) > len("@timedb:") and entry.startswith(
-        "@timedb:") and entry.endswith(":") and ":" not in _strip_foreign(
+        "@timedb:") and entry.endswith(":") and ":" not in strip_foreign(
             entry)
 
 
@@ -187,12 +187,12 @@ def foreign_fields(rows):
         for k, v in row.items():
             all_fields.add(k)
             for item in v:
-                if not _is_foreign(item):
+                if not is_foreign(item):
                     not_foreign.add(k)
     return all_fields - not_foreign
 
 
-def _strip_foreign(entry):
+def strip_foreign(entry):
     return entry[len("@timedb:"):-1]
 
 
@@ -203,7 +203,7 @@ def convert_foreign_fields(before, foreign):
         for k, v in row.items():
             if k in foreign:
                 # For now we only allow referencing nouns from assertions, but we may support other tables in the future
-                new_row[k] = [f"nouns {_strip_foreign(item)}" for item in v]
+                new_row[k] = [f"nouns {strip_foreign(item)}" for item in v]
             else:
                 new_row[k] = v
         after.append(new_row)

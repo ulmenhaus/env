@@ -23,7 +23,7 @@ def main_v2():
     with macro.macro_interface(sys.stdin, sys.stdout) as iface:
         dbms = iface.get_dbms()
         table, pk = iface.get_primary_selection()
-        if table in ['vt.practices', 'vt.kits']:
+        if table in ['vt.practices', 'vt.kits', 'vt.tools']:
             cycles.add_task_from_template(iface.get_dbms(), table, pk)
         else:
             setter = pks.PKSetter(dbms)

@@ -138,9 +138,23 @@ func runExecute() error {
 		if info.IsPrepTask {
 			cfg.Table = ui.TableKits
 			return cfg.SwitchTool("jql", "", cli.Filter{
-				Key:   ui.FieldDomain,
+				Key:   "Parent",
 				Value: "tasks " + info.TaskPK,
 			})
+		} else if info.IsWarmup {
+			cfg.Table = ui.TableTools
+			return cfg.SwitchTool(
+				"jql",
+				"",
+				cli.Filter{
+					Key:   "-> Item",
+					Value: "nouns " + info.Direct,
+				},
+				cli.Filter{
+					Key:   "Parent",
+					Value: "tasks " + info.TaskPK,
+				},
+			)
 		} else {
 			cfg.Table = ui.TablePractices
 			return cfg.SwitchTool("jql", "", cli.Filter{

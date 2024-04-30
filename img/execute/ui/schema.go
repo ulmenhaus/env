@@ -49,6 +49,7 @@ const (
 	TableNouns      string = "nouns"
 	TablePractices  string = "vt.practices"
 	TableKits       string = "vt.kits"
+	TableTools      string = "vt.tools"
 
 	JQLName string = "jql"
 

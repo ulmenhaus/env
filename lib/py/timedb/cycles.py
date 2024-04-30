@@ -138,17 +138,18 @@ class CycleManager(object):
 def add_task_from_template(dbms, table, pk):
     resp = dbms.GetRow(jql_pb2.GetRowRequest(table=table, pk=pk))
     cmap = {c.name: i for i, c in enumerate(resp.columns)}
-    domain_pk = resp.row.entries[cmap[schema.Fields.Domain]].formatted
-    domain_table, domain = domain_pk.split(" ", 1)
-    parent = domain
-    if domain_table == schema.Tables.Nouns:
+    parent = ""
+    if schema.Fields.Parent in cmap:
+        parent = resp.row.entries[cmap[schema.Fields.Parent]].formatted.split(" ", 1)[1]
+    if not parent:
         # Domain references an attention cycle
+        domain_pk = resp.row.entries[cmap[schema.Fields.Domain]].formatted.split(" ", 1)[1]
         parent_resp = dbms.ListRows(jql_pb2.ListRowsRequest(
             table=schema.Tables.Tasks,
             conditions=[
                 jql_pb2.Condition(requires=[
                     jql_pb2.Filter(column=schema.Fields.Action, equal_match=jql_pb2.EqualMatch(value="Attend")),
-                    jql_pb2.Filter(column=schema.Fields.Indirect, equal_match=jql_pb2.EqualMatch(value=domain)),
+                    jql_pb2.Filter(column=schema.Fields.Indirect, equal_match=jql_pb2.EqualMatch(value=domain_pk)),
                     jql_pb2.Filter(column=schema.Fields.Status, equal_match=jql_pb2.EqualMatch(value=schema.Values.StatusHabitual)),
                 ]),
             ],

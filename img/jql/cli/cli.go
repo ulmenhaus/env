@@ -37,7 +37,7 @@ type JQLConfig struct {
 
 	PK string
 
-	filter string
+	filters []string
 }
 
 func (c *JQLConfig) Validate() error {
@@ -82,7 +82,7 @@ func (c *JQLConfig) Register(f *flag.FlagSet) {
 	f.StringVarP(&c.Table, "table", "t", "", "The table to start on")
 	f.StringVarP(&c.PK, "pk", "", "", "The primary key to initially select")
 	f.StringVarP(&c.VirtualGateway, "virtual-gateway", "", "", "The address where the virtual gateway runs")
-	f.StringVarP(&c.filter, "filter", "", "", "Add initial filters to the table")
+	f.StringArrayVarP(&c.filters, "filter", "", []string{}, "Add initial filters to the table")
 }
 
 func (c *JQLConfig) SwitchTool(tool, pk string, filters ...Filter) error {
@@ -156,14 +156,16 @@ func (c *JQLConfig) InitDBMS() (api.JQL_DBMS, error) {
 
 func (c *JQLConfig) GetFilters() []Filter {
 	filters := []Filter{}
-	if !strings.Contains(c.filter, "=") {
-		return filters
+	for _, s := range c.filters {
+		if !strings.Contains(s, "=") {
+			continue
+		}
+		parts := strings.SplitN(s, "=", 2)
+		filters = append(filters, Filter{
+			Key:   parts[0],
+			Value: parts[1],
+		})
 	}
-	parts := strings.SplitN(c.filter, "=", 2)
-	filters = append(filters, Filter{
-		Key:   parts[0],
-		Value: parts[1],
-	})
 	return filters
 }
 

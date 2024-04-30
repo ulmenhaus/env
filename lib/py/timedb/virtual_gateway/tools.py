@@ -7,28 +7,29 @@ from timedb.virtual_gateway import common
 from jql import jql_pb2, jql_pb2_grpc
 
 
-class KitsBackend(jql_pb2_grpc.JQLServicer):
+class ToolsBackend(jql_pb2_grpc.JQLServicer):
 
     def __init__(self, client):
         super().__init__()
         self.client = client
 
     def ListRows(self, request, context):
+        selected_target = common.selected_target(request)
         selected_parent = _extract_selected_parent(request)
-        kits = self._query_kits(selected_parent)
-        grouped, groupings = common.apply_grouping(kits.values(),
+        exercises = self._query_exercises(selected_target, selected_parent)
+        grouped, groupings = common.apply_grouping(exercises.values(),
                                                    request)
         max_lens = common.gather_max_lens(grouped, [])
         filtered, all_count = common.apply_request_parameters(grouped, request)
-        fields = sorted(set().union(*(kits.values())))
         foreign_fields = common.foreign_fields(filtered)
         final = common.convert_foreign_fields(filtered, foreign_fields)
+        fields = sorted(set().union(*(final)) - {"-> Item"}) or ["None"] # jql initially gives a request with no params which will cause it to fail if it's given no columns
         return jql_pb2.ListRowsResponse(
-            table='vt.kits',
+            table='vt.tools',
             columns=[
                 jql_pb2.Column(name=field,
                                type=_type_of(field, foreign_fields),
-                               max_length=max_lens.get(field, 0),
+                               max_length=max_lens.get(field, 10),
                                primary=field == '_pk') for field in fields
             ],
             rows=[
@@ -39,47 +40,57 @@ class KitsBackend(jql_pb2_grpc.JQLServicer):
                 ]) for relative in final
             ],
             total=all_count,
-            all=len(kits),
+            all=len(exercises),
             groupings=groupings,
         )
 
-    def _query_kits(self, selected_parent):
-        assns = self.client.ListRows(jql_pb2.ListRowsRequest(
+    def _query_exercises(self, selected_target, selected_parent):
+        requires = jql_pb2.Filter(
+            column=schema.Fields.Arg0,
+            equal_match=jql_pb2.EqualMatch(value=selected_target))
+        rel_request = jql_pb2.ListRowsRequest(
             table=schema.Tables.Assertions,
             conditions=[
-                jql_pb2.Condition(requires=[
-                    jql_pb2.Filter(column=schema.Fields.Relation,
-                                   equal_match=jql_pb2.EqualMatch(value=".KitDomain")),
-                ], ),
+                jql_pb2.Condition(requires=[requires]),
             ],
-        ))
-        assn_cmap = {c.name: i for i, c in enumerate(assns.columns)}
-        rows = {}
-        for row in assns.rows:
-            table, kit = row.entries[assn_cmap[schema.Fields.Arg0]].formatted.split(" ", 1)
-            if table != schema.Tables.Nouns:
+        )
+        assertions = self.client.ListRows(rel_request)
+        cmap = {c.name: i for i, c in enumerate(assertions.columns)}
+        primary = common.get_primary(assertions)
+        attributes = {}
+        for row in assertions.rows:
+            target = row.entries[cmap[schema.Fields.Arg1]].formatted
+            if not common.is_foreign(target):
                 continue
-            pk = _encode_pk(kit, selected_parent)
-            rows[pk] = {
+            target_pk = common.strip_foreign(target)
+            action = "Exercise"
+            exercise = f"{action} {target_pk}"
+            pk = _encode_pk(exercise, selected_parent, selected_target)
+            attributes[pk] = {
                 "_pk": [pk],
-                "Action": ["Warm-up"],
-                "Direct": [kit],
+                "Relation":
+                [row.entries[cmap[schema.Fields.Relation]].formatted],
+                "Action": [action],
+                "Direct": [target_pk],
+                "Parent": [selected_parent],
+                "-> Item":
+                [selected_target],  # added to ensure the filter still matches
                 "Motivation": ["Preparation"],
                 "Source": [""],
                 "Towards": [""],
-                "Domain": [row.entries[assn_cmap[schema.Fields.Arg1]].formatted],
-                "Parent": [selected_parent],
+                "Domain": [""],
             }
-        return rows
-
+        return attributes
 
     def GetRow(self, request, context):
-        _, parent = _decode_pk(request.pk)
+        _, parent, target = _decode_pk(request.pk)
         resp = self.ListRows(jql_pb2.ListRowsRequest(
             conditions=[
                 jql_pb2.Condition(requires=[
                     jql_pb2.Filter(column='Parent',
                                    equal_match=jql_pb2.EqualMatch(value=parent)),
+                    jql_pb2.Filter(column='-> Item',
+                                   equal_match=jql_pb2.EqualMatch(value=target)),
                 ], ),
             ],
         ), context)
@@ -87,16 +98,17 @@ class KitsBackend(jql_pb2_grpc.JQLServicer):
         for row in resp.rows:
             if row.entries[primary].formatted == request.pk:
                 return jql_pb2.GetRowResponse(
-                    table='vt.kits',
+                    table='vt.tools',
                     columns = resp.columns,
                     row=row,
                 )
         raise ValueError(request.pk)
 
 def _type_of(field, foreign):
-    if field == "Parent":
+    if field == "Display Name":
         return jql_pb2.EntryType.POLYFOREIGN
-    # TODO make the object field a foreign field to nouns
+    if field in foreign:
+        return jql_pb2.EntryType.POLYFOREIGN
     return jql_pb2.EntryType.STRING
 
 def _extract_selected_parent(request):
@@ -107,9 +119,9 @@ def _extract_selected_parent(request):
                 return f.equal_match.value
     return ""
 
-def _encode_pk(kit, parent):
-    return "\t".join([kit, parent])
+def _encode_pk(exercise, parent, target):
+    return "\t".join([exercise, parent, target])
 
 def _decode_pk(pk):
-    kit, parent = pk.split("\t")
-    return kit, parent
+    exercise, parent, target = pk.split("\t")
+    return exercise, parent, target
