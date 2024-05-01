@@ -138,7 +138,7 @@ def main():
     if "GITNAV_PANE" not in os.environ:
         pane = os.environ["TMUX_PANE"]
         subprocess.check_call([
-            "tmux", "split-window", "-p", "20", "-b", "-h", "bash", "-c",
+            "tmux", "split-window", "-l", "40", "-b", "-h", "bash", "-c",
             "cd {} && PYTHONPATH={} GITNAV_PANE={} python3 -m gitnav || sleep 30".
             format(os.getcwd(), os.environ.get("PYTHONPATH", ""), pane)
         ])

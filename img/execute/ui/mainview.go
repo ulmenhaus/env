@@ -249,7 +249,7 @@ func (mv *MainView) createNewPlan(g *gocui.Gui, taskPK, description string) erro
 	if err != nil {
 		return err
 	}
-	err = mv.insertDayPlan(g, description)
+	err = mv.insertDayPlan(g, description, 0)
 	if err != nil {
 		return err
 	}
@@ -260,7 +260,7 @@ func (mv *MainView) createNewPlan(g *gocui.Gui, taskPK, description string) erro
 	return mv.refreshView(g)
 }
 
-func (mv *MainView) insertDayPlan(g *gocui.Gui, description string) error {
+func (mv *MainView) insertDayPlan(g *gocui.Gui, description string, delta int) error {
 	assnTable := mv.tables[TableAssertions]
 	tasksTable := mv.tables[TableTasks]
 	tasksView, err := g.View(TasksView)
@@ -306,6 +306,7 @@ func (mv *MainView) insertDayPlan(g *gocui.Gui, description string) error {
 			}
 		}
 	}
+	dayOrder += delta
 	updated := []string{}
 	for _, row := range existingTodos.Rows {
 		orderInt, err := strconv.Atoi(row.Entries[api.IndexOfField(assnTable.Columns, FieldOrder)].Formatted)
@@ -1854,10 +1855,102 @@ func (mv *MainView) GetCurrentDomain(g *gocui.Gui, v *gocui.View) (CurrentDomain
 	}, nil
 }
 
-func (mv *MainView) SubstituteTaskWithAllMatching(g *gocui.Gui, v *gocui.View) (int, error) {
+func (mv *MainView) InjectTaskWithAllMatching(g *gocui.Gui, v *gocui.View) (int, error) {
 	// Return the count of added items so that a higher level caller can decide to redirect
 	// the user to populate new items or not
-	return 0, nil
+	tasksTable := mv.tables[TableTasks]
+	taskPk, err := mv.ResolveSelectedPK(g)
+	if err != nil {
+		return 0, err
+	}
+	resp, err := mv.dbms.GetRow(ctx, &jqlpb.GetRowRequest{
+		Table: TableTasks,
+		Pk:    taskPk,
+	})
+	if err != nil {
+		return 0, err
+	}
+	cycle, err := mv.retrieveAttentionCycle(tasksTable, resp.Row)
+	if err != nil {
+		return 0, err
+	}
+	cycleName := cycle.Entries[api.GetPrimary(mv.tables[TableTasks].Columns)].Formatted
+	activeDescendants, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
+		Table: TableTasks,
+		Conditions: []*jqlpb.Condition{
+			{
+				Requires: []*jqlpb.Filter{
+					{
+						Column: FieldPrimaryGoal,
+						Match: &jqlpb.Filter_PathToMatch{&jqlpb.PathToMatch{Value: cycleName}},
+					},
+					{
+						Column: FieldStatus,
+						Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: StatusActive}},
+					},
+				},
+			},
+		},
+	})
+	if err != nil {
+		return 0, err
+	}
+	descPKs := []string{}
+	for _, row := range activeDescendants.Rows {
+		pk := row.Entries[api.GetPrimary(mv.tables[TableTasks].Columns)].Formatted
+		descPKs = append(descPKs, pk)
+	}
+	alreadyPresent, err := mv.queryPresentAndFutureDayPlanNames()
+	if err != nil {
+		return 0, nil
+	}
+	added := 0
+	for _, descPK := range descPKs {
+		if alreadyPresent[descPK] {
+			continue
+		}
+		err := mv.insertDayPlan(g, descPK, 0)
+		if err != nil {
+			return added, err
+		}
+		added += 1
+	}
+	return added, mv.refreshView(g)
+}
+
+func (mv *MainView) queryPresentAndFutureDayPlanNames() (map[string]bool, error) {
+	today, err := mv.queryDayPlan()
+	if err != nil {
+		return nil, err
+	}
+	assnTable := mv.tables[TableAssertions]
+	tasksTable := mv.tables[TableTasks]
+	resp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
+		Table: TableAssertions,
+		Conditions: []*jqlpb.Condition{
+			{
+				Requires: []*jqlpb.Filter{
+					{
+						Column: FieldArg0,
+						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: fmt.Sprintf("tasks %s", today.Entries[api.GetPrimary(tasksTable.Columns)].Formatted)}},
+					},
+				},
+			},
+		},
+		OrderBy: FieldOrder,
+	})
+	if err != nil {
+		return nil, err
+	}
+	names := map[string]bool{}
+	for _, row := range resp.Rows {
+		arg1 := row.Entries[api.IndexOfField(assnTable.Columns, FieldArg1)].Formatted
+		if !isAssertionDayPlan(arg1) {
+			continue
+		}
+		names[stripDayPlanPrefix(arg1)] = true
+	}
+	return names, nil
 }
 
 func (mv *MainView) substituteTaskWithPrompt(g *gocui.Gui, v *gocui.View) error {
@@ -2071,9 +2164,13 @@ func (mv *MainView) wrapTaskInRamps(g *gocui.Gui, v *gocui.View) error {
 		return err
 	}
 	primary := api.GetPrimary(created.Columns)
-	for _, row := range created.Rows {
+	for i, row := range created.Rows {
 		pk := row.Entries[primary].Formatted
-		err = mv.insertDayPlan(g, pk)
+		delta := 0
+		if i > 0 {
+			delta = -1 // We want to wrap the task so the first new task should come before it
+		}
+		err = mv.insertDayPlan(g, pk, delta)
 		if err != nil {
 			return err
 		}
@@ -2138,7 +2235,7 @@ func (mv *MainView) substitutePlanSelectionsForPlan(g *gocui.Gui, v *gocui.View)
 			return err
 		}
 		updated = append(updated, taskPK)
-		err = mv.insertDayPlan(g, item.Plan)
+		err = mv.insertDayPlan(g, item.Plan, 0)
 		if err != nil {
 			return err
 		}
@@ -2252,6 +2349,10 @@ func (mv *MainView) queryPendingNoImplements() ([]*jqlpb.Row, error) {
 		rows = append(rows, pk2task[pk])
 	}
 	return rows, nil
+}
+
+func isAssertionDayPlan(description string) bool {
+	return isDayTaskDone(description) || strings.HasPrefix(description, "[ ] ")
 }
 
 func isDayTaskDone(description string) bool {

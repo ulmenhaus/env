@@ -124,7 +124,7 @@ func runExecute() error {
 	}
 
 	substituteOrGoSelect := func(g *gocui.Gui, v *gocui.View) error {
-		count, err := mv.SubstituteTaskWithAllMatching(g, v)
+		count, err := mv.InjectTaskWithAllMatching(g, v)
 		if err != nil {
 			return err
 		}
