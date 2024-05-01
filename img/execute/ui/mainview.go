@@ -86,6 +86,10 @@ type MainView struct {
 	// state used for focus mode
 	focusing             bool
 	justSwitchedGrouping bool
+
+	// initialization params for reentrance
+	preselectTask       string
+	injectMatchingTasks bool
 }
 
 type DayItem struct {
@@ -106,10 +110,12 @@ type PlanSelectionItem struct {
 }
 
 // NewMainView returns a MainView initialized with a given Table
-func NewMainView(g *gocui.Gui, dbms api.JQL_DBMS) (*MainView, error) {
+func NewMainView(g *gocui.Gui, dbms api.JQL_DBMS, preselectTask string, injectMatchingTasks bool) (*MainView, error) {
 	rand.Seed(time.Now().UnixNano())
 	mv := &MainView{
-		dbms: dbms,
+		dbms:                dbms,
+		preselectTask:       preselectTask,
+		injectMatchingTasks: injectMatchingTasks,
 	}
 	return mv, mv.load(g)
 }
@@ -484,7 +490,23 @@ func (mv *MainView) tabulatedTasks(g *gocui.Gui, v *gocui.View) ([]string, error
 			return nil, err
 		}
 		mv.cachedTodayTasks = today
-		if wasNil || mv.justSwitchedGrouping {
+		if mv.preselectTask != "" {
+			for i, item := range mv.ix2item {
+				if isAssertionDayPlan(item.Description) && stripDayPlanPrefix(item.Description) == mv.preselectTask {
+					err = v.SetCursor(0, i)
+					if err != nil {
+						return nil, err
+					}
+				}
+			}
+			if mv.injectMatchingTasks {
+				_, err = mv.InjectTaskWithAllMatching(g, v)
+				if err != nil {
+					return nil, err
+				}
+			}
+			mv.preselectTask = ""
+		} else if wasNil || mv.justSwitchedGrouping {
 			mv.justSwitchedGrouping = false
 			mv.selectNextFreeTask(g, v)
 		}
@@ -1839,7 +1861,7 @@ func (mv *MainView) GetCurrentDomain(g *gocui.Gui, v *gocui.View) (CurrentDomain
 	}
 	direct := resp.Row.Entries[api.IndexOfField(tasksTable.Columns, FieldDirect)].Formatted
 	indirect := resp.Row.Entries[api.IndexOfField(tasksTable.Columns, FieldIndirect)].Formatted
-	isPrepareTask := (direct == "" &&  indirect == "")
+	isPrepareTask := (direct == "" && indirect == "")
 	isWarmup := resp.Row.Entries[api.IndexOfField(tasksTable.Columns, FieldAction)].Formatted == "Warm-up"
 	cycle, err := mv.retrieveAttentionCycle(tasksTable, resp.Row)
 	if err != nil {
@@ -1882,11 +1904,11 @@ func (mv *MainView) InjectTaskWithAllMatching(g *gocui.Gui, v *gocui.View) (int,
 				Requires: []*jqlpb.Filter{
 					{
 						Column: FieldPrimaryGoal,
-						Match: &jqlpb.Filter_PathToMatch{&jqlpb.PathToMatch{Value: cycleName}},
+						Match:  &jqlpb.Filter_PathToMatch{&jqlpb.PathToMatch{Value: cycleName}},
 					},
 					{
 						Column: FieldStatus,
-						Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: StatusActive}},
+						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: StatusActive}},
 					},
 				},
 			},

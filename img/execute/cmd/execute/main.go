@@ -39,7 +39,11 @@ func runExecute() error {
 	if err != nil {
 		return err
 	}
-	mv, err := ui.NewMainView(g, dbms)
+	c, err := loadAndDeleteReEntranceContext()
+	if err != nil {
+		return err
+	}
+	mv, err := ui.NewMainView(g, dbms, c.SelectedItem, c.AttemptingToInject)
 	if err != nil {
 		return err
 	}
@@ -132,6 +136,13 @@ func runExecute() error {
 			return nil
 		}
 		info, err := mv.GetCurrentDomain(g, v)
+		if err != nil {
+			return err
+		}
+		err = persistReEntranceContext(&ReEntranceContext{
+			SelectedItem: info.TaskPK,
+			AttemptingToInject: true,
+		})
 		if err != nil {
 			return err
 		}
