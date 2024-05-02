@@ -177,20 +177,25 @@ def selected_target(request):
 
 
 def is_foreign(entry):
+    # TODO technically we should look for colons in the middle, but some pks right now
+    # have colons in the middle that should be escaped first
     return len(entry) > len("@timedb:") and entry.startswith(
-        "@timedb:") and entry.endswith(":") and ":" not in strip_foreign(entry)
+        "@timedb:") and entry.endswith(":")
 
 
 def foreign_fields(rows):
-    all_fields = set()
-    not_foreign = set()
+    field_to_tables = collections.defaultdict(set)
+    fields_with_non_foreigns = set()
     for row in rows:
         for k, v in row.items():
-            all_fields.add(k)
             for item in v:
+                # Eventually we will support entries like @:nouns <pk>" and @:tasks <pk>:
+                # but for now the only foreign key references are nouns referenced
+                # as @timedb:<pk>:
+                field_to_tables[k].add("nouns")
                 if not is_foreign(item):
-                    not_foreign.add(k)
-    return all_fields - not_foreign
+                    fields_with_non_foreigns.add(k)
+    return {k: v for k, v in field_to_tables.items() if k not in fields_with_non_foreigns}
 
 
 def strip_foreign(entry):
@@ -204,29 +209,38 @@ def convert_foreign_fields(before, foreign):
         for k, v in row.items():
             if k in foreign:
                 # For now we only allow referencing nouns from assertions, but we may support other tables in the future
-                new_row[k] = [f"nouns {strip_foreign(item)}" for item in v]
+                new_row[k] = list(map(strip_foreign, v))
             else:
                 new_row[k] = v
         after.append(new_row)
     return after
 
 
-def list_rows(table_name, rows, type_of, request):
-    filtered = apply_request_parameters(rows.values(), request)
+def list_rows(table_name, rows, request, values=None):
+    values = values if values else {}
+    type_of = {k: jql_pb2.EntryType.ENUM for k in values}
+    field_to_tables = foreign_fields(rows.values())
+    foreign_tables = {}
+    for field, tables in field_to_tables.items():
+        type_of[field] = jql_pb2.EntryType.FOREIGN if len(tables) == 1 else jql_pb2.EntryType.POLYFOREIGN
+        if len(tables) == 1:
+            foreign_tables[field] = list(tables)[0]
+    converted = convert_foreign_fields(rows.values(), field_to_tables)
+    filtered = apply_request_parameters(converted, request)
     grouped, groupings = apply_grouping(filtered, request)
     max_lens = gather_max_lens(grouped, [])
-    foreign = foreign_fields(grouped)
-    converted = convert_foreign_fields(grouped, foreign)
-    final = apply_request_limits(converted, request)
+    final = apply_request_limits(grouped, request)
     fields = sorted(set().union(*(final)) - {"-> Item"}) or ["None"]
     return jql_pb2.ListRowsResponse(
         table=table_name,
         columns=[
             jql_pb2.Column(name=field,
-                           type=type_of(field, foreign)[0],
-                           foreign_table=type_of(field, foreign)[1],
-                           values=type_of(field, foreign)[2],
+                           type=type_of.get(field, jql_pb2.EntryType.STRING),
+                           foreign_table=foreign_tables.get(field, ''),
+                           values=values.get(field, []),
                            max_length=max_lens.get(field, 10),
+                           # TODO we probably don't need each caller to provide a _pk field
+                           # and instead can use the key in the provieded dict as _pk
                            primary=field == '_pk') for field in fields
         ],
         rows=[

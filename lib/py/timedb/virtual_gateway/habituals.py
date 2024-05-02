@@ -68,7 +68,7 @@ class HabitualsBackend(jql_pb2_grpc.JQLServicer):
             noun_to_habitual[noun_pk]["Parent"] = [
                 row.entries[habituals_cmap[schema.Fields.Parent]].formatted
             ]
-            noun_to_habitual[noun_pk]["Habitual"] = [noun_pk]
+            noun_to_habitual[noun_pk]["Habitual"] = [f"@timedb:{noun_pk}:"]
             noun_to_habitual[noun_pk]["_pk"] = [
                 common.encode_pk(noun_pk, assn_pks[noun_pk])
             ]
@@ -91,7 +91,7 @@ class HabitualsBackend(jql_pb2_grpc.JQLServicer):
                 else:
                     days_until_s = str(days_until).zfill(5)
                 habitual["Days Until"] = [days_until_s]
-        return common.list_rows('vt.habituals', noun_to_habitual, _type_of, request)
+        return common.list_rows('vt.habituals', noun_to_habitual, request, VALUES)
 
     def IncrementEntry(self, request, context):
         noun_pk, pk_map = common.decode_pk(request.pk)
@@ -205,11 +205,3 @@ class HabitualsBackend(jql_pb2_grpc.JQLServicer):
             else:
                 raise ValueError("Unknown column", request.column)
         return jql_pb2.WriteRowResponse()
-
-
-def _type_of(field, foreign):
-    if field == 'Habitual':
-        return jql_pb2.EntryType.FOREIGN, 'nouns', []
-    elif field in VALUES:
-        return jql_pb2.EntryType.ENUM, '', VALUES[field]
-    return jql_pb2.EntryType.STRING, '', []

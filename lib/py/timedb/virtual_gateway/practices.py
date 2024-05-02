@@ -16,7 +16,7 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
     def ListRows(self, request, context):
         feeds_resp = self._query_feeds()
         actionable = self._query_actionable_children(feeds_resp)
-        return common.list_rows('vt.practices', actionable, _type_of, request)
+        return common.list_rows('vt.practices', actionable, request)
 
     def _query_feeds(self):
         nouns_request = jql_pb2.ListRowsRequest(
@@ -152,10 +152,3 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
                     row=row,
                 )
         raise ValueError(request.pk)
-
-
-def _type_of(field, foreign):
-    if field in foreign:
-        return jql_pb2.EntryType.POLYFOREIGN, '', []
-    # TODO make the object field a foreign field to nouns
-    return jql_pb2.EntryType.STRING, '', []

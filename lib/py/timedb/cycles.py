@@ -140,10 +140,10 @@ def add_task_from_template(dbms, table, pk):
     cmap = {c.name: i for i, c in enumerate(resp.columns)}
     parent = ""
     if schema.Fields.Parent in cmap:
-        parent = resp.row.entries[cmap[schema.Fields.Parent]].formatted.split(" ", 1)[1]
+        parent = resp.row.entries[cmap[schema.Fields.Parent]].formatted
     if not parent:
         # Domain references an attention cycle
-        domain_pk = resp.row.entries[cmap[schema.Fields.Domain]].formatted.split(" ", 1)[1]
+        domain_pk = resp.row.entries[cmap[schema.Fields.Domain]].formatted
         parent_resp = dbms.ListRows(jql_pb2.ListRowsRequest(
             table=schema.Tables.Tasks,
             conditions=[

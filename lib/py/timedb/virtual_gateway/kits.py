@@ -16,7 +16,7 @@ class KitsBackend(jql_pb2_grpc.JQLServicer):
     def ListRows(self, request, context):
         selected_parent = _extract_selected_parent(request)
         kits = self._query_kits(selected_parent)
-        return common.list_rows('vt.kits', kits, _type_of, request)
+        return common.list_rows('vt.kits', kits, request)
 
     def _query_kits(self, selected_parent):
         assns = self.client.ListRows(jql_pb2.ListRowsRequest(

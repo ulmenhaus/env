@@ -64,7 +64,7 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
         # TODO Captured implied relations
         # 1. From arguments (direct/indirect of tasks, modified for nouns)
         # 2. Items which use a particular schema (as referenced by parent)
-        return common.list_rows('vt.relatives', relatives, _type_of, request)
+        return common.list_rows('vt.relatives', relatives, request)
 
     def _query_explicit_relatives(self, selected_item):
         arg1 = f"@timedb:{selected_item}:"
@@ -92,6 +92,8 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
             self.client, "", arg0s)
         for pk, relative in relatives.items():
             relative["_pk"] = [common.encode_pk(pk, assn_pks[pk])]
+            # TODO switching to a common list function broke this field and it won't work
+            # properly until we support @:<table> <pk>: style fields instead of @timedb:<pk>:
             relative["Display Name"] = [pk]
             relative["-> Item"] = [f"{schema.Tables.Nouns} {selected_item}"]
             exact_matches = [k for k, v in relative.items() if arg1 in v]
@@ -172,10 +174,3 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
 
 def is_verb(attribute):
     return attribute.endswith("es")
-
-def _type_of(field, foreign):
-    if field == "Display Name":
-        return jql_pb2.EntryType.POLYFOREIGN, '', []
-    if field in foreign:
-        return jql_pb2.EntryType.POLYFOREIGN, '', []
-    return jql_pb2.EntryType.STRING, '', []

@@ -17,12 +17,12 @@ class ToolsBackend(jql_pb2_grpc.JQLServicer):
         selected_target = common.selected_target(request)
         selected_parent = _extract_selected_parent(request)
         exercises = self._query_exercises(selected_target, selected_parent)
-        return common.list_rows('vt.practices', exercises, _type_of, request)
+        return common.list_rows('vt.tools', exercises, request)
 
     def _query_exercises(self, selected_target, selected_parent):
         requires = jql_pb2.Filter(
             column=schema.Fields.Arg0,
-            equal_match=jql_pb2.EqualMatch(value=selected_target))
+            equal_match=jql_pb2.EqualMatch(value=f"nouns {selected_target}"))
         rel_request = jql_pb2.ListRowsRequest(
             table=schema.Tables.Assertions,
             conditions=[
@@ -84,13 +84,6 @@ class ToolsBackend(jql_pb2_grpc.JQLServicer):
                     row=row,
                 )
         raise ValueError(request.pk)
-
-def _type_of(field, foreign):
-    if field == "Display Name":
-        return jql_pb2.EntryType.POLYFOREIGN, '', []
-    if field in foreign:
-        return jql_pb2.EntryType.POLYFOREIGN, '', []
-    return jql_pb2.EntryType.STRING, '', []
 
 def _extract_selected_parent(request):
     for condition in request.conditions:

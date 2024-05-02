@@ -82,11 +82,3 @@ class AttributesBackend(jql_pb2_grpc.JQLServicer):
 
 def is_verb(attribute):
     return attribute.endswith("es")
-
-
-def _type_of(field, foreign):
-    if field == "Display Name":
-        return jql_pb2.EntryType.POLYFOREIGN, '', []
-    if field in foreign:
-        return jql_pb2.EntryType.POLYFOREIGN, '', []
-    return jql_pb2.EntryType.STRING, '', []

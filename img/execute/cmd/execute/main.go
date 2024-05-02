@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/jroimartin/gocui"
 	"github.com/spf13/cobra"
@@ -140,7 +139,7 @@ func runExecute() error {
 			return err
 		}
 		err = persistReEntranceContext(&ReEntranceContext{
-			SelectedItem: info.TaskPK,
+			SelectedItem:       info.TaskPK,
 			AttemptingToInject: true,
 		})
 		if err != nil {
@@ -150,7 +149,7 @@ func runExecute() error {
 			cfg.Table = ui.TableKits
 			return cfg.SwitchTool("jql", "", cli.Filter{
 				Key:   "Parent",
-				Value: "tasks " + info.TaskPK,
+				Value: info.TaskPK,
 			})
 		} else if info.IsWarmup {
 			cfg.Table = ui.TableTools
@@ -159,18 +158,18 @@ func runExecute() error {
 				"",
 				cli.Filter{
 					Key:   "-> Item",
-					Value: "nouns " + info.Direct,
+					Value: info.Direct,
 				},
 				cli.Filter{
 					Key:   "Parent",
-					Value: "tasks " + info.TaskPK,
+					Value: info.TaskPK,
 				},
 			)
 		} else {
 			cfg.Table = ui.TablePractices
 			return cfg.SwitchTool("jql", "", cli.Filter{
 				Key:   ui.FieldDomain,
-				Value: fmt.Sprintf("@timedb:%s:", info.Domain),
+				Value: info.Domain,
 			})
 		}
 		return nil

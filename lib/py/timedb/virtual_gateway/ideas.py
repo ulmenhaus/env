@@ -74,7 +74,7 @@ class IdeasBackend(jql_pb2_grpc.JQLServicer):
             idea["Parent"] = [
                 row.entries[ideas_cmap[schema.Fields.Parent]].formatted
             ]
-            idea["Idea"] = [noun_pk]
+            idea["Idea"] = [f"@timedb:{noun_pk}:"]
             idea["_pk"] = [common.encode_pk(noun_pk, assn_pks[noun_pk])]
             if idea["PE"] and idea["PE"][0] and idea["Cost"] and idea["Cost"][0]:
                 # Entries denote orders of magnitude so determine RoI through subtraction
@@ -88,7 +88,7 @@ class IdeasBackend(jql_pb2_grpc.JQLServicer):
                                                  parent_pks, ["Domain"])
         for idea in noun_to_idea.values():
             idea["Domain"] = domains[idea["Parent"][0]]["Domain"]
-        return common.list_rows('vt.ideas', noun_to_idea, _type_of, request)
+        return common.list_rows('vt.ideas', noun_to_idea, request)
 
     def IncrementEntry(self, request, context):
         noun_pk, pk_map = common.decode_pk(request.pk)
@@ -162,11 +162,3 @@ class IdeasBackend(jql_pb2_grpc.JQLServicer):
             else:
                 raise ValueError("Unknown column", request.column)
         return jql_pb2.WriteRowResponse()
-
-
-def _type_of(field, foreign):
-    if field == 'Idea':
-        return jql_pb2.EntryType.FOREIGN, '', []
-    elif field in VALUES:
-        return jql_pb2.EntryType.ENUM, '', []
-    return jql_pb2.EntryType.STRING, '', []
