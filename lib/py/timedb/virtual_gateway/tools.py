@@ -17,32 +17,7 @@ class ToolsBackend(jql_pb2_grpc.JQLServicer):
         selected_target = common.selected_target(request)
         selected_parent = _extract_selected_parent(request)
         exercises = self._query_exercises(selected_target, selected_parent)
-        grouped, groupings = common.apply_grouping(exercises.values(),
-                                                   request)
-        max_lens = common.gather_max_lens(grouped, [])
-        filtered, all_count = common.apply_request_parameters(grouped, request)
-        foreign_fields = common.foreign_fields(filtered)
-        final = common.convert_foreign_fields(filtered, foreign_fields)
-        fields = sorted(set().union(*(final)) - {"-> Item"}) or ["None"] # jql initially gives a request with no params which will cause it to fail if it's given no columns
-        return jql_pb2.ListRowsResponse(
-            table='vt.tools',
-            columns=[
-                jql_pb2.Column(name=field,
-                               type=_type_of(field, foreign_fields),
-                               max_length=max_lens.get(field, 10),
-                               primary=field == '_pk') for field in fields
-            ],
-            rows=[
-                jql_pb2.Row(entries=[
-                    jql_pb2.Entry(
-                        formatted=common.present_attrs(relative[field]))
-                    for field in fields
-                ]) for relative in final
-            ],
-            total=all_count,
-            all=len(exercises),
-            groupings=groupings,
-        )
+        return common.list_rows('vt.practices', exercises, _type_of, request)
 
     def _query_exercises(self, selected_target, selected_parent):
         requires = jql_pb2.Filter(
@@ -112,10 +87,10 @@ class ToolsBackend(jql_pb2_grpc.JQLServicer):
 
 def _type_of(field, foreign):
     if field == "Display Name":
-        return jql_pb2.EntryType.POLYFOREIGN
+        return jql_pb2.EntryType.POLYFOREIGN, '', []
     if field in foreign:
-        return jql_pb2.EntryType.POLYFOREIGN
-    return jql_pb2.EntryType.STRING
+        return jql_pb2.EntryType.POLYFOREIGN, '', []
+    return jql_pb2.EntryType.STRING, '', []
 
 def _extract_selected_parent(request):
     for condition in request.conditions:

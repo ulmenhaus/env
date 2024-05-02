@@ -16,32 +16,7 @@ class KitsBackend(jql_pb2_grpc.JQLServicer):
     def ListRows(self, request, context):
         selected_parent = _extract_selected_parent(request)
         kits = self._query_kits(selected_parent)
-        grouped, groupings = common.apply_grouping(kits.values(),
-                                                   request)
-        max_lens = common.gather_max_lens(grouped, [])
-        filtered, all_count = common.apply_request_parameters(grouped, request)
-        fields = sorted(set().union(*(kits.values())))
-        foreign_fields = common.foreign_fields(filtered)
-        final = common.convert_foreign_fields(filtered, foreign_fields)
-        return jql_pb2.ListRowsResponse(
-            table='vt.kits',
-            columns=[
-                jql_pb2.Column(name=field,
-                               type=_type_of(field, foreign_fields),
-                               max_length=max_lens.get(field, 0),
-                               primary=field == '_pk') for field in fields
-            ],
-            rows=[
-                jql_pb2.Row(entries=[
-                    jql_pb2.Entry(
-                        formatted=common.present_attrs(relative[field]))
-                    for field in fields
-                ]) for relative in final
-            ],
-            total=all_count,
-            all=len(kits),
-            groupings=groupings,
-        )
+        return common.list_rows('vt.kits', kits, _type_of, request)
 
     def _query_kits(self, selected_parent):
         assns = self.client.ListRows(jql_pb2.ListRowsRequest(
@@ -95,9 +70,9 @@ class KitsBackend(jql_pb2_grpc.JQLServicer):
 
 def _type_of(field, foreign):
     if field == "Parent":
-        return jql_pb2.EntryType.POLYFOREIGN
+        return jql_pb2.EntryType.POLYFOREIGN, '', []
     # TODO make the object field a foreign field to nouns
-    return jql_pb2.EntryType.STRING
+    return jql_pb2.EntryType.STRING, '', []
 
 def _extract_selected_parent(request):
     for condition in request.conditions:

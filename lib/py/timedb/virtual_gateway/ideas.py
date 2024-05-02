@@ -88,30 +88,7 @@ class IdeasBackend(jql_pb2_grpc.JQLServicer):
                                                  parent_pks, ["Domain"])
         for idea in noun_to_idea.values():
             idea["Domain"] = domains[idea["Parent"][0]]["Domain"]
-        # apply sorting, filtering, and limiting -- this portion can be made generic
-        grouped, groupings = common.apply_grouping(noun_to_idea.values(), request)
-        ideas, all_count = common.apply_request_parameters(grouped, request)
-        return jql_pb2.ListRowsResponse(
-            table='vt.ideas',
-            columns=[
-                jql_pb2.Column(name=field,
-                               max_length=30,
-                               type=_type_of(field),
-                               foreign_table='nouns' if field == 'Idea' else '',
-                               values=VALUES.get(field, []),
-                               primary=field == '_pk') for field in fields
-            ],
-            rows=[
-                jql_pb2.Row(entries=[
-                    jql_pb2.Entry(
-                        formatted=common.present_attrs(idea[field]),
-                    ) for field in fields
-                ]) for idea in ideas
-            ],
-            total=all_count,
-            all=len(ideas_response.rows),
-            groupings=groupings,
-        )
+        return common.list_rows('vt.ideas', noun_to_idea, _type_of, request)
 
     def IncrementEntry(self, request, context):
         noun_pk, pk_map = common.decode_pk(request.pk)
@@ -187,9 +164,9 @@ class IdeasBackend(jql_pb2_grpc.JQLServicer):
         return jql_pb2.WriteRowResponse()
 
 
-def _type_of(field):
+def _type_of(field, foreign):
     if field == 'Idea':
-        return jql_pb2.EntryType.FOREIGN
+        return jql_pb2.EntryType.FOREIGN, '', []
     elif field in VALUES:
-        return jql_pb2.EntryType.ENUM
-    return jql_pb2.EntryType.STRING
+        return jql_pb2.EntryType.ENUM, '', []
+    return jql_pb2.EntryType.STRING, '', []

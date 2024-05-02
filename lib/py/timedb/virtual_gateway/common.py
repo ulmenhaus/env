@@ -57,10 +57,12 @@ def apply_request_parameters(rows, request):
         rows,
         key=lambda idea: _sort_key(idea.get(request.order_by, idea["_pk"])),
         reverse=request.dec)
-    all_count = len(rows)
-    limit = request.limit if request.limit else all_count
-    rows = rows[request.offset:request.offset + limit]
-    return rows, all_count
+    return rows
+
+
+def apply_request_limits(rows, request):
+    limit = request.limit if request.limit else len(rows)
+    return rows[request.offset:request.offset + limit]
 
 
 def apply_grouping(rows, request):
@@ -153,7 +155,7 @@ def possible_targets(client, request, table):
         "_pk": [pk],
         "-> Item": [f"{schema.Tables.Nouns} {pk}"]
     } for pk in noun_pks]
-    final, all_count = apply_request_parameters(entries, request)
+    final = apply_request_parameters(entries, request)
     return jql_pb2.ListRowsResponse(
         table=table,
         columns=[jql_pb2.Column(name="-> Item", max_length=30, primary=True)],
@@ -161,8 +163,8 @@ def possible_targets(client, request, table):
             jql_pb2.Row(entries=[jql_pb2.Entry(formatted=noun["-> Item"][0])])
             for noun in final
         ],
-        total=all_count,
-        all=len(entries),
+        total=len(entries),
+        all=len(noun_pks),
     )
 
 
@@ -176,8 +178,7 @@ def selected_target(request):
 
 def is_foreign(entry):
     return len(entry) > len("@timedb:") and entry.startswith(
-        "@timedb:") and entry.endswith(":") and ":" not in strip_foreign(
-            entry)
+        "@timedb:") and entry.endswith(":") and ":" not in strip_foreign(entry)
 
 
 def foreign_fields(rows):
@@ -208,3 +209,33 @@ def convert_foreign_fields(before, foreign):
                 new_row[k] = v
         after.append(new_row)
     return after
+
+
+def list_rows(table_name, rows, type_of, request):
+    filtered = apply_request_parameters(rows.values(), request)
+    grouped, groupings = apply_grouping(filtered, request)
+    max_lens = gather_max_lens(grouped, [])
+    foreign = foreign_fields(grouped)
+    converted = convert_foreign_fields(grouped, foreign)
+    final = apply_request_limits(converted, request)
+    fields = sorted(set().union(*(final)) - {"-> Item"}) or ["None"]
+    return jql_pb2.ListRowsResponse(
+        table=table_name,
+        columns=[
+            jql_pb2.Column(name=field,
+                           type=type_of(field, foreign)[0],
+                           foreign_table=type_of(field, foreign)[1],
+                           values=type_of(field, foreign)[2],
+                           max_length=max_lens.get(field, 10),
+                           primary=field == '_pk') for field in fields
+        ],
+        rows=[
+            jql_pb2.Row(entries=[
+                jql_pb2.Entry(formatted=present_attrs(relative[field]))
+                for field in fields
+            ]) for relative in final
+        ],
+        total=len(converted),
+        all=len(rows),
+        groupings=groupings,
+    )

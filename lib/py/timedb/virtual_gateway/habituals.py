@@ -91,33 +91,7 @@ class HabitualsBackend(jql_pb2_grpc.JQLServicer):
                 else:
                     days_until_s = str(days_until).zfill(5)
                 habitual["Days Until"] = [days_until_s]
-        # apply sorting, filtering, and limiting -- this portion can be made generic
-        grouped, groupings = common.apply_grouping(noun_to_habitual.values(),
-                                                   request)
-        habituals, all_count = common.apply_request_parameters(
-            grouped, request)
-        return jql_pb2.ListRowsResponse(
-            table='vt.habituals',
-            columns=[
-                jql_pb2.Column(
-                    name=field,
-                    max_length=30,
-                    type=_type_of(field),
-                    foreign_table='nouns' if field == 'Habitual' else '',
-                    values=VALUES.get(field, []),
-                    primary=field == '_pk') for field in fields
-            ],
-            rows=[
-                jql_pb2.Row(entries=[
-                    jql_pb2.Entry(
-                        formatted=common.present_attrs(habitual[field]))
-                    for field in fields
-                ]) for habitual in habituals
-            ],
-            total=all_count,
-            all=len(habituals_response.rows),
-            groupings=groupings,
-        )
+        return common.list_rows('vt.habituals', noun_to_habitual, _type_of, request)
 
     def IncrementEntry(self, request, context):
         noun_pk, pk_map = common.decode_pk(request.pk)
@@ -233,9 +207,9 @@ class HabitualsBackend(jql_pb2_grpc.JQLServicer):
         return jql_pb2.WriteRowResponse()
 
 
-def _type_of(field):
+def _type_of(field, foreign):
     if field == 'Habitual':
-        return jql_pb2.EntryType.FOREIGN
+        return jql_pb2.EntryType.FOREIGN, 'nouns', []
     elif field in VALUES:
-        return jql_pb2.EntryType.ENUM
-    return jql_pb2.EntryType.STRING
+        return jql_pb2.EntryType.ENUM, '', VALUES[field]
+    return jql_pb2.EntryType.STRING, '', []

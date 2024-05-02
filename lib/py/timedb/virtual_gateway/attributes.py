@@ -20,32 +20,7 @@ class AttributesBackend(jql_pb2_grpc.JQLServicer):
                                            'vt.attributes')
 
         attributes = self._query_attributes(selected_target)
-        grouped, groupings = common.apply_grouping(attributes.values(),
-                                                   request)
-        max_lens = common.gather_max_lens(grouped, [])
-        filtered, all_count = common.apply_request_parameters(grouped, request)
-        foreign_fields = common.foreign_fields(filtered)
-        final = common.convert_foreign_fields(filtered, foreign_fields)
-        fields = sorted(set().union(*(final)) - {"-> Item"})
-        return jql_pb2.ListRowsResponse(
-            table='vt.attributes',
-            columns=[
-                jql_pb2.Column(name=field,
-                               type=_type_of(field, foreign_fields),
-                               max_length=max_lens[field],
-                               primary=field == '_pk') for field in fields
-            ],
-            rows=[
-                jql_pb2.Row(entries=[
-                    jql_pb2.Entry(
-                        formatted=common.present_attrs(relative[field]))
-                    for field in fields
-                ]) for relative in final
-            ],
-            total=all_count,
-            all=len(attributes),
-            groupings=groupings,
-        )
+        return common.list_rows('vt.attributes', attributes, _type_of, request)
 
     def _query_attributes(self, selected_target):
         requires = jql_pb2.Filter(
@@ -111,7 +86,7 @@ def is_verb(attribute):
 
 def _type_of(field, foreign):
     if field == "Display Name":
-        return jql_pb2.EntryType.POLYFOREIGN
+        return jql_pb2.EntryType.POLYFOREIGN, '', []
     if field in foreign:
-        return jql_pb2.EntryType.POLYFOREIGN
-    return jql_pb2.EntryType.STRING
+        return jql_pb2.EntryType.POLYFOREIGN, '', []
+    return jql_pb2.EntryType.STRING, '', []

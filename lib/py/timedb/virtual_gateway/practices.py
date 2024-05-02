@@ -16,32 +16,7 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
     def ListRows(self, request, context):
         feeds_resp = self._query_feeds()
         actionable = self._query_actionable_children(feeds_resp)
-        grouped, groupings = common.apply_grouping(actionable.values(),
-                                                   request)
-        max_lens = common.gather_max_lens(grouped, [])
-        filtered, all_count = common.apply_request_parameters(grouped, request)
-        fields = sorted(set().union(*(actionable.values())))
-        foreign_fields = common.foreign_fields(filtered)
-        final = common.convert_foreign_fields(filtered, foreign_fields)
-        return jql_pb2.ListRowsResponse(
-            table='vt.practices',
-            columns=[
-                jql_pb2.Column(name=field,
-                               type=_type_of(field, foreign_fields),
-                               max_length=max_lens.get(field, 0),
-                               primary=field == '_pk') for field in fields
-            ],
-            rows=[
-                jql_pb2.Row(entries=[
-                    jql_pb2.Entry(
-                        formatted=common.present_attrs(relative[field]))
-                    for field in fields
-                ]) for relative in final
-            ],
-            total=all_count,
-            all=len(actionable),
-            groupings=groupings,
-        )
+        return common.list_rows('vt.practices', actionable, _type_of, request)
 
     def _query_feeds(self):
         nouns_request = jql_pb2.ListRowsRequest(
@@ -181,6 +156,6 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
 
 def _type_of(field, foreign):
     if field in foreign:
-        return jql_pb2.EntryType.POLYFOREIGN
+        return jql_pb2.EntryType.POLYFOREIGN, '', []
     # TODO make the object field a foreign field to nouns
-    return jql_pb2.EntryType.STRING
+    return jql_pb2.EntryType.STRING, '', []

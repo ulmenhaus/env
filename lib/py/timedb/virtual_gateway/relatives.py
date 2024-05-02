@@ -64,34 +64,7 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
         # TODO Captured implied relations
         # 1. From arguments (direct/indirect of tasks, modified for nouns)
         # 2. Items which use a particular schema (as referenced by parent)
-        first_fields = ["Display Name", "Class", "Relation"]
-        grouped, groupings = common.apply_grouping(relatives.values(), request)
-        max_lens = common.gather_max_lens(grouped, first_fields)
-        filtered, all_count = common.apply_request_parameters(grouped, request)
-        foreign_fields = common.foreign_fields(filtered)
-        final = common.convert_foreign_fields(filtered, foreign_fields)
-        shared_fields = sorted(set().union(*(final)) - set(first_fields) -
-                               {"_pk", "-> Item"})
-        fields = first_fields + shared_fields + ["_pk"]
-        return jql_pb2.ListRowsResponse(
-            table='vt.relatives',
-            columns=[
-                jql_pb2.Column(name=field,
-                               type=_type_of(field, foreign_fields),
-                               max_length=max_lens.get(field, len(field)),
-                               primary=field == '_pk') for field in fields
-            ],
-            rows=[
-                jql_pb2.Row(entries=[
-                    jql_pb2.Entry(
-                        formatted=common.present_attrs(relative[field]))
-                    for field in fields
-                ]) for relative in final
-            ],
-            total=all_count,
-            all=len(relatives),
-            groupings=groupings,
-        )
+        return common.list_rows('vt.relatives', relatives, _type_of, request)
 
     def _query_explicit_relatives(self, selected_item):
         arg1 = f"@timedb:{selected_item}:"
@@ -202,7 +175,7 @@ def is_verb(attribute):
 
 def _type_of(field, foreign):
     if field == "Display Name":
-        return jql_pb2.EntryType.POLYFOREIGN
+        return jql_pb2.EntryType.POLYFOREIGN, '', []
     if field in foreign:
-        return jql_pb2.EntryType.POLYFOREIGN
-    return jql_pb2.EntryType.STRING
+        return jql_pb2.EntryType.POLYFOREIGN, '', []
+    return jql_pb2.EntryType.STRING, '', []
