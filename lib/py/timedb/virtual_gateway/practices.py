@@ -14,8 +14,8 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
         self.client = client
 
     def ListRows(self, request, context):
-        feeds = self._query_feeds()
-        actionable = self._query_actionable_children(feeds)
+        feeds_resp = self._query_feeds()
+        actionable = self._query_actionable_children(feeds_resp)
         grouped, groupings = common.apply_grouping(actionable.values(),
                                                    request)
         max_lens = common.gather_max_lens(grouped, [])
@@ -54,12 +54,13 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
                 ], ),
             ],
         )
-        nouns = self.client.ListRows(nouns_request)
-        primary = common.get_primary(nouns)
-        return {row.entries[primary].formatted for row in nouns.rows}
+        return self.client.ListRows(nouns_request)
 
-    def _query_actionable_children(self, feeds):
+    def _query_actionable_children(self, feeds_resp):
+        primary = common.get_primary(feeds_resp)
+        feeds = {row.entries[primary].formatted for row in feeds_resp.rows}
         feed_attrs, _ = common.get_fields_for_items(self.client, schema.Tables.Nouns, feeds)
+        cmap = {c.name: i for i, c in enumerate(feeds_resp.columns)}
         action_map = {
             schema.Values.StatusExploring: "Explore",
             schema.Values.StatusPlanning: "Plan",
@@ -90,7 +91,6 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
             ],
         )
         nouns = self.client.ListRows(nouns_request)
-        cmap = {c.name: i for i, c in enumerate(nouns.columns)}
         primary = common.get_primary(nouns)
         children = {}
         active_tasks = self.client.ListRows(jql_pb2.ListRowsRequest(
@@ -131,8 +131,9 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
             if (action, direct) in active_pairs:
                 # Don't show practices that already have active tasks
                 continue
-            children[direct] = {
-                "_pk": [f"{action} {direct}"],
+            practice = f"{action} {direct}"
+            children[practice] = {
+                "_pk": [practice],
                 "Action": [action],
                 "Direct": [direct],
                 "Source": [f"@timedb:{parent}:"],
@@ -141,6 +142,28 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
                 "Motivation": [motivation],
                 "Towards": [towards],
             }
+        for feed in feeds_resp.rows:
+            if feed.entries[cmap[schema.Fields.Feed]].formatted != 'manual':
+                continue
+            actions = ["Ideate", "Triage", "Appraise"]
+            direct = feed.entries[primary].formatted
+            parent = feed.entries[cmap[schema.Fields.Parent]].formatted
+            domain = feed_attrs[direct].get("Domain", [''])[0]
+            genre = feed_attrs[direct].get("Feed.Genre", [''])[0]
+            for action in actions:
+                if (action, direct) in active_pairs:
+                    continue
+                practice = f"{action} {direct}"
+                children[practice] = {
+                    "_pk": [practice],
+                    "Action": [action],
+                    "Direct": [direct],
+                    "Source": [f"@timedb:{parent}:"],
+                    "Domain": [domain],
+                    "Motivation": ['Investment'],
+                    "Genre": [genre],
+                    "Towards": ['something new'],
+                }
         return children
 
     def GetRow(self, request, context):

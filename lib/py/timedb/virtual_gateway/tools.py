@@ -58,28 +58,34 @@ class ToolsBackend(jql_pb2_grpc.JQLServicer):
         cmap = {c.name: i for i, c in enumerate(assertions.columns)}
         primary = common.get_primary(assertions)
         attributes = {}
+        target2relation = {}
         for row in assertions.rows:
             target = row.entries[cmap[schema.Fields.Arg1]].formatted
             if not common.is_foreign(target):
                 continue
             target_pk = common.strip_foreign(target)
-            action = "Exercise"
-            exercise = f"{action} {target_pk}"
-            pk = _encode_pk(exercise, selected_parent, selected_target)
-            attributes[pk] = {
-                "_pk": [pk],
-                "Relation":
-                [row.entries[cmap[schema.Fields.Relation]].formatted],
-                "Action": [action],
-                "Direct": [target_pk],
-                "Parent": [selected_parent],
-                "-> Item":
-                [selected_target],  # added to ensure the filter still matches
-                "Motivation": ["Preparation"],
-                "Source": [""],
-                "Towards": [""],
-                "Domain": [""],
-            }
+            relation = [row.entries[cmap[schema.Fields.Relation]].formatted]
+            target2relation[target_pk] = relation
+
+        fields, _ = common.get_fields_for_items(self.client, schema.Tables.Nouns, list(target2relation.keys()))
+        for target_pk, relation in target2relation.items():
+            actions = fields.get(target_pk, {}).get("Feed.Action", []) or ["Exercise", "Ready", "Evaluate"]
+            for action in actions:
+                exercise = f"{action} {target_pk}"
+                pk = _encode_pk(exercise, selected_parent, selected_target)
+                attributes[pk] = {
+                    "_pk": [pk],
+                    "Relation": relation,
+                    "Action": [action],
+                    "Direct": [target_pk],
+                    "Parent": [selected_parent],
+                    "-> Item":
+                    [selected_target],  # added to ensure the filter still matches
+                    "Motivation": ["Preparation"],
+                    "Source": [""],
+                    "Towards": [""],
+                    "Domain": [""],
+                }
         return attributes
 
     def GetRow(self, request, context):
