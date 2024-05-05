@@ -48,8 +48,12 @@ def create_ideation_task(snapshot, idea_pk):
             parent = active_cycles[noun]
             break
         noun = nouns[noun]['Parent']
+    action_map = {
+        'Idea': 'Ideate',
+        'Exploring': 'Explore',
+    }
     task = {
-        "Action": "Ideate" if nouns[idea_pk]['Status'] == 'Idea' else 'Plan',
+        "Action": action_map.get(nouns[idea_pk]['Status'], 'Plan'),
         'Direct': '',
         "Indirect": idea_pk,
         'Parameters': '',

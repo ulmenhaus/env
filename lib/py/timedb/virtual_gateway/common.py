@@ -1,6 +1,8 @@
 import collections
 import json
 
+from datetime import datetime
+
 from jql import jql_pb2
 from timedb import schema
 
@@ -195,7 +197,11 @@ def foreign_fields(rows):
                 field_to_tables[k].add("nouns")
                 if not is_foreign(item):
                     fields_with_non_foreigns.add(k)
-    return {k: v for k, v in field_to_tables.items() if k not in fields_with_non_foreigns}
+    return {
+        k: v
+        for k, v in field_to_tables.items()
+        if k not in fields_with_non_foreigns
+    }
 
 
 def strip_foreign(entry):
@@ -222,7 +228,8 @@ def list_rows(table_name, rows, request, values=None):
     field_to_tables = foreign_fields(rows.values())
     foreign_tables = {}
     for field, tables in field_to_tables.items():
-        type_of[field] = jql_pb2.EntryType.FOREIGN if len(tables) == 1 else jql_pb2.EntryType.POLYFOREIGN
+        type_of[field] = jql_pb2.EntryType.FOREIGN if len(
+            tables) == 1 else jql_pb2.EntryType.POLYFOREIGN
         if len(tables) == 1:
             foreign_tables[field] = list(tables)[0]
     converted = convert_foreign_fields(rows.values(), field_to_tables)
@@ -234,14 +241,15 @@ def list_rows(table_name, rows, request, values=None):
     return jql_pb2.ListRowsResponse(
         table=table_name,
         columns=[
-            jql_pb2.Column(name=field,
-                           type=type_of.get(field, jql_pb2.EntryType.STRING),
-                           foreign_table=foreign_tables.get(field, ''),
-                           values=values.get(field, []),
-                           max_length=max_lens.get(field, 10),
-                           # TODO we probably don't need each caller to provide a _pk field
-                           # and instead can use the key in the provieded dict as _pk
-                           primary=field == '_pk') for field in fields
+            jql_pb2.Column(
+                name=field,
+                type=type_of.get(field, jql_pb2.EntryType.STRING),
+                foreign_table=foreign_tables.get(field, ''),
+                values=values.get(field, []),
+                max_length=max_lens.get(field, 10),
+                # TODO we probably don't need each caller to provide a _pk field
+                # and instead can use the key in the provieded dict as _pk
+                primary=field == '_pk') for field in fields
         ],
         rows=[
             jql_pb2.Row(entries=[
@@ -253,3 +261,133 @@ def list_rows(table_name, rows, request, values=None):
         all=len(rows),
         groupings=groupings,
     )
+
+
+# TODO replace every in-line construct of primary and cmap with this helper
+def list_rows_meta(resp):
+    primary, = [i for i, c in enumerate(resp.columns) if c.primary]
+    cmap = {c.name: i for i, c in enumerate(resp.columns)}
+    return primary, cmap
+
+
+class TimingInfo(object):
+
+    def __init__(self, days_since, days_until, cadence, cadence_pk):
+        self.days_since = days_since
+        self.days_until = days_until
+        self.cadence = cadence
+        self.cadence_pk = cadence_pk
+
+
+def get_habitual_info(client, noun_pks):
+    info = {}
+    fields, assn_pks = get_fields_for_items(client, schema.Tables.Nouns,
+                                            noun_pks, ["Cadence"])
+    all_days_since = _days_since(client, noun_pks)
+    for noun_pk in noun_pks:
+        cadence = fields[noun_pk].get("Cadence", [""])[0]
+        days_since = str(all_days_since[noun_pk]).zfill(4) if noun_pk in all_days_since else ""
+        days_until = ""
+        if cadence and days_since:
+            cadence_period = int(cadence.split(" ")[0])
+            days_until_int = cadence_period - int(days_since)
+            if days_until_int > 0:
+                days_until = "+" + str(days_until_int).zfill(4)
+            else:
+                days_until = str(days_until_int).zfill(5)
+        info[noun_pk] = TimingInfo(
+            days_since,
+            days_until,
+            cadence,
+            assn_pks.get(noun_pk, ""),
+        )
+    return info
+    # Populate "Days Since" as the number of days since a task has featured this
+    # habitual
+    for noun_pk, days_since in asdf.items():
+        habitual = noun_to_habitual[noun_pk]
+        habitual["Days Since"] = [str(days_since).zfill(4)]
+        if "Cadence" in habitual:
+            habitual["Days Until"] = [days_until_s]
+
+
+def _days_since(client, noun_pks):
+    noun_to_tasks = collections.defaultdict(list)
+    ret = {}
+    # TODO once we support multiple conditions this can be done
+    # in one query. Other nicities that would make this UX nicer
+    #
+    # 1. Group by direct/indirect and limit 1 so we get the exact
+    #    entry we want
+    # 2. Provide a format string for the date entry so we can
+    #    convert to UNIX timestamp on the server side
+    # 3. Filter columns to just the relevant ones
+
+    # Get matching tasks based on direct/indirect
+    for column in [schema.Fields.Direct, schema.Fields.Indirect]:
+        tasks_request = jql_pb2.ListRowsRequest(
+            table=schema.Tables.Tasks,
+            conditions=[
+                jql_pb2.Condition(requires=[
+                    jql_pb2.Filter(
+                        column=column,
+                        in_match=jql_pb2.InMatch(values=noun_pks),
+                    ),
+                ]),
+            ],
+        )
+        tasks_response = client.ListRows(tasks_request)
+        _, tasks_cmap = list_rows_meta(tasks_response)
+        for row in tasks_response.rows:
+            noun_to_tasks[row.entries[tasks_cmap[column]].formatted].append(row)
+
+    # Get matching tasks based on properties
+    references = [f"@timedb:{noun_pk}:" for noun_pk in noun_pks]
+    assn_request = jql_pb2.ListRowsRequest(
+        table=schema.Tables.Assertions,
+        conditions=[
+            jql_pb2.Condition(requires=[
+                jql_pb2.Filter(
+                    column=schema.Fields.Arg1,
+                    in_match=jql_pb2.InMatch(values=references),
+                ),
+            ]),
+        ],
+    )
+    assn_response = client.ListRows(assn_request)
+    _, assn_cmap = list_rows_meta(assn_response)
+    task_pk_to_nouns = collections.defaultdict(set)
+    for row in assn_response.rows:
+        noun = strip_foreign(row.entries[assn_cmap[schema.Fields.Arg1]].formatted)
+        table, pk = row.entries[assn_cmap[schema.Fields.Arg0]].formatted.split(" ", 1)
+        if table != schema.Tables.Tasks:
+            continue
+        task_pk_to_nouns[pk].add(noun)
+
+    tasks_request = jql_pb2.ListRowsRequest(
+        table=schema.Tables.Tasks,
+        conditions=[
+            jql_pb2.Condition(requires=[
+                jql_pb2.Filter(
+                    column=schema.Fields.UDescription,
+                    in_match=jql_pb2.InMatch(values=list(task_pk_to_nouns)),
+                ),
+            ]),
+        ],
+    )
+    tasks_response = client.ListRows(tasks_request)
+    tasks_primary, tasks_cmap = list_rows_meta(tasks_response)
+    for task in tasks_response.rows:
+        pk = task.entries[tasks_primary].formatted
+        for noun in task_pk_to_nouns[pk]:
+            noun_to_tasks[noun].append(task)
+    # Finally iterate over all matching tasks for nouns and construct out response
+    for noun, tasks in noun_to_tasks.items():
+        for task in tasks:
+            start_formatted = task.entries[tasks_cmap[
+                schema.Fields.ParamStart]].formatted
+            days_since = (datetime.now() -
+                          datetime.strptime(start_formatted, "%d %b %Y")).days
+            if (noun not in ret) or (ret[noun] > days_since):
+                ret[noun] = days_since
+    return ret

@@ -1,7 +1,5 @@
 import json
 
-from datetime import datetime
-
 from timedb import schema
 from timedb.virtual_gateway import common
 
@@ -39,59 +37,33 @@ class HabitualsBackend(jql_pb2_grpc.JQLServicer):
             ],
         )
         habituals_response = self.client.ListRows(habituals_request)
-        primary, = [
-            i for i, c in enumerate(habituals_response.columns) if c.primary
-        ]
-        habituals_cmap = {
-            c.name: i
-            for i, c in enumerate(habituals_response.columns)
-        }
+        primary, cmap = common.list_rows_meta(habituals_response)
         noun_pks = sorted(
             set([
-                row.entries[primary].formatted if
-                row.entries[habituals_cmap[schema.Fields.Modifier]].formatted
-                != common.ALIAS_MODIFIER else row.entries[habituals_cmap[
-                    schema.Fields.Description]].formatted
+                row.entries[primary].formatted
+                if row.entries[cmap[schema.Fields.Modifier]].formatted !=
+                common.ALIAS_MODIFIER else
+                row.entries[cmap[schema.Fields.Description]].formatted
                 for row in habituals_response.rows
             ]))
-
-        # Populate all relevant fields for the given nouns
-        fields = ["Cadence"]
-        noun_to_habitual, assn_pks = common.get_fields_for_items(
-            self.client, schema.Tables.Nouns, noun_pks, fields)
-        for row in habituals_response.rows:
-            if row.entries[habituals_cmap[
-                    schema.Fields.
-                    Modifier]].formatted == common.ALIAS_MODIFIER:
-                continue
-            noun_pk = row.entries[primary].formatted
-            noun_to_habitual[noun_pk]["Parent"] = [
-                row.entries[habituals_cmap[schema.Fields.Parent]].formatted
-            ]
-            noun_to_habitual[noun_pk]["Habitual"] = [f"@timedb:{noun_pk}:"]
-            noun_to_habitual[noun_pk]["_pk"] = [
-                common.encode_pk(noun_pk, assn_pks[noun_pk])
-            ]
-
-        fields = ["Parent", "Habitual"
-                  ] + fields + ["Days Since", "Days Until", "_pk"]
-        # Populate "Days Since" as the number of days since a task has featured this
-        # habitual
-        #
-        # TODO maybe also worth populating based on any tasks with field values that are
-        # this noun
-        for noun_pk, days_since in self._days_since(noun_pks).items():
-            habitual = noun_to_habitual[noun_pk]
-            habitual["Days Since"] = [str(days_since).zfill(4)]
-            if "Cadence" in habitual:
-                days_until = int(
-                    habitual["Cadence"][0].split(" ")[0]) - days_since
-                if days_until > 0:
-                    days_until_s = "+" + str(days_until).zfill(4)
-                else:
-                    days_until_s = str(days_until).zfill(5)
-                habitual["Days Until"] = [days_until_s]
-        return common.list_rows('vt.habituals', noun_to_habitual, request, VALUES)
+        habitual2info = common.get_habitual_info(self.client, noun_pks)
+        parents = {
+            row.entries[primary].formatted:
+            row.entries[cmap[schema.Fields.Parent]].formatted
+            for row in habituals_response.rows
+        }
+        entries = {}
+        for habitual, info in habitual2info.items():
+            pk = common.encode_pk(habitual, info.cadence_pk)
+            entries[pk] = {
+                "Parent": [parents[habitual]],
+                "Habitual": [f"@timedb:{habitual}:"],
+                "Days Since": [info.days_since],
+                "Days Until": [info.days_until],
+                "_pk": [pk],
+                "Cadence": [info.cadence],
+            }
+        return common.list_rows('vt.habituals', entries, request, VALUES)
 
     def IncrementEntry(self, request, context):
         noun_pk, pk_map = common.decode_pk(request.pk)
@@ -136,47 +108,6 @@ class HabitualsBackend(jql_pb2_grpc.JQLServicer):
             return jql_pb2.IncrementEntryResponse()
         else:
             raise ValueError("Unknown column", request.column)
-
-    def _days_since(self, noun_pks):
-        # TODO once we support multiple conditions this can be done
-        # in one query. Other nicities that would make this UX nicer
-        #
-        # 1. Group by direct/indirect and limit 1 so we get the exact
-        #    entry we want
-        # 2. Provide a format string for the date entry so we can
-        #    convert to UNIX timestamp on the server side
-        # 3. Filter columns to just the relevant ones
-        rows = []
-        ret = {}
-        for column in [schema.Fields.Direct, schema.Fields.Indirect]:
-            tasks_request = jql_pb2.ListRowsRequest(
-                table=schema.Tables.Tasks,
-                conditions=[
-                    jql_pb2.Condition(requires=[
-                        jql_pb2.Filter(
-                            column=column,
-                            in_match=jql_pb2.InMatch(values=noun_pks),
-                        ),
-                    ]),
-                ],
-            )
-            tasks_response = self.client.ListRows(tasks_request)
-            rows += tasks_response.rows
-        tasks_cmap = {c.name: i for i, c in enumerate(tasks_response.columns)}
-        noun_pks_set = set(noun_pks)
-        for row in rows:
-            start_formatted = row.entries[tasks_cmap[
-                schema.Fields.ParamStart]].formatted
-            days_since = (datetime.now() -
-                          datetime.strptime(start_formatted, "%d %b %Y")).days
-            for obj in [schema.Fields.Direct, schema.Fields.Indirect]:
-                value = row.entries[tasks_cmap[obj]].formatted
-                if value not in noun_pks_set:
-                    continue
-                if (value not in ret) or (ret[value] > days_since):
-                    ret[value] = days_since
-
-        return ret
 
     def WriteRow(self, request, context):
         noun_pk, pk_map = common.decode_pk(request.pk)
