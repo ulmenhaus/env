@@ -46,7 +46,7 @@ class HabitualsBackend(jql_pb2_grpc.JQLServicer):
                 row.entries[cmap[schema.Fields.Description]].formatted
                 for row in habituals_response.rows
             ]))
-        habitual2info = common.get_habitual_info(self.client, noun_pks)
+        habitual2info = common.get_timing_info(self.client, noun_pks)
         parents = {
             row.entries[primary].formatted:
             row.entries[cmap[schema.Fields.Parent]].formatted

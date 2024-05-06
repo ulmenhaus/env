@@ -139,6 +139,15 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
                     "Genre": [genre],
                     "Towards": ['something new'],
                 }
+        all_noun_pks = set(row['Direct'][0] for row in children.values())
+        noun2info = common.get_timing_info(self.client, all_noun_pks)
+        for child in children.values():
+            direct = child['Direct'][0]
+            if direct not in noun2info:
+                continue
+            info = noun2info[direct]
+            child['Days Since'] = [info.days_since]
+            child['Days Until'] = [info.days_until]
         return children
 
     def GetRow(self, request, context):

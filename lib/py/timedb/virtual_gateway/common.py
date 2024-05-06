@@ -1,7 +1,7 @@
 import collections
 import json
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from jql import jql_pb2
 from timedb import schema
@@ -279,36 +279,51 @@ class TimingInfo(object):
         self.cadence_pk = cadence_pk
 
 
-def get_habitual_info(client, noun_pks):
+def get_timing_info(client, noun_pks):
     info = {}
     fields, assn_pks = get_fields_for_items(client, schema.Tables.Nouns,
-                                            noun_pks, ["Cadence"])
+                                            noun_pks, ["Cadence", "StartDate", "Cost"])
     all_days_since = _days_since(client, noun_pks)
     for noun_pk in noun_pks:
         cadence = fields[noun_pk].get("Cadence", [""])[0]
-        days_since = str(all_days_since[noun_pk]).zfill(4) if noun_pk in all_days_since else ""
-        days_until = ""
-        if cadence and days_since:
-            cadence_period = int(cadence.split(" ")[0])
-            days_until_int = cadence_period - int(days_since)
+        start_date = fields[noun_pk].get("StartDate", [""])[0]
+        cost = fields[noun_pk].get("Cost", [""])[0]
+        # If a cadence is set for the noun then it is habitual and we just calculate
+        # based on the cadence and the last time the task was done
+        if cadence:
+            days_since = str(all_days_since[noun_pk]).zfill(4) if noun_pk in all_days_since else ""
+            days_until = ""
+            if cadence and days_since:
+                cadence_period = int(cadence.split(" ")[0])
+                days_until_int = cadence_period - int(days_since)
+                if days_until_int > 0:
+                    days_until = "+" + str(days_until_int).zfill(4)
+                else:
+                    days_until = str(days_until_int).zfill(5)
+            info[noun_pk] = TimingInfo(
+                days_since,
+                days_until,
+                cadence,
+                assn_pks.get(noun_pk, ""),
+            )
+        # Otherwise the item is still active in the pipeline so we go based off
+        # of its start date
+        elif start_date and cost:
+            parsed_start = datetime.strptime(start_date, '%Y-%m-%d')
+            expected_days = 2 * (3 ** int(cost.split(" ")[0]) - 1)
+            expected_end = parsed_start + timedelta(days=expected_days)
+            days_until_int = (datetime.now() - expected_end).days
             if days_until_int > 0:
                 days_until = "+" + str(days_until_int).zfill(4)
             else:
                 days_until = str(days_until_int).zfill(5)
-        info[noun_pk] = TimingInfo(
-            days_since,
-            days_until,
-            cadence,
-            assn_pks.get(noun_pk, ""),
-        )
+            info[noun_pk] = TimingInfo(
+                str((datetime.now() - parsed_start).days).zfill(4),
+                days_until,
+                "",
+                ""
+            )
     return info
-    # Populate "Days Since" as the number of days since a task has featured this
-    # habitual
-    for noun_pk, days_since in asdf.items():
-        habitual = noun_to_habitual[noun_pk]
-        habitual["Days Since"] = [str(days_since).zfill(4)]
-        if "Cadence" in habitual:
-            habitual["Days Until"] = [days_until_s]
 
 
 def _days_since(client, noun_pks):
