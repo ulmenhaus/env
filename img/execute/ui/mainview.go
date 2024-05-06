@@ -28,6 +28,7 @@ const (
 	MainViewModeQueryingForTask
 	MainViewModeQueryingForNewPlan
 	MainViewModeQueryingForPlansSubset
+	MainViewModeQueryingForNounNextState
 )
 
 const (
@@ -86,6 +87,10 @@ type MainView struct {
 	// state used for focus mode
 	focusing             bool
 	justSwitchedGrouping bool
+
+	// state used for prompting for next noun state
+	nounSwitchingStatePK       string
+	nounStateNextState string
 
 	// initialization params for reentrance
 	preselectTask       string
@@ -202,6 +207,8 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 		return mv.queryForNewPlanLayout(g)
 	} else if mv.MainViewMode == MainViewModeQueryingForPlansSubset {
 		return mv.queryForPlanSubsetLayout(g)
+	} else if mv.MainViewMode == MainViewModeQueryingForNounNextState {
+		return mv.queryForNounNextStateLayout(g)
 	} else {
 		return mv.listTasksLayout(g)
 	}
@@ -749,7 +756,15 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 	if err := g.SetKeybinding(NewPlansView, gocui.KeyEnter, gocui.ModNone, mv.substitutePlanSelections); err != nil {
 		return err
 	}
-
+	if err := g.SetKeybinding(NextStateView, 'j', gocui.ModNone, mv.basicCursorDown); err != nil {
+		return err
+	}
+	if err := g.SetKeybinding(NextStateView, 'k', gocui.ModNone, mv.basicCursorUp); err != nil {
+		return err
+	}
+	if err := g.SetKeybinding(NextStateView, gocui.KeyEnter, gocui.ModNone, mv.selectNextNounState); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -1809,7 +1824,54 @@ func (mv *MainView) markTask(g *gocui.Gui, v *gocui.View, status string) error {
 	if err != nil {
 		return err
 	}
-	return mv.refreshView(g)
+	err = mv.refreshView(g)
+	if err != nil {
+		return err
+	}
+	err = mv.possiblyPromptForNextNounState(meta.TaskPK)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (mv *MainView) possiblyPromptForNextNounState(taskPK string) error {
+	task, err := mv.dbms.GetRow(ctx, &jqlpb.GetRowRequest{
+		Table: TableTasks,
+		Pk:    taskPK,
+	})
+	if err != nil {
+		return err
+	}
+	nounPK := task.Row.Entries[api.IndexOfField(task.Columns, FieldDirect)].Formatted
+	noun, err := mv.dbms.GetRow(ctx, &jqlpb.GetRowRequest{
+		Table: TableNouns,
+		Pk:    nounPK,
+	})
+	if err != nil {
+		if api.IsNotExistError(err) {
+			return err
+		}
+		return err
+	}
+	status := noun.Row.Entries[api.IndexOfField(noun.Columns, FieldStatus)].Formatted
+	nextStates := getNextNounStates()
+	next, ok := nextStates[status]
+	if ok {
+		mv.MainViewMode = MainViewModeQueryingForNounNextState
+		mv.nounSwitchingStatePK = nounPK
+		mv.nounStateNextState = next
+	}
+	return nil
+}
+
+func getNextNounStates() map[string]string {
+	return map[string]string{
+		StatusIdea:         StatusExploring,
+		StatusExploring:    StatusPlanning,
+		StatusPlanning:     StatusImplementing,
+		StatusImplementing: StatusRevisit,
+	}
 }
 
 func (mv *MainView) deleteDayPlan(g *gocui.Gui, v *gocui.View) error {
@@ -2123,6 +2185,58 @@ func (mv *MainView) queryForPlanSubsetLayout(g *gocui.Gui) error {
 			newPlansView.Write([]byte("[ ] "))
 		}
 		newPlansView.Write([]byte(item.Plan + "\n"))
+	}
+	return nil
+}
+
+func (mv *MainView) queryForNounNextStateLayout(g *gocui.Gui) error {
+	maxX, _ := g.Size()
+	nextStateView, err := g.SetView(NextStateView, 4, 5, maxX-4, 12)
+	if err != nil && err != gocui.ErrUnknownView {
+		return err
+	}
+	nextStateView.Highlight = true
+	nextStateView.SelBgColor = gocui.ColorWhite
+	nextStateView.SelFgColor = gocui.ColorBlack
+	g.SetCurrentView(NextStateView)
+	nextStateView.Clear()
+	nextStateView.Write([]byte(fmt.Sprintf("Keep %q as is\n", mv.nounSwitchingStatePK)))
+	nextStateView.Write([]byte(fmt.Sprintf("Mark %q\n", mv.nounStateNextState)))
+	nextStateView.Write([]byte(fmt.Sprintf("Mark %q\n", StatusSatisfied)))
+	nextStateView.Write([]byte(fmt.Sprintf("Mark %q", StatusHabitual)))
+	return nil
+}
+
+func (mv *MainView) selectNextNounState(g *gocui.Gui, v *gocui.View) error {
+	_, y := v.Cursor()
+	// values are based on the values written to the prompt in queryForNounNextStateLayout
+	nextState := ""
+	switch y {
+	case 1:
+		nextState = mv.nounStateNextState
+	case 2:
+		nextState = StatusSatisfied
+	case 3:
+		nextState = StatusHabitual
+	}
+	if nextState == "" {
+		return nil
+	}
+	_, err := mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
+		Table:  TableNouns,
+		Pk:     mv.nounSwitchingStatePK,
+		Fields: map[string]string{
+			FieldStatus: nextState,
+		},
+		UpdateOnly: true,
+	})
+	if err != nil {
+		return err
+	}
+	mv.MainViewMode = MainViewModeListBar
+	err = g.DeleteView(NextStateView)
+	if err != nil {
+		return err
 	}
 	return nil
 }

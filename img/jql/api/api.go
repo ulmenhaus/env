@@ -522,3 +522,9 @@ func NewRemoteDBMS(addr string, client jqlpb.JQLClient) *RemoteDBMS {
 		Address:   addr,
 	}
 }
+
+func IsNotExistError(err error) bool {
+	// TODO we can probably provide some richer error codes in the response
+	// to be able to determine this
+	return strings.Contains(err.Error(), "no such pk")
+}

@@ -11,15 +11,20 @@ Defines the constants of the time tracking schema for jql
 
 const (
 	// The status views share the names with the statuses themselves
-	StateUnprocessed string = "Unprocessed"
-	StatusHabitual   string = "Habitual"
-	StatusPending    string = "Pending"
-	StatusPlanned    string = "Planned"
-	StatusActive     string = "Active"
-	StatusSatisfied  string = "Satisfied"
-	StatusSomeday    string = "Someday"
-	StatusFailed     string = "Failed"
-	StatusAbandoned  string = "Abandoned"
+	StateUnprocessed   string = "Unprocessed"
+	StatusAbandoned    string = "Abandoned"
+	StatusActive       string = "Active"
+	StatusExploring    string = "Exploring"
+	StatusFailed       string = "Failed"
+	StatusHabitual     string = "Habitual"
+	StatusIdea         string = "Idea"
+	StatusImplementing string = "Implementing"
+	StatusPending      string = "Pending"
+	StatusPlanned      string = "Planned"
+	StatusPlanning     string = "Planning"
+	StatusRevisit      string = "Revisit"
+	StatusSatisfied    string = "Satisfied"
+	StatusSomeday      string = "Someday"
 
 	ProjectsView string = "Projects"
 
@@ -60,6 +65,7 @@ const (
 	QueryView      string = "query"
 	NewPlanView    string = "new_plan"
 	NewPlansView   string = "new_plans"
+	NextStateView  string = "next_state"
 
 	Today       string = "Today"
 	SpanDay     string = "Day"
