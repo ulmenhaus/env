@@ -496,8 +496,11 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		}
 		var tables []*jqlpb.TableMeta
 		for _, table := range resp.Tables {
-			// See the 'g', 'u' case for why we construct the table set in this way
-			if ch == 'G' || (ch == 'U' && table.Name == mv.request.Table) {
+			// Unlike with forward lookups, for reverse lookups G will search exclusively
+			// in other tables and U will search exclusively in this table. It's more common
+			// for parent columns to take precedance for an in-table lookup and to be later
+			// in the ordering so for U we search in reverse order
+			if (ch == 'G') != (table.Name == mv.request.Table) {
 				tables = append(tables, table)
 			}
 		}
