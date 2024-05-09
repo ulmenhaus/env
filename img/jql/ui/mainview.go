@@ -877,6 +877,9 @@ func (mv *MainView) goFromSelectedValue(tables []*jqlpb.TableMeta, reverse bool)
 			}
 			cols = rotatedCols
 		}
+		// If there are no matching columns then likely the user wants to match on the
+		// first one for any entries that are about to be created so add it again at the end of the list
+		cols = append(cols, cols[0])
 		var conditions []*jqlpb.Condition
 		// If there are multiple foreign key columns, ignore any that don't have any matching entries
 		for _, col := range cols {
