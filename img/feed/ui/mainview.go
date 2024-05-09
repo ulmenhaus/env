@@ -270,7 +270,7 @@ func (mv *MainView) fetchNewItems(g *gocui.Gui, v *gocui.View) error {
 	return group.Wait()
 }
 
-func (mv *MainView) addFreshItem(g *gocui.Gui, v *gocui.View) error {
+func (mv *MainView) addFreshItem(g *gocui.Gui, v *gocui.View, status string) error {
 	resources, err := g.View(ResourcesView)
 	if err != nil {
 		return err
@@ -290,6 +290,7 @@ func (mv *MainView) addFreshItem(g *gocui.Gui, v *gocui.View) error {
 		FieldParent:      entryName,
 		FieldDescription: item.Description,
 		FieldContext:     item.Context,
+		FieldStatus:      status,
 	}
 	request := &jqlpb.WriteRowRequest{
 		Table:      TableNouns,
@@ -565,6 +566,14 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 		if err != nil {
 			return err
 		}
+		err = g.SetKeybinding(current, 'o', gocui.ModNone, mv.statusSetter(StatusImplementing))
+		if err != nil {
+			return err
+		}
+		err = g.SetKeybinding(current, 'O', gocui.ModNone, mv.statusSetter(StatusIdea))
+		if err != nil {
+			return err
+		}
 		err = g.SetKeybinding(current, 'J', gocui.ModNone, mv.moveDownInPipe)
 		if err != nil {
 			return err
@@ -684,7 +693,7 @@ func (mv *MainView) moveDown(g *gocui.Gui, v *gocui.View) error {
 	}
 	stage2status := reverseMap(mv.status2stage(channel))
 	pk := channel.status2items[stage2status[name]][oy+cy].Identifier
-	if name == StatusFresh {
+	if stage2status[name] == StatusFresh {
 		resources, err := g.View(ResourcesView)
 		if err != nil {
 			return err
@@ -720,6 +729,45 @@ func (mv *MainView) decrementDomain(g *gocui.Gui, v *gocui.View) error {
 	return mv.resetView(g)
 }
 
+func (mv *MainView) statusSetter(status string) func(g *gocui.Gui, v *gocui.View) error {
+	return func(g *gocui.Gui, v *gocui.View) error {
+		return mv.setStatus(g, v, status)
+	}
+}
+
+func (mv *MainView) setStatus(g *gocui.Gui, v *gocui.View, status string) error {
+	if v == nil {
+		return nil
+	}
+	name := v.Name()
+	if name == ResourcesView {
+		return nil
+	}
+	channel, err := mv.selectedChannel(g)
+	if err != nil {
+		return err
+	}
+	stage2status := reverseMap(mv.status2stage(channel))
+	if stage2status[name] == StatusFresh {
+		return mv.addFreshItem(g, v, status)
+	}
+	_, cy := v.Cursor()
+	_, oy := v.Origin()
+	pk := channel.status2items[stage2status[name]][oy+cy].Identifier
+	_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
+		Table: TableNouns,
+		Pk:    pk,
+		Fields: map[string]string{
+			FieldStatus: status,
+		},
+		UpdateOnly: true,
+	})
+	if err != nil {
+		return err
+	}
+	return mv.refreshView(g)
+}
+
 func (mv *MainView) moveUp(g *gocui.Gui, v *gocui.View) error {
 	if v == nil {
 		return nil
@@ -734,7 +782,7 @@ func (mv *MainView) moveUp(g *gocui.Gui, v *gocui.View) error {
 	}
 	stage2status := reverseMap(mv.status2stage(channel))
 	if stage2status[name] == StatusFresh {
-		return mv.addFreshItem(g, v)
+		return mv.addFreshItem(g, v, StatusIdea)
 	}
 	_, cy := v.Cursor()
 	_, oy := v.Origin()
