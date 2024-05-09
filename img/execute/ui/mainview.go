@@ -1850,7 +1850,7 @@ func (mv *MainView) possiblyPromptForNextNounState(taskPK string) error {
 	})
 	if err != nil {
 		if api.IsNotExistError(err) {
-			return err
+			return nil
 		}
 		return err
 	}

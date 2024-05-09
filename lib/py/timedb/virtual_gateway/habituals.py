@@ -53,13 +53,14 @@ class HabitualsBackend(jql_pb2_grpc.JQLServicer):
             for row in habituals_response.rows
         }
         entries = {}
-        for habitual, info in habitual2info.items():
+        for habitual in noun_pks:
+            info = habitual2info.get(habitual, common.TimingInfo("", "", "", ""))
             pk = common.encode_pk(habitual, info.cadence_pk)
             entries[pk] = {
                 "Parent": [parents[habitual]],
                 "Habitual": [f"@timedb:{habitual}:"],
-                "Days Since": [info.days_since],
-                "Days Until": [info.days_until],
+                "Days Since": [info.days_since or "-∞"],
+                "Days Until": [info.days_until or "-∞"],
                 "_pk": [pk],
                 "Cadence": [info.cadence],
             }
