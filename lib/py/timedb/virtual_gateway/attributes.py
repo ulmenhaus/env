@@ -20,7 +20,7 @@ class AttributesBackend(jql_pb2_grpc.JQLServicer):
                                            'vt.attributes')
 
         attributes = self._query_attributes(selected_target)
-        return common.list_rows('vt.attributes', attributes, _type_of, request)
+        return common.list_rows('vt.attributes', attributes, request)
 
     def _query_attributes(self, selected_target):
         requires = jql_pb2.Filter(

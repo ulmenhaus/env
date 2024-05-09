@@ -257,8 +257,8 @@ def list_rows(table_name, rows, request, values=None):
                 for field in fields
             ]) for relative in final
         ],
-        total=len(converted),
-        all=len(rows),
+        all=len(converted),
+        total=len(grouped),
         groupings=groupings,
     )
 
