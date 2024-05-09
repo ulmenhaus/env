@@ -100,6 +100,8 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
             if exact_matches:
                 rel = exact_matches[0]
                 relative["Relation"] = [f"{rel} this"] if is_verb(rel) else [f"w/ {rel}"]
+            else:
+                relative["Relation"] = ["w/ Mention"]
             # TODO two edge cases for the relation
             # 1. If it's a verb like "Defines" we want it to be "which define this {class}"
             # 2. If there isn't an exact match we'll say "which reference this {class}"
