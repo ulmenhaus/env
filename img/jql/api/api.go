@@ -501,6 +501,10 @@ func IsVirtualTable(name string) bool {
 	return strings.HasPrefix(name, "vt.")
 }
 
+func ConstructPolyForeign(table, pk string) string {
+	return fmt.Sprintf("%s %s", table, pk)
+}
+
 func ParsePolyforeign(entry *jqlpb.Entry) (string, []string) {
 	formatted := entry.Formatted
 

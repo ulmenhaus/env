@@ -11,7 +11,7 @@ const (
 	StatusPlanning     string = "Planning"
 	StatusImplementing string = "Implementing"
 	StatusSatisfied    string = "Satisfied"
-	StatusFresh string = "Fresh" // Fresh is not a real status in the schma, but an internal way to denote potential ideas from automted feeds
+	StatusFresh        string = "Fresh" // Fresh is not a real status in the schma, but an internal way to denote potential ideas from automted feeds
 
 	ResourcesView string = "Resources"
 	DomainView    string = "Domains"
@@ -34,6 +34,7 @@ const (
 	FieldRelation    string = "A Relation"
 	FieldArg0        string = "Arg0"
 	FieldArg1        string = "Arg1"
+	FieldOrder       string = "Order"
 
 	TableNouns      string = "nouns"
 	TableAssertions string = "assertions"

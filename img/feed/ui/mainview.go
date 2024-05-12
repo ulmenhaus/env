@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jroimartin/gocui"
 	"github.com/ulmenhaus/env/img/jql/api"
@@ -781,7 +782,8 @@ func (mv *MainView) moveUp(g *gocui.Gui, v *gocui.View) error {
 		return err
 	}
 	stage2status := reverseMap(mv.status2stage(channel))
-	if stage2status[name] == StatusFresh {
+	status := stage2status[name]
+	if status == StatusFresh {
 		return mv.addFreshItem(g, v, StatusIdea)
 	}
 	_, cy := v.Cursor()
@@ -795,6 +797,25 @@ func (mv *MainView) moveUp(g *gocui.Gui, v *gocui.View) error {
 	})
 	if err != nil {
 		return err
+	}
+	if status == StatusIdea {
+		arg0 := api.ConstructPolyForeign(TableNouns, pk)
+		arg1 := time.Now().Format("2006-01-02")
+		order := "0000"
+		_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
+			Table: TableAssertions,
+			Pk:    fmt.Sprintf("(%q,%q,%q)", arg0, arg1, order),
+			Fields: map[string]string{
+				FieldRelation: ".StartDate",
+				FieldArg0:     arg0,
+				FieldArg1:     arg1,
+				FieldOrder:    order,
+			},
+			InsertOnly: true,
+		})
+		if err != nil {
+			return err
+		}
 	}
 	return mv.refreshView(g)
 }

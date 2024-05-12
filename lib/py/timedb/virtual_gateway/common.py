@@ -310,9 +310,9 @@ def get_timing_info(client, noun_pks):
         # of its start date
         elif start_date and cost:
             parsed_start = datetime.strptime(start_date, '%Y-%m-%d')
-            expected_days = 2 * (3 ** int(cost.split(" ")[0]) - 1)
+            expected_days = 2 * (3 ** (int(cost.split(" ")[0]) - 1))
             expected_end = parsed_start + timedelta(days=expected_days)
-            days_until_int = (datetime.now() - expected_end).days
+            days_until_int = (expected_end - datetime.now()).days
             if days_until_int > 0:
                 days_until = "+" + str(days_until_int).zfill(4)
             else:
