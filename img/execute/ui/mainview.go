@@ -2,12 +2,9 @@ package ui
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"math/rand"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -89,8 +86,8 @@ type MainView struct {
 	justSwitchedGrouping bool
 
 	// state used for prompting for next noun state
-	nounSwitchingStatePK       string
-	nounStateNextState string
+	nounSwitchingStatePK string
+	nounStateNextState   string
 
 	// initialization params for reentrance
 	preselectTask       string
@@ -104,7 +101,6 @@ type DayItem struct {
 }
 
 type DayItemMeta struct {
-	Description string
 	TaskPK      string
 	AssertionPK string
 }
@@ -558,7 +554,7 @@ func (mv *MainView) todayBreakdown() ([]DayItem, error) {
 		// cycle if this is a one-off or we can't find its primary for some
 		// reason
 		brk := item.Description
-		meta := mv.today2item[item.Description]
+		meta := mv.today2item[stripDayPlanPrefix(item.Description)]
 		taskPK := meta.TaskPK
 		if taskPK == "" {
 			taskPK = stripDayPlanPrefix(item.Description)
@@ -630,36 +626,8 @@ func (mv *MainView) saveContents(g *gocui.Gui, v *gocui.View) error {
 	return mv.save()
 }
 
-func (mv *MainView) itemStorePath() string {
-	// NOTE this assumes only one timedb in the working dir from which this was invoked
-	workdir, err := os.Getwd()
-	if err != nil {
-		panic(fmt.Sprintf("Could not get working directory for item store path: %s", err))
-	}
-	return filepath.Join(workdir, ".execute.item_store.json")
-}
-
 func (mv *MainView) save() error {
 	_, err := mv.dbms.Persist(ctx, &jqlpb.PersistRequest{})
-	if err != nil {
-		return err
-	}
-	// Persist the today2item mapping so that we can restore it later to use as
-	// a base. Otherwise the mapping is hard to reconstruct since we only query
-	// for active tasks when we construct it and some tasks might already be done.
-	//
-	// NOTE If this file gets too big I can just purge its entries every time
-	// I create a new 'Plan today' task.
-	itemStoreMarshaled, err := json.MarshalIndent(mv.today2item, "", "    ")
-	if err != nil {
-		return err
-	}
-	itemStore, err := os.OpenFile(mv.itemStorePath(), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
-	if err != nil {
-		return err
-	}
-	defer itemStore.Close()
-	_, err = itemStore.Write(itemStoreMarshaled)
 	if err != nil {
 		return err
 	}
@@ -1100,11 +1068,12 @@ func (mv *MainView) ResolveSelectedPK(g *gocui.Gui) (string, error) {
 	if mv.span == Today {
 		item, ok := mv.ix2item[ix]
 		if !ok {
-			return stripDayPlanPrefix(item.Description), nil
+			return "", fmt.Errorf("index beyond bounds: %d", ix)
 		}
-		meta, ok := mv.today2item[item.Description]
+		strippedDescription := stripDayPlanPrefix(item.Description)
+		meta, ok := mv.today2item[strippedDescription]
 		if !ok {
-			return stripDayPlanPrefix(item.Description), nil
+			return strippedDescription, nil
 		}
 		return meta.TaskPK, nil
 	} else {
@@ -1194,29 +1163,8 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 	return mv.refreshToday()
 }
 
-func (mv *MainView) loadBaseToday2Item() (map[string]DayItemMeta, error) {
-	// Restore the persisted today2item mapping to use as base. Otherwise the
-	// mapping is hard to reconstruct since we only query
-	// for active tasks when we construct it and some tasks might already be done.
-	today2item := map[string]DayItemMeta{}
-	contents, err := os.ReadFile(mv.itemStorePath())
-	if err != nil {
-		if os.IsNotExist(err) {
-			return today2item, nil
-		}
-		return nil, err
-	}
-	err = json.Unmarshal(contents, &today2item)
-	return today2item, err
-}
-
 func (mv *MainView) refreshToday() error {
 	mv.today = []DayItem{}
-	today2item, err := mv.loadBaseToday2Item()
-	if err != nil {
-		return err
-	}
-	mv.today2item = today2item
 
 	today, err := mv.queryDayPlan()
 	if err != nil {
@@ -1258,13 +1206,10 @@ func (mv *MainView) refreshToday() error {
 			PK:          row.Entries[api.GetPrimary(assnTable.Columns)].Formatted,
 		})
 	}
-	newTasks, err := mv.gatherNewTasks()
+
+	err = mv.refreshToday2Item()
 	if err != nil {
 		return err
-	}
-
-	for _, newTask := range newTasks {
-		mv.today2item[newTask.Description] = newTask
 	}
 	return nil
 }
@@ -1505,7 +1450,7 @@ func (mv *MainView) queryExistingTasks(planPK string) (map[string]bool, error) {
 	existing := map[string]bool{}
 	for _, row := range resp.Rows {
 		task := row.Entries[api.IndexOfField(assnTable.Columns, FieldArg1)].Formatted
-		if !strings.HasPrefix(task, "[ ] ") {
+		if !isAssertionDayPlan(task) {
 			continue
 		}
 		existing[task] = true
@@ -1598,11 +1543,83 @@ func (mv *MainView) copyOldTasks() error {
 	return mv.save()
 }
 
-func (mv *MainView) gatherNewTasks() ([]DayItemMeta, error) {
-	// gather active and habitual tasks
-	// gather each plan for those tasks
-	// show an item if it is a plan or if it is an active leaf task with no plans
-	// save contents
+func (mv *MainView) refreshToday2Item() error {
+	possibleTaskPKs := []string{}
+	activeAndHabitual, err := mv.queryActiveAndHabitualTasks()
+	if err != nil {
+		return err
+	}
+	for _, task := range activeAndHabitual.Rows {
+		possibleTaskPKs = append(possibleTaskPKs, task.Entries[api.IndexOfField(activeAndHabitual.Columns, FieldDescription)].Formatted)
+	}
+
+	// In addition to active and habitual tasks we query tasks that were closed
+	// recently (and likely after thier corresponding reminders) to try to find where
+	// a given reminder came from. The only gap then would be a habitual task (e.g. previous
+	// attention cycle) that has since been closed
+	for _, item := range mv.today {
+		possibleTaskPKs = append(possibleTaskPKs, stripDayPlanPrefix(item.Description))
+	}
+	matchingTasks, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
+		Table: TableTasks,
+		Conditions: []*jqlpb.Condition{
+			{
+				Requires: []*jqlpb.Filter{
+					{
+						Column: FieldDescription,
+						Match:  &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: possibleTaskPKs}},
+					},
+				},
+			},
+		},
+	})
+	if err != nil {
+		return err
+	}
+
+	mv.today2item = map[string]DayItemMeta{}
+	arg0s := []string{}
+	for _, matchingTask := range matchingTasks.Rows {
+		taskPK := matchingTask.Entries[api.IndexOfField(matchingTasks.Columns, FieldDescription)].Formatted
+		arg0s = append(arg0s, api.ConstructPolyForeign(TableTasks, taskPK))
+		mv.today2item[taskPK] = DayItemMeta{
+			TaskPK: taskPK,
+		}
+	}
+	matchingAssertions, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
+		Table: TableAssertions,
+		Conditions: []*jqlpb.Condition{
+			{
+				Requires: []*jqlpb.Filter{
+					{
+						Column: FieldARelation,
+						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Plan"}},
+					},
+					{
+						Column: FieldArg0,
+						Match:  &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: arg0s}},
+					},
+				},
+			},
+		},
+	})
+	if err != nil {
+		return err
+	}
+	for _, matchingAssertion := range matchingAssertions.Rows {
+		assnPK := matchingAssertion.Entries[api.IndexOfField(matchingAssertions.Columns, FieldDescription)].Formatted
+		arg0 := matchingAssertion.Entries[api.IndexOfField(matchingAssertions.Columns, FieldArg0)]
+		arg1 := matchingAssertion.Entries[api.IndexOfField(matchingAssertions.Columns, FieldArg1)].Formatted
+		_, taskPKs := api.ParsePolyforeign(arg0)
+		mv.today2item[stripDayPlanPrefix(arg1)] = DayItemMeta{
+			AssertionPK: assnPK,
+			TaskPK:      taskPKs[0],
+		}
+	}
+	return nil
+}
+
+func (mv *MainView) queryPossibleDayPlanAdditions() ([]string, error) {
 	tasksTable := mv.tables[TableTasks]
 	assnTable := mv.tables[TableAssertions]
 	tasks, err := mv.queryActiveAndHabitualTasks()
@@ -1612,7 +1629,7 @@ func (mv *MainView) gatherNewTasks() ([]DayItemMeta, error) {
 
 	allTasks := []string{}
 	task2children := map[string]([]*jqlpb.Row){}
-	task2plans := map[string][]DayItemMeta{}
+	task2plans := map[string]([]string){}
 
 	for _, task := range tasks.Rows {
 		allTasks = append(allTasks, task.Entries[api.GetPrimary(tasksTable.Columns)].Formatted)
@@ -1624,23 +1641,14 @@ func (mv *MainView) gatherNewTasks() ([]DayItemMeta, error) {
 	if err != nil {
 		return nil, err
 	}
-	items := []DayItemMeta{}
+	descriptions := []string{}
 	for _, plan := range plans.Rows {
 		planString := plan.Entries[api.IndexOfField(assnTable.Columns, FieldArg1)].Formatted
-		// only include active plans though we query for all plans here because they may be useful later
-		if strings.HasPrefix(planString, "[x] ") {
-			continue
-		}
-		if !strings.HasPrefix(planString, "[ ] ") {
-			planString = "[ ] " + planString
+		if isAssertionDayPlan(planString) && !isDayTaskDone(planString) {
+			descriptions = append(descriptions, planString)
 		}
 		task := plan.Entries[api.IndexOfField(assnTable.Columns, FieldArg0)].Formatted[len("tasks "):]
-
-		task2plans[task] = append(task2plans[task], DayItemMeta{
-			Description: planString,
-			TaskPK:      task,
-			AssertionPK: plan.Entries[api.GetPrimary(assnTable.Columns)].Formatted,
-		})
+		task2plans[task] = append(task2plans[task], planString)
 	}
 	for _, task := range tasks.Rows {
 		pk := task.Entries[api.GetPrimary(tasksTable.Columns)].Formatted
@@ -1648,30 +1656,18 @@ func (mv *MainView) gatherNewTasks() ([]DayItemMeta, error) {
 		if status != "Active" || len(task2children[pk]) != 0 || len(task2plans[pk]) != 0 {
 			continue
 		}
-		action := task.Entries[api.IndexOfField(tasksTable.Columns, FieldAction)].Formatted
-		direct := task.Entries[api.IndexOfField(tasksTable.Columns, FieldDirect)].Formatted
-		indirect := task.Entries[api.IndexOfField(tasksTable.Columns, FieldIndirect)].Formatted
 		// no need for self reference here
-		if action == "Plan" && direct == "today" && indirect == "" {
-			continue
-		}
-		items = append(items, DayItemMeta{
-			Description: fmt.Sprintf("[ ] %s", pk),
-			TaskPK:      pk,
-		})
-	}
-	for _, taskPlans := range task2plans {
-		for _, item := range taskPlans {
-			items = append(items, item)
+		if !mv.isTaskDayPlan(task) {
+			descriptions = append(descriptions, fmt.Sprintf("[ ] %s", pk))
 		}
 	}
-	return items, nil
+	return descriptions, nil
 }
 
 func (mv *MainView) insertNewTasks() error {
 	tasksTable := mv.tables[TableTasks]
 
-	newTasks, err := mv.gatherNewTasks()
+	descriptions, err := mv.queryPossibleDayPlanAdditions()
 	if err != nil {
 		return err
 	}
@@ -1688,15 +1684,15 @@ func (mv *MainView) insertNewTasks() error {
 		return err
 	}
 
-	for ix, item := range newTasks {
-		if existingTasks[item.Description] {
+	for ix, desc := range descriptions {
+		if existingTasks[desc] {
 			continue
 		}
 		// pk doesn't really matter here so using a random integer
 		pk := fmt.Sprintf("%d", rand.Int63())
 		fields := map[string]string{
 			FieldArg0:      fmt.Sprintf("tasks %s", dayPlanPK),
-			FieldArg1:      item.Description,
+			FieldArg1:      desc,
 			FieldARelation: ".To Plan", // In a breakdown of Do Today, Do Tomorrow, & To Plan we add to the end
 			FieldOrder:     fmt.Sprintf("%d", ix+len(existingTasks)),
 		}
@@ -1786,13 +1782,12 @@ func (mv *MainView) markTask(g *gocui.Gui, v *gocui.View, status string) error {
 		}
 	}
 
-	meta, ok := mv.today2item[selection]
+	meta, ok := mv.today2item[stripDayPlanPrefix(selection)]
 	if !ok {
 		// Likely a one-off task in our plan so has no source to update
 		return nil
 	}
 
-	mv.today2item[newVal] = meta // re-map the today-plan to its item so it can still map back to its task PK
 	if meta.AssertionPK != "" {
 		_, err := mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
 			UpdateOnly: true,
@@ -2045,13 +2040,12 @@ func (mv *MainView) substituteTaskWithPrompt(g *gocui.Gui, v *gocui.View) error 
 	_, cy := v.Cursor()
 	ix := oy + cy
 	item := mv.ix2item[ix]
-	meta := mv.today2item[item.Description]
+	meta := mv.today2item[stripDayPlanPrefix(item.Description)]
 	isTask := meta.AssertionPK == ""
 	if isTask {
 		return mv.substituteTaskWithPlans(g, meta.TaskPK)
 	} else {
-		// TODO(rabrams) bit of a hack to strip the plan of its prefix
-		return mv.substitutePlanWithImplementation(g, meta.Description[len("[ ] "):])
+		return mv.substitutePlanWithImplementation(g, item.Description)
 	}
 }
 
@@ -2223,8 +2217,8 @@ func (mv *MainView) selectNextNounState(g *gocui.Gui, v *gocui.View) error {
 		return nil
 	}
 	_, err := mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
-		Table:  TableNouns,
-		Pk:     mv.nounSwitchingStatePK,
+		Table: TableNouns,
+		Pk:    mv.nounSwitchingStatePK,
 		Fields: map[string]string{
 			FieldStatus: nextState,
 		},
@@ -2406,7 +2400,7 @@ func (mv *MainView) substitutePlanSelectionsForTask(g *gocui.Gui, v *gocui.View)
 	_, cy := tasksView.Cursor()
 	ix := oy + cy
 	item := mv.ix2item[ix]
-	meta := mv.today2item[item.Description]
+	meta := mv.today2item[stripDayPlanPrefix(item.Description)]
 	// insert in reverse order since insertion is to the beginning
 	for i := len(mv.planSelections) - 1; i >= 0; i-- {
 		item := mv.planSelections[i]
@@ -2495,6 +2489,18 @@ func isDayTaskDone(description string) bool {
 	return strings.HasPrefix(description, "[x] ") || strings.HasPrefix(description, "[-] ")
 }
 
+func taskToDayPlan(description string) string {
+	return "[ ] " + description
+}
+
 func stripDayPlanPrefix(s string) string {
 	return s[len("[ ] "):]
+}
+
+func (mv *MainView) isTaskDayPlan(task *jqlpb.Row) bool {
+	tasksTable := mv.tables[TableTasks]
+	action := task.Entries[api.IndexOfField(tasksTable.Columns, FieldAction)].Formatted
+	direct := task.Entries[api.IndexOfField(tasksTable.Columns, FieldDirect)].Formatted
+	indirect := task.Entries[api.IndexOfField(tasksTable.Columns, FieldIndirect)].Formatted
+	return action == "Plan" && direct == "today" && indirect == ""
 }
