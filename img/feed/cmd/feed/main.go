@@ -78,6 +78,10 @@ func runFeed() error {
 	}
 
 	goToSelectedPK := func(g *gocui.Gui, v *gocui.View) error {
+		if mv.Mode != ui.MainViewModeListBar {
+			mv.Edit(v, gocui.Key(0), 'g', gocui.ModNone)
+			return nil
+		}
 		pk, err := mv.GetSelectedPK(g, v)
 		if err != nil {
 			return err

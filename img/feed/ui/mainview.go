@@ -33,6 +33,8 @@ type MainViewMode int
 
 const (
 	MainViewModeListBar MainViewMode = iota
+	MainViewModePromptForNewEntry
+	MainViewModeReturnFromPrompt
 )
 
 // A MainView is the overall view including a resource list
@@ -52,6 +54,10 @@ type MainView struct {
 	id2channel     map[string]*channel
 
 	channelToSelect string // Used to specify which channel should be initially selected when feed starts up
+
+	newTaskDescription string
+	newTaskInerstionPK string
+	newTaskView string
 }
 
 type domain struct {
@@ -326,6 +332,19 @@ func (mv *MainView) addFreshItem(g *gocui.Gui, v *gocui.View, status string) err
 
 // Edit handles keyboard inputs while in table mode
 func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifier) {
+	if v.Name() == NewTaskView {
+		if key == gocui.KeyBackspace || key == gocui.KeyBackspace2 {
+			if len(mv.newTaskDescription) != 0 {
+				mv.newTaskDescription = mv.newTaskDescription[:len(mv.newTaskDescription)-1]
+			}
+		} else if key == gocui.KeyEnter {
+			mv.Mode = MainViewModeReturnFromPrompt
+		} else if key == gocui.KeySpace {
+			mv.newTaskDescription += " "
+		} else {
+			mv.newTaskDescription += string(ch)
+		}
+	}
 	return
 }
 
@@ -372,6 +391,30 @@ func (mv *MainView) layoutDomains(g *gocui.Gui, domainHeight int) error {
 }
 
 func (mv *MainView) Layout(g *gocui.Gui) error {
+	switch mv.Mode {
+	case MainViewModePromptForNewEntry:
+		return mv.promptForNewEntry(g)
+	case MainViewModeReturnFromPrompt:
+		err := mv.insertNewTask(g)
+		if err != nil {
+			return err
+		}
+		err = g.DeleteView(NewTaskView)
+		if err != nil && err != gocui.ErrUnknownView {
+			return err
+		}
+		_, err = g.SetCurrentView(mv.newTaskView)
+		if err != nil {
+			return err
+		}
+		mv.Mode = MainViewModeListBar
+		return mv.Layout(g)
+	default:
+		return mv.pipelinesLayout(g)
+	}
+}
+
+func (mv *MainView) pipelinesLayout(g *gocui.Gui) error {
 	nounsTable, ok := mv.tables[TableNouns]
 	if !ok {
 		return fmt.Errorf("expected nouns table to exist")
@@ -482,6 +525,21 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 	return nil
 }
 
+func (mv *MainView) promptForNewEntry(g *gocui.Gui) error {
+	maxX, _ := g.Size()
+	newTaskView, err := g.SetView(NewTaskView, 4, 5, maxX-4, 9)
+	if err != nil && err != gocui.ErrUnknownView {
+		return err
+	}
+	newTaskView.Editable = true
+	newTaskView.Editor = mv
+	g.SetCurrentView(NewTaskView)
+	newTaskView.Clear()
+	newTaskView.Write([]byte("New Task Description\n"))
+	newTaskView.Write([]byte(mv.newTaskDescription))
+	return nil
+}
+
 func reverseMap(m map[string]string) map[string]string {
 	out := map[string]string{}
 	for k, v := range m {
@@ -581,6 +639,9 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 		}
 		err = g.SetKeybinding(current, 'K', gocui.ModNone, mv.moveUpInPipe)
 		if err != nil {
+			return err
+		}
+		if err := g.SetKeybinding(current, gocui.KeyEnter, gocui.ModNone, mv.setPromptForNewEntry); err != nil {
 			return err
 		}
 	}
@@ -1005,6 +1066,54 @@ func (mv *MainView) domainCounts() map[string]int {
 		}
 	}
 	return counts
+}
+
+func (mv *MainView) setPromptForNewEntry(g *gocui.Gui, v *gocui.View) error {
+	if v.Name() == ResourcesView {
+		return nil
+	}
+	selectedPk, err := mv.GetSelectedPK(g, v)
+	if err != nil {
+		return err
+	}
+	mv.newTaskInerstionPK = selectedPk
+	mv.newTaskDescription = ""
+	mv.newTaskView = v.Name()
+	mv.Mode = MainViewModePromptForNewEntry
+	return nil
+}
+
+func (mv *MainView) insertNewTask(g *gocui.Gui) error {
+	toDupe, err := mv.dbms.GetRow(ctx, &jqlpb.GetRowRequest{
+		Table: TableNouns,
+		Pk:    mv.newTaskInerstionPK,
+	})
+	if err != nil {
+		return err
+	}
+	entryCtx := toDupe.Row.Entries[api.IndexOfField(toDupe.Columns, FieldContext)].Formatted
+	pk := mv.newTaskDescription
+	if entryCtx != "" {
+		pk = fmt.Sprintf("[%s] %s", entryCtx, pk)
+	}
+	request := &jqlpb.WriteRowRequest{
+		Table: TableNouns,
+		Pk:    pk,
+		Fields: map[string]string{
+			FieldDescription: mv.newTaskDescription,
+			FieldContext:     entryCtx,
+			FieldCoordinal:   toDupe.Row.Entries[api.IndexOfField(toDupe.Columns, FieldCoordinal)].Formatted,
+			FieldModifier:    toDupe.Row.Entries[api.IndexOfField(toDupe.Columns, FieldModifier)].Formatted,
+			FieldParent:      toDupe.Row.Entries[api.IndexOfField(toDupe.Columns, FieldParent)].Formatted,
+			FieldStatus:      toDupe.Row.Entries[api.IndexOfField(toDupe.Columns, FieldStatus)].Formatted,
+		},
+		InsertOnly: true,
+	}
+	_, err = mv.dbms.WriteRow(ctx, request)
+	if err != nil {
+		return err
+	}
+	return mv.refreshView(g)
 }
 
 func (mv *MainView) allCounts() map[string]int {

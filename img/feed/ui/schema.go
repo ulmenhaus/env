@@ -16,6 +16,7 @@ const (
 	ResourcesView string = "Resources"
 	DomainView    string = "Domains"
 	StatsView     string = "Status"
+	NewTaskView   string = "new_task"
 
 	Stage1View string = "Stage1"
 	Stage2View string = "Stage2"
@@ -35,6 +36,7 @@ const (
 	FieldArg0        string = "Arg0"
 	FieldArg1        string = "Arg1"
 	FieldOrder       string = "Order"
+	FieldModifier    string = "A Modifier"
 
 	TableNouns      string = "nouns"
 	TableAssertions string = "assertions"
