@@ -58,14 +58,15 @@ const (
 
 	JQLName string = "jql"
 
-	CountsView     string = "counts"
-	TasksView      string = "tasks"
-	LogView        string = "log"
-	QueryTasksView string = "query_tasks"
-	QueryView      string = "query"
-	NewPlanView    string = "new_plan"
-	NewPlansView   string = "new_plans"
-	NextStateView  string = "next_state"
+	CountsView      string = "counts"
+	TasksView       string = "tasks"
+	LogView         string = "log"
+	QueryTasksView  string = "query_tasks"
+	QueryView       string = "query"
+	NewPlanView     string = "new_plan"
+	NewPlansView    string = "new_plans"
+	NextStateView   string = "next_state"
+	WeeklyAttrsView string = "weekly_attrs"
 
 	Today       string = "Today"
 	SpanDay     string = "Day"

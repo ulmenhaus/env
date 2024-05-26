@@ -12,6 +12,7 @@ class Fields(object):
     Arg1 = "Arg1"
     Code = "Code"
     Context = "Context"
+    Coordinal = "Coordinal"
     Description = "Description"
     Direct = "Direct"
     Domain = "Domain"

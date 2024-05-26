@@ -92,6 +92,10 @@ type MainView struct {
 	// initialization params for reentrance
 	preselectTask       string
 	injectMatchingTasks bool
+
+	// bottom display data
+	weeklyIntention string
+	weeklyMantra    string
 }
 
 type DayItem struct {
@@ -445,11 +449,22 @@ func (mv *MainView) listTasksLayout(g *gocui.Gui) error {
 		}
 		fmt.Fprintf(counts, "%s%s %s    ", prefix, Span2Title[span], suffix)
 	}
-	tasks, err := g.SetView(TasksView, 0, 3, (maxX*3)/4, maxY-1)
+	tasks, err := g.SetView(TasksView, 0, 3, (maxX*3)/4, maxY-4)
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	}
 	tasks.Clear()
+	weekly, err := g.SetView(WeeklyAttrsView, 0, maxY-4, (maxX*3)/4, maxY-1)
+	if err != nil && err != gocui.ErrUnknownView {
+		return err
+	}
+	weekly.Clear()
+	if mv.weeklyIntention != "" {
+		weekly.Write([]byte(fmt.Sprintf("Intention: %s\n", mv.weeklyIntention)))
+	}
+	if mv.weeklyMantra != "" {
+		weekly.Write([]byte(fmt.Sprintf("Mantra:    %s\n", mv.weeklyMantra)))
+	}
 	g.SetCurrentView(TasksView)
 	log, err := g.SetView(LogView, (maxX*3/4)+1, 0, maxX-1, maxY-1)
 	if err != nil && err != gocui.ErrUnknownView {
@@ -1084,6 +1099,10 @@ func (mv *MainView) ResolveSelectedPK(g *gocui.Gui) (string, error) {
 }
 
 func (mv *MainView) refreshView(g *gocui.Gui) error {
+	err := mv.refreshWeeklyDisplays()
+	if err != nil {
+		return err
+	}
 	tasksTable := mv.tables[TableTasks]
 	descriptionField := api.IndexOfField(tasksTable.Columns, FieldDescription)
 	projectField := api.IndexOfField(tasksTable.Columns, FieldPrimaryGoal)
@@ -1161,6 +1180,36 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 		}
 	}
 	return mv.refreshToday()
+}
+
+func (mv *MainView) refreshWeeklyDisplays() error {
+	intentions, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
+		Table:   TableTasks,
+		OrderBy: FieldStart,
+		Dec:     true,
+		Limit:   1,
+		Conditions: []*jqlpb.Condition{
+			{
+				Requires: []*jqlpb.Filter{
+					{
+						Column: FieldAction,
+						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: "Intend"}},
+					},
+				},
+			},
+		},
+	})
+	if err != nil {
+		return err
+	}
+	if len(intentions.Rows) == 0 {
+		mv.weeklyIntention = ""
+		mv.weeklyMantra = ""
+	} else {
+		mv.weeklyIntention = intentions.Rows[0].Entries[api.IndexOfField(intentions.Columns, FieldDirect)].Formatted
+		mv.weeklyMantra = intentions.Rows[0].Entries[api.IndexOfField(intentions.Columns, FieldIndirect)].Formatted
+	}
+	return nil
 }
 
 func (mv *MainView) refreshToday() error {

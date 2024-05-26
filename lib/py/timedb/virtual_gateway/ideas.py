@@ -65,7 +65,9 @@ class IdeasBackend(jql_pb2_grpc.JQLServicer):
             row.entries[primary].formatted for row in ideas_response.rows
         ]
         # Populate all relevant fields for the given nouns
-        fields = ["Domain", "Parent", "Cost", "PE", "SoB", "RoI", "Idea", "_pk"]
+        fields = [
+            "Domain", "Parent", "Coordinal", "Cost", "PE", "SoB", "RoI", "Idea", "_pk"
+        ]
         noun_to_idea, assn_pks = common.get_fields_for_items(
             self.client, schema.Tables.Nouns, noun_pks, fields)
         for row in ideas_response.rows:
@@ -74,11 +76,19 @@ class IdeasBackend(jql_pb2_grpc.JQLServicer):
             idea["Parent"] = [
                 row.entries[ideas_cmap[schema.Fields.Parent]].formatted
             ]
+            idea["Coordinal"] = [
+                row.entries[ideas_cmap[schema.Fields.Coordinal]].formatted
+            ]
             idea["Idea"] = [f"@timedb:{noun_pk}:"]
             idea["_pk"] = [common.encode_pk(noun_pk, assn_pks[noun_pk])]
-            if idea["PE"] and idea["PE"][0] and idea["Cost"] and idea["Cost"][0]:
+            if idea["PE"] and idea["PE"][0] and idea["Cost"] and idea["Cost"][
+                    0]:
                 # Entries denote orders of magnitude so determine RoI through subtraction
-                idea["RoI"] = [str(int(idea["PE"][0].split(" ")[0]) - int(idea["Cost"][0].split(" ")[0]))]
+                idea["RoI"] = [
+                    str(
+                        int(idea["PE"][0].split(" ")[0]) -
+                        int(idea["Cost"][0].split(" ")[0]))
+                ]
 
         parent_pks = sorted(
             {idea["Parent"][0]
@@ -88,7 +98,10 @@ class IdeasBackend(jql_pb2_grpc.JQLServicer):
                                                  parent_pks, ["Domain"])
         for idea in noun_to_idea.values():
             idea["Domain"] = domains[idea["Parent"][0]]["Domain"]
-        return common.list_rows('vt.ideas', noun_to_idea, request)
+        return common.list_rows('vt.ideas',
+                                noun_to_idea,
+                                request,
+                                values=VALUES)
 
     def IncrementEntry(self, request, context):
         noun_pk, pk_map = common.decode_pk(request.pk)
@@ -157,6 +170,16 @@ class IdeasBackend(jql_pb2_grpc.JQLServicer):
                         schema.Fields.Arg1: value,
                     },
                     insert_only=True,
+                )
+                self.client.WriteRow(request)
+            elif field == schema.Fields.Coordinal:
+                request = jql_pb2.WriteRowRequest(
+                    table=schema.Tables.Nouns,
+                    pk=noun_pk,
+                    fields={
+                        schema.Fields.Coordinal: value,
+                    },
+                    update_only=True,
                 )
                 self.client.WriteRow(request)
             else:

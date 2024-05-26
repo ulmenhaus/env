@@ -54,8 +54,8 @@ def create_ideation_task(snapshot, idea_pk):
     }
     task = {
         "Action": action_map.get(nouns[idea_pk]['Status'], 'Plan'),
-        'Direct': '',
-        "Indirect": idea_pk,
+        'Direct': idea_pk,
+        "Indirect": '',
         'Parameters': '',
         # NOTE Assuming we want fine-grained timestamps here so selecting today's
         # date but an alternative would be to inherit the span and start from the parent
@@ -89,7 +89,7 @@ def main():
         snapshot = json.loads(iface["snapshot"])
         create_ideation_task(snapshot, formatted)
         table = "tasks"
-        field = "Indirect"
+        field = "Direct"
         changed = True
         order_by = "Param~Start"
         order_dec = True
