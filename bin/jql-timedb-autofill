@@ -49,7 +49,7 @@ class HabitModes(object):
             item_pk for item_pk, item_data in self.data['nouns'].items()
             if item_data['Parent'] in sources
             and item_data['Relation'] != 'Feature'
-            and (item_data['Status'] == 'Active' or cls == '') # for class-based sources we only want to get curated (active) items
+            and (item_data['Status'] == 'Implementing' or cls == '') # for class-based sources we only want to get curated (active) items
         ])
         if cls != '':
             # Mark these nouns as revisit here so they don't pop up in a future
@@ -82,7 +82,7 @@ class HabitModes(object):
                 param_date=self.task_data["Param~Start"],
                 param_time=original_span,
                 primary_goal=self.task_pk,
-                status="Pending" if implements else "Planned",
+                status="Pending" if implements else "Active",
             )
             new_pk = pk_for_task(new_task, self.data['actions'])
             self.data["tasks"][new_pk] = new_task
@@ -272,7 +272,7 @@ def main():
     for task_pk, task_data in task_snapshot:
         modes.task_pk = task_pk
         modes.task_data = task_data
-        if task_data["Status"] != "Habitual":
+        if task_data["Status"] not in ("Habitual", "Active"):
             continue
         indirect = task_data["Indirect"]
         if indirect in locs:

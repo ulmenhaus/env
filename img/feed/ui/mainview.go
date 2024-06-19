@@ -56,8 +56,8 @@ type MainView struct {
 	channelToSelect string // Used to specify which channel should be initially selected when feed starts up
 
 	newTaskDescription string
-	newTaskInerstionPK string
-	newTaskView string
+	newTaskInsertionPK string
+	newTaskView        string
 }
 
 type domain struct {
@@ -938,7 +938,11 @@ func (mv *MainView) GetSelectedPK(g *gocui.Gui, v *gocui.View) (string, error) {
 			return "", err
 		}
 		stage2status := reverseMap(mv.status2stage(channel))
-		return channel.status2items[stage2status[v.Name()]][oy+cy].Identifier, nil
+		items := channel.status2items[stage2status[v.Name()]]
+		if oy+cy >= len(items) {
+			return "", nil
+		}
+		return items[oy+cy].Identifier, nil
 	}
 }
 
@@ -1076,7 +1080,7 @@ func (mv *MainView) setPromptForNewEntry(g *gocui.Gui, v *gocui.View) error {
 	if err != nil {
 		return err
 	}
-	mv.newTaskInerstionPK = selectedPk
+	mv.newTaskInsertionPK = selectedPk
 	mv.newTaskDescription = ""
 	mv.newTaskView = v.Name()
 	mv.Mode = MainViewModePromptForNewEntry
@@ -1086,27 +1090,35 @@ func (mv *MainView) setPromptForNewEntry(g *gocui.Gui, v *gocui.View) error {
 func (mv *MainView) insertNewTask(g *gocui.Gui) error {
 	toDupe, err := mv.dbms.GetRow(ctx, &jqlpb.GetRowRequest{
 		Table: TableNouns,
-		Pk:    mv.newTaskInerstionPK,
+		Pk:    mv.newTaskInsertionPK,
 	})
+	if err != nil && !api.IsNotExistError(err) {
+		return err
+	}
+	fields := map[string]string{
+		FieldDescription: mv.newTaskDescription,
+	}
+	pk := mv.newTaskDescription
+	if toDupe != nil {
+		entryCtx := toDupe.Row.Entries[api.IndexOfField(toDupe.Columns, FieldContext)].Formatted
+		if entryCtx != "" {
+			pk = fmt.Sprintf("[%s] %s", entryCtx, pk)
+		}
+		fields[FieldContext] = entryCtx
+		fields[FieldCoordinal] = toDupe.Row.Entries[api.IndexOfField(toDupe.Columns, FieldCoordinal)].Formatted
+		fields[FieldModifier] = toDupe.Row.Entries[api.IndexOfField(toDupe.Columns, FieldModifier)].Formatted
+	}
+	channel, err := mv.selectedChannel(g)
 	if err != nil {
 		return err
 	}
-	entryCtx := toDupe.Row.Entries[api.IndexOfField(toDupe.Columns, FieldContext)].Formatted
-	pk := mv.newTaskDescription
-	if entryCtx != "" {
-		pk = fmt.Sprintf("[%s] %s", entryCtx, pk)
-	}
+	fields[FieldParent] = channel.row.Entries[api.GetPrimary(mv.tables[TableNouns].Columns)].Formatted
+	stage2status := reverseMap(mv.status2stage(channel))
+	fields[FieldStatus] = stage2status[mv.newTaskView]
 	request := &jqlpb.WriteRowRequest{
-		Table: TableNouns,
-		Pk:    pk,
-		Fields: map[string]string{
-			FieldDescription: mv.newTaskDescription,
-			FieldContext:     entryCtx,
-			FieldCoordinal:   toDupe.Row.Entries[api.IndexOfField(toDupe.Columns, FieldCoordinal)].Formatted,
-			FieldModifier:    toDupe.Row.Entries[api.IndexOfField(toDupe.Columns, FieldModifier)].Formatted,
-			FieldParent:      toDupe.Row.Entries[api.IndexOfField(toDupe.Columns, FieldParent)].Formatted,
-			FieldStatus:      toDupe.Row.Entries[api.IndexOfField(toDupe.Columns, FieldStatus)].Formatted,
-		},
+		Table:      TableNouns,
+		Pk:         pk,
+		Fields:     fields,
 		InsertOnly: true,
 	}
 	_, err = mv.dbms.WriteRow(ctx, request)

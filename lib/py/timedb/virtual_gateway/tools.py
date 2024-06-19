@@ -44,7 +44,10 @@ class ToolsBackend(jql_pb2_grpc.JQLServicer):
 
         fields, _ = common.get_fields_for_items(self.client, schema.Tables.Nouns, list(target2relation.keys()))
         for target_pk, relation in target2relation.items():
-            actions = fields.get(target_pk, {}).get("Feed.Action", []) or ["Exercise", "Ready", "Evaluate"]
+            default_actions = ["Exercise", "Ready", "Evaluate"]
+            if relation == [".Resource"]:
+                default_actions = ["Consult"]
+            actions = fields.get(target_pk, {}).get("Feed.Action", []) or default_actions
             for action in actions:
                 exercise = f"{action} {target_pk}"
                 pk = _encode_pk(exercise, selected_parent, selected_target)
