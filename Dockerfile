@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y  \
 	build-essential \
 	dpic \
 	gmt-common \
+	golang \
 	m4 \
 	pdf2svg \
 	python3-pip \
@@ -17,15 +18,31 @@ RUN apt-get update && apt-get install -y  \
 	texlive-binaries \
 	texlive-extra-utils \
 	texlive-pstricks \
+	xonsh \
 	xzdec
 
-RUN pip3 install \
+RUN pip3 install --break-system-packages \
+  GitPython \
+  click \
+  gitpython \
+  grpcio \
   markdown \
   matplotlib \
   numpy \
+  oauth2client \
   pandas \
+  prompt-toolkit \
+  protobuf \
   python-chess \
-  scipy
+  requests \
+  scipy \
+  tabulate \
+  termcolor \
+  urwid \
+  xontrib-prompt-vi-mode \
+  yapf
+
+RUN ln -s /usr/bin/python3 /usr/local/bin/python3
 
 COPY lib /ulmenhaus/env/lib
 COPY bin /ulmenhaus/env/bin
