@@ -15,12 +15,15 @@ class Fields(object):
     Coordinal = "Coordinal"
     Description = "Description"
     Direct = "Direct"
+    Disambiguator = "Disambiguator"
     Domain = "Domain"
     Feed = "Feed"
     Identifier = "_Identifier"
     Indirect = "Indirect"
+    Link = "Link"
     Modifier = "A Modifier"
     Motivation = "Motivation"
+    NounRelation = "Relation"
     Order = "Order"
     ParamStart = "Param~Start"
     Parent = "Parent"
@@ -44,3 +47,10 @@ class Values(object):
     StatusRevisit = 'Revisit'
     StatusRevisit = 'Revisit'
     StatusSatisfied = 'Satisfied'
+
+
+def active_statuses():
+    return [
+        Values.StatusActive, Values.StatusExploring, Values.StatusHabitual, Values.StatusIdea,
+        Values.StatusImplementing, Values.StatusPlanned, Values.StatusPlanning
+    ]

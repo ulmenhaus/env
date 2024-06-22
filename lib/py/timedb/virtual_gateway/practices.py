@@ -151,13 +151,4 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
         return children
 
     def GetRow(self, request, context):
-        resp = self.ListRows(jql_pb2.ListRowsRequest(), context)
-        primary = common.get_primary(resp)
-        for row in resp.rows:
-            if row.entries[primary].formatted == request.pk:
-                return jql_pb2.GetRowResponse(
-                    table='vt.practices',
-                    columns = resp.columns,
-                    row=row,
-                )
-        raise ValueError(request.pk)
+        return common.get_row(self.ListRows(jql_pb2.ListRowsRequest(), context), request.pk)

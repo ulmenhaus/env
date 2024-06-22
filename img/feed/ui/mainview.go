@@ -31,10 +31,18 @@ var (
 // It determines which subviews are displayed
 type MainViewMode int
 
+type MainViewDomains int
+
 const (
 	MainViewModeListBar MainViewMode = iota
 	MainViewModePromptForNewEntry
 	MainViewModeReturnFromPrompt
+)
+
+const (
+	MainViewFixtureDomains MainViewDomains = iota
+	MainViewInitiativesDomains
+	MainViewWorkstreamDomains
 )
 
 // A MainView is the overall view including a resource list
@@ -43,7 +51,8 @@ type MainView struct {
 	dbms   api.JQL_DBMS
 	tables map[string]*jqlpb.TableMeta
 
-	Mode MainViewMode
+	Mode      MainViewMode
+	DomainSet MainViewDomains
 
 	ignored     map[string](map[string]bool) // stores a map from feed name to a set of ignored entries
 	ignoredPath string
@@ -62,6 +71,7 @@ type MainView struct {
 
 type domain struct {
 	name     string
+	project  bool
 	channels []string
 }
 
@@ -110,7 +120,7 @@ func NewMainView(g *gocui.Gui, dbms api.JQL_DBMS, ignoredPath string, returnArgs
 		return nil, err
 	}
 	if selected != "" {
-		for i, domain := range mv.domains {
+		for i, domain := range mv.renderDomains() {
 			for _, channel := range domain.channels {
 				if channel == selected {
 					mv.selectedDomain = i
@@ -124,7 +134,7 @@ func NewMainView(g *gocui.Gui, dbms api.JQL_DBMS, ignoredPath string, returnArgs
 
 func (mv *MainView) gatherDomains() (map[string]string, error) {
 	resp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
-		Table: TableAssertions,
+		Table: mv.renderTable(TableAssertions),
 		Conditions: []*jqlpb.Condition{
 			{
 				Requires: []*jqlpb.Filter{
@@ -161,7 +171,7 @@ func (mv *MainView) gatherDomains() (map[string]string, error) {
 
 func (mv *MainView) fetchResources() error {
 	resp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
-		Table: TableNouns,
+		Table: mv.renderTable(TableNouns),
 		Conditions: []*jqlpb.Condition{
 			{
 				Requires: []*jqlpb.Filter{
@@ -193,12 +203,22 @@ func (mv *MainView) fetchResources() error {
 			continue
 		}
 		entryName := row.Entries[api.IndexOfField(resp.Columns, FieldIdentifier)].Formatted
+		parent := row.Entries[api.IndexOfField(resp.Columns, FieldParent)].Formatted
 		domainName := noun2domain[entryName]
 		if domainName == "" {
 			domainName = "other"
 		}
+		isProject := false
+		if noun2domain[entryName] == "projects" {
+			domainName = entryName
+			isProject = true
+		}
+		if noun2domain[parent] == "projects" {
+			domainName = parent
+			isProject = true
+		}
 		if _, ok := domains[domainName]; !ok {
-			domains[domainName] = &domain{name: domainName}
+			domains[domainName] = &domain{name: domainName, project: isProject}
 		}
 		domain := domains[domainName]
 		name := row.Entries[api.IndexOfField(resp.Columns, FieldIdentifier)].Formatted
@@ -211,6 +231,7 @@ func (mv *MainView) fetchResources() error {
 			mv.ignored[entryName] = map[string]bool{}
 		}
 	}
+	mv.domains = []*domain{}
 	for _, domain := range domains {
 		mv.domains = append(mv.domains, domain)
 	}
@@ -233,7 +254,7 @@ func (mv *MainView) fetchNewItems(g *gocui.Gui, v *gocui.View) error {
 		parent2context[row.Entries[api.IndexOfField(allContexts.Columns, FieldParent)].Formatted] = row.Entries[api.IndexOfField(allContexts.Columns, FieldCode)].Formatted
 	}
 
-	allItems, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{Table: TableNouns})
+	allItems, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{Table: mv.renderTable(TableNouns)})
 	if err != nil {
 		return err
 	}
@@ -243,7 +264,7 @@ func (mv *MainView) fetchNewItems(g *gocui.Gui, v *gocui.View) error {
 	}
 	group := new(errgroup.Group)
 	semaphore := make(chan bool, 5) // Limit parallel requests
-	for _, domain := range mv.domains {
+	for _, domain := range mv.renderDomains() {
 		for _, name := range domain.channels {
 			entry := mv.id2channel[name]
 			entryName := entry.row.Entries[api.IndexOfField(allItems.Columns, FieldIdentifier)].Formatted
@@ -283,11 +304,11 @@ func (mv *MainView) addFreshItem(g *gocui.Gui, v *gocui.View, status string) err
 		return err
 	}
 	_, selectedResource := resources.Cursor()
-	nounsTable, ok := mv.tables[TableNouns]
+	nounsTable, ok := mv.tables[mv.renderTable(TableNouns)]
 	if !ok {
-		return fmt.Errorf("expected resources table to exist")
+		return fmt.Errorf("expected nouns table to exist")
 	}
-	feed := mv.id2channel[mv.domains[mv.selectedDomain].channels[selectedResource]]
+	feed := mv.id2channel[mv.renderDomains()[mv.selectedDomain].channels[selectedResource]]
 	entryName := feed.row.Entries[api.IndexOfField(nounsTable.Columns, FieldIdentifier)].Formatted
 	_, cy := v.Cursor()
 	_, oy := v.Origin()
@@ -300,7 +321,7 @@ func (mv *MainView) addFreshItem(g *gocui.Gui, v *gocui.View, status string) err
 		FieldStatus:      status,
 	}
 	request := &jqlpb.WriteRowRequest{
-		Table:      TableNouns,
+		Table:      mv.renderTable(TableNouns),
 		Pk:         item.Identifier,
 		Fields:     fields,
 		InsertOnly: true,
@@ -355,8 +376,11 @@ func (mv *MainView) layoutDomains(g *gocui.Gui, domainHeight int) error {
 		return err
 	}
 	domains.Clear()
-	domainWidth := maxX / len(mv.domains)
-	for i, domain := range mv.domains {
+	if len(mv.renderDomains()) == 0 {
+		return nil
+	}
+	domainWidth := maxX / len(mv.renderDomains())
+	for i, domain := range mv.renderDomains() {
 		name := "  "
 		if strings.HasPrefix(domain.name, "my ") {
 			// HACK strip domain of unnecessary contextualizing prefix. A better approach to this
@@ -415,9 +439,9 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 }
 
 func (mv *MainView) pipelinesLayout(g *gocui.Gui) error {
-	nounsTable, ok := mv.tables[TableNouns]
+	nounsTable, ok := mv.tables[mv.renderTable(TableNouns)]
 	if !ok {
-		return fmt.Errorf("expected nouns table to exist")
+		return fmt.Errorf("expected nouns table to exist -- %#v", mv.tables)
 	}
 	maxX, maxY := g.Size()
 	domainHeight := 2
@@ -474,7 +498,7 @@ func (mv *MainView) pipelinesLayout(g *gocui.Gui) error {
 	}
 
 	if mv.channelToSelect != "" {
-		for ix, name := range mv.domains[mv.selectedDomain].channels {
+		for ix, name := range mv.renderDomains()[mv.selectedDomain].channels {
 			if name == mv.channelToSelect {
 				err = resources.SetCursor(0, ix)
 				if err != nil {
@@ -484,7 +508,10 @@ func (mv *MainView) pipelinesLayout(g *gocui.Gui) error {
 		}
 		mv.channelToSelect = ""
 	}
-	for ix, name := range mv.domains[mv.selectedDomain].channels {
+	if len(mv.renderDomains()) == 0 {
+		return nil
+	}
+	for ix, name := range mv.renderDomains()[mv.selectedDomain].channels {
 		channel := mv.id2channel[name]
 		description := channel.row.Entries[api.IndexOfField(nounsTable.Columns, FieldDescription)].Formatted
 		if len(channel.status2items[StatusFresh]) > 0 {
@@ -590,6 +617,10 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 		if err != nil {
 			return err
 		}
+		err = g.SetKeybinding(current, 'p', gocui.ModNone, mv.switchDomainSet)
+		if err != nil {
+			return err
+		}
 		err = g.SetKeybinding(current, 'n', gocui.ModNone, mv.switcherTo(next))
 		if err != nil {
 			return err
@@ -672,7 +703,7 @@ func (mv *MainView) moveDownInPipe(g *gocui.Gui, v *gocui.View) error {
 	stage2status := reverseMap(mv.status2stage(channel))
 	pk := channel.status2items[stage2status[name]][oy+cy].Identifier
 	_, err = mv.dbms.IncrementEntry(ctx, &jqlpb.IncrementEntryRequest{
-		Table:  TableNouns,
+		Table:  mv.renderTable(TableNouns),
 		Pk:     pk,
 		Column: FieldCoordinal,
 		Amount: 1,
@@ -683,7 +714,7 @@ func (mv *MainView) moveDownInPipe(g *gocui.Gui, v *gocui.View) error {
 	if oy+cy+1 < len(channel.status2items[stage2status[name]]) {
 		successor := channel.status2items[stage2status[name]][oy+cy+1].Identifier
 		_, err = mv.dbms.IncrementEntry(ctx, &jqlpb.IncrementEntryRequest{
-			Table:  TableNouns,
+			Table:  mv.renderTable(TableNouns),
 			Pk:     successor,
 			Column: FieldCoordinal,
 			Amount: -1,
@@ -712,7 +743,7 @@ func (mv *MainView) moveUpInPipe(g *gocui.Gui, v *gocui.View) error {
 	stage2status := reverseMap(mv.status2stage(channel))
 	pk := channel.status2items[stage2status[name]][oy+cy].Identifier
 	_, err = mv.dbms.IncrementEntry(ctx, &jqlpb.IncrementEntryRequest{
-		Table:  TableNouns,
+		Table:  mv.renderTable(TableNouns),
 		Pk:     pk,
 		Column: FieldCoordinal,
 		Amount: -1,
@@ -723,7 +754,7 @@ func (mv *MainView) moveUpInPipe(g *gocui.Gui, v *gocui.View) error {
 	if oy+cy-1 >= 0 {
 		predecessor := channel.status2items[stage2status[name]][oy+cy-1].Identifier
 		_, err = mv.dbms.IncrementEntry(ctx, &jqlpb.IncrementEntryRequest{
-			Table:  TableNouns,
+			Table:  mv.renderTable(TableNouns),
 			Pk:     predecessor,
 			Column: FieldCoordinal,
 			Amount: 1,
@@ -745,7 +776,7 @@ func (mv *MainView) moveDown(g *gocui.Gui, v *gocui.View) error {
 	}
 	_, cy := v.Cursor()
 	_, oy := v.Origin()
-	nounsTable, ok := mv.tables[TableNouns]
+	nounsTable, ok := mv.tables[mv.renderTable(TableNouns)]
 	if !ok {
 		return fmt.Errorf("Expected to find nouns table")
 	}
@@ -762,14 +793,14 @@ func (mv *MainView) moveDown(g *gocui.Gui, v *gocui.View) error {
 		}
 		_, roy := resources.Origin()
 		_, rcy := resources.Cursor()
-		row := mv.id2channel[mv.domains[mv.selectedDomain].channels[roy+rcy]].row
+		row := mv.id2channel[mv.renderDomains()[mv.selectedDomain].channels[roy+rcy]].row
 		entryName := row.Entries[api.IndexOfField(nounsTable.Columns, FieldIdentifier)].Formatted
 		mv.ignored[entryName][pk] = true
 		channel := mv.id2channel[entryName]
 		channel.status2items[StatusFresh] = append(channel.status2items[StatusFresh][:oy+cy], channel.status2items[StatusFresh][oy+cy+1:]...)
 	} else {
 		_, err = mv.dbms.IncrementEntry(ctx, &jqlpb.IncrementEntryRequest{
-			Table:  TableNouns,
+			Table:  mv.renderTable(TableNouns),
 			Pk:     pk,
 			Column: FieldStatus,
 			Amount: -1,
@@ -782,12 +813,12 @@ func (mv *MainView) moveDown(g *gocui.Gui, v *gocui.View) error {
 }
 
 func (mv *MainView) incrementDomain(g *gocui.Gui, v *gocui.View) error {
-	mv.selectedDomain = (mv.selectedDomain + 1) % len(mv.domains)
+	mv.selectedDomain = (mv.selectedDomain + 1) % len(mv.renderDomains())
 	return mv.resetView(g)
 }
 
 func (mv *MainView) decrementDomain(g *gocui.Gui, v *gocui.View) error {
-	mv.selectedDomain = (mv.selectedDomain + len(mv.domains) - 1) % len(mv.domains)
+	mv.selectedDomain = (mv.selectedDomain + len(mv.renderDomains()) - 1) % len(mv.renderDomains())
 	return mv.resetView(g)
 }
 
@@ -817,7 +848,7 @@ func (mv *MainView) setStatus(g *gocui.Gui, v *gocui.View, status string) error 
 	_, oy := v.Origin()
 	pk := channel.status2items[stage2status[name]][oy+cy].Identifier
 	_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
-		Table: TableNouns,
+		Table: mv.renderTable(TableNouns),
 		Pk:    pk,
 		Fields: map[string]string{
 			FieldStatus: status,
@@ -851,7 +882,7 @@ func (mv *MainView) moveUp(g *gocui.Gui, v *gocui.View) error {
 	_, oy := v.Origin()
 	pk := channel.status2items[stage2status[name]][oy+cy].Identifier
 	_, err = mv.dbms.IncrementEntry(ctx, &jqlpb.IncrementEntryRequest{
-		Table:  TableNouns,
+		Table:  mv.renderTable(TableNouns),
 		Pk:     pk,
 		Column: FieldStatus,
 		Amount: 1,
@@ -860,11 +891,11 @@ func (mv *MainView) moveUp(g *gocui.Gui, v *gocui.View) error {
 		return err
 	}
 	if status == StatusIdea {
-		arg0 := api.ConstructPolyForeign(TableNouns, pk)
+		arg0 := api.ConstructPolyForeign(mv.renderTable(TableNouns), pk)
 		arg1 := time.Now().Format("2006-01-02")
 		order := "0000"
 		_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
-			Table: TableAssertions,
+			Table: mv.renderTable(TableAssertions),
 			Pk:    fmt.Sprintf("(%q,%q,%q)", arg0, arg1, order),
 			Fields: map[string]string{
 				FieldRelation: ".StartDate",
@@ -887,7 +918,7 @@ func (mv *MainView) cursorDown(g *gocui.Gui, v *gocui.View) error {
 	}
 	max := 0
 	if v.Name() == ResourcesView {
-		max = len(mv.domains[mv.selectedDomain].channels)
+		max = len(mv.renderDomains()[mv.selectedDomain].channels)
 	} else {
 		channel, err := mv.selectedChannel(g)
 		if err != nil {
@@ -927,11 +958,11 @@ func (mv *MainView) GetSelectedPK(g *gocui.Gui, v *gocui.View) (string, error) {
 	_, cy := v.Cursor()
 	_, oy := v.Origin()
 	if v.Name() == ResourcesView {
-		nounsTable, ok := mv.tables[TableNouns]
+		nounsTable, ok := mv.tables[mv.renderTable(TableNouns)]
 		if !ok {
 			return "", fmt.Errorf("expected nouns table to exist")
 		}
-		return mv.id2channel[mv.domains[mv.selectedDomain].channels[oy+cy]].row.Entries[api.IndexOfField(nounsTable.Columns, FieldIdentifier)].Formatted, nil
+		return mv.id2channel[mv.renderDomains()[mv.selectedDomain].channels[oy+cy]].row.Entries[api.IndexOfField(nounsTable.Columns, FieldIdentifier)].Formatted, nil
 	} else {
 		channel, err := mv.selectedChannel(g)
 		if err != nil {
@@ -954,9 +985,14 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 			chn.status2items[status] = nil
 		}
 	}
-	rawItems, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{Table: TableNouns})
+	rawItems, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{Table: mv.renderTable(TableNouns)})
 	if err != nil {
 		return err
+	}
+
+	mv.tables[mv.renderTable(TableNouns)] = &jqlpb.TableMeta{
+		Name:    rawItems.Table,
+		Columns: rawItems.Columns,
 	}
 
 	for _, rawItem := range rawItems.Rows {
@@ -991,7 +1027,7 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 				item.Coordinal = padded
 				_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
 					UpdateOnly: true,
-					Table:      TableNouns,
+					Table:      mv.renderTable(TableNouns),
 					Pk:         item.Identifier,
 					Fields: map[string]string{
 						FieldCoordinal: padded,
@@ -1015,10 +1051,13 @@ func (mv *MainView) selectedChannel(g *gocui.Gui) (*channel, error) {
 		_, cy = view.Cursor()
 		_, oy = view.Origin()
 	}
-	if oy+cy >= len(mv.domains[mv.selectedDomain].channels) {
+	if len(mv.renderDomains()) == 0 {
 		return nil, nil
 	}
-	return mv.id2channel[mv.domains[mv.selectedDomain].channels[oy+cy]], nil
+	if oy+cy >= len(mv.renderDomains()[mv.selectedDomain].channels) {
+		return nil, nil
+	}
+	return mv.id2channel[mv.renderDomains()[mv.selectedDomain].channels[oy+cy]], nil
 }
 
 func (mv *MainView) statsContents(g *gocui.Gui) ([]byte, error) {
@@ -1027,9 +1066,12 @@ func (mv *MainView) statsContents(g *gocui.Gui) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	if channel == nil {
+		return nil, nil
+	}
 	domainCounts := mv.domainCounts()
 	allCounts := mv.allCounts()
-	stats := fmt.Sprintf(`      U    I    E    P    I
+	stats := fmt.Sprintf(`      U    I    E    P    M
 
 C     %s%s%s%s%s
 
@@ -1062,8 +1104,11 @@ A     %s%s%s%s%s
 }
 
 func (mv *MainView) domainCounts() map[string]int {
-	domain := mv.domains[mv.selectedDomain]
 	counts := map[string]int{}
+	if len(mv.renderDomains()) == 0 {
+		return counts
+	}
+	domain := mv.renderDomains()[mv.selectedDomain]
 	for _, id := range domain.channels {
 		for status, items := range mv.id2channel[id].status2items {
 			counts[status] += len(items)
@@ -1089,7 +1134,7 @@ func (mv *MainView) setPromptForNewEntry(g *gocui.Gui, v *gocui.View) error {
 
 func (mv *MainView) insertNewTask(g *gocui.Gui) error {
 	toDupe, err := mv.dbms.GetRow(ctx, &jqlpb.GetRowRequest{
-		Table: TableNouns,
+		Table: mv.renderTable(TableNouns),
 		Pk:    mv.newTaskInsertionPK,
 	})
 	if err != nil && !api.IsNotExistError(err) {
@@ -1112,11 +1157,11 @@ func (mv *MainView) insertNewTask(g *gocui.Gui) error {
 	if err != nil {
 		return err
 	}
-	fields[FieldParent] = channel.row.Entries[api.GetPrimary(mv.tables[TableNouns].Columns)].Formatted
+	fields[FieldParent] = channel.row.Entries[api.GetPrimary(mv.tables[mv.renderTable(TableNouns)].Columns)].Formatted
 	stage2status := reverseMap(mv.status2stage(channel))
 	fields[FieldStatus] = stage2status[mv.newTaskView]
 	request := &jqlpb.WriteRowRequest{
-		Table:      TableNouns,
+		Table:      mv.renderTable(TableNouns),
 		Pk:         pk,
 		Fields:     fields,
 		InsertOnly: true,
@@ -1130,9 +1175,13 @@ func (mv *MainView) insertNewTask(g *gocui.Gui) error {
 
 func (mv *MainView) allCounts() map[string]int {
 	counts := map[string]int{}
-	for _, channel := range mv.id2channel {
-		for status, items := range channel.status2items {
-			counts[status] += len(items)
+	for _, d := range mv.renderDomains() {
+		for _, chName := range d.channels {
+			if channel, ok := mv.id2channel[chName]; ok {
+				for status, items := range channel.status2items {
+					counts[status] += len(items)
+				}
+			}
 		}
 	}
 	return counts
@@ -1157,6 +1206,47 @@ func (mv *MainView) resetView(g *gocui.Gui) error {
 		return err
 	}
 	return mv.refreshView(g)
+}
+
+func (mv *MainView) switchDomainSet(g *gocui.Gui, v *gocui.View) error {
+	switch mv.DomainSet {
+	case MainViewFixtureDomains:
+		mv.DomainSet = MainViewInitiativesDomains
+	case MainViewInitiativesDomains:
+		mv.DomainSet = MainViewWorkstreamDomains
+	case MainViewWorkstreamDomains:
+		mv.DomainSet = MainViewFixtureDomains
+	default:
+		mv.DomainSet = MainViewInitiativesDomains
+	}
+	if mv.DomainSet != MainViewWorkstreamDomains {
+		// when switching from initiatives to workstreams, keep the selected project
+		mv.selectedDomain = 0
+	}
+	err := mv.fetchResources()
+	if err != nil {
+		return err
+	}
+	return mv.resetView(g)
+}
+
+func (mv *MainView) renderTable(base string) string {
+	prefix := ""
+	switch mv.DomainSet {
+	case MainViewInitiativesDomains:
+		prefix = "vt.project_initiative_"
+	}
+	return prefix + base
+}
+
+func (mv *MainView) renderDomains() []*domain {
+	var rendered []*domain
+	for _, d := range mv.domains {
+		if mv.DomainSet == MainViewWorkstreamDomains != !d.project {
+			rendered = append(rendered, d)
+		}
+	}
+	return rendered
 }
 
 func isAutomatedFeed(row *jqlpb.Row, columns []*jqlpb.Column) bool {

@@ -222,10 +222,10 @@ def convert_foreign_fields(before, foreign):
     return after
 
 
-def list_rows(table_name, rows, request, values=None):
+def list_rows(table_name, rows, request, values=None, allow_foreign=True):
     values = values if values else {}
     type_of = {k: jql_pb2.EntryType.ENUM for k in values}
-    field_to_tables = foreign_fields(rows.values())
+    field_to_tables = foreign_fields(rows.values()) if allow_foreign else {}
     foreign_tables = {}
     for field, tables in field_to_tables.items():
         type_of[field] = jql_pb2.EntryType.FOREIGN if len(
@@ -406,3 +406,14 @@ def _days_since(client, noun_pks):
             if (noun not in ret) or (ret[noun] > days_since):
                 ret[noun] = days_since
     return ret
+
+def get_row(list_resp, pk):
+    primary = get_primary(list_resp)
+    for row in list_resp.rows:
+        if row.entries[primary].formatted == pk:
+            return jql_pb2.GetRowResponse(
+                table='vt.practices',
+                columns = list_resp.columns,
+                row=row,
+            )
+    raise ValueError("no such pk", pk)
