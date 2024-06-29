@@ -962,6 +962,9 @@ func (mv *MainView) GetSelectedPK(g *gocui.Gui, v *gocui.View) (string, error) {
 		if !ok {
 			return "", fmt.Errorf("expected nouns table to exist")
 		}
+		if mv.DomainSet == MainViewInitiativesDomains {
+			return mv.id2channel[mv.renderDomains()[mv.selectedDomain].channels[oy+cy]].row.Entries[api.IndexOfField(nounsTable.Columns, FieldDescription)].Formatted, nil
+		}
 		return mv.id2channel[mv.renderDomains()[mv.selectedDomain].channels[oy+cy]].row.Entries[api.IndexOfField(nounsTable.Columns, FieldIdentifier)].Formatted, nil
 	} else {
 		channel, err := mv.selectedChannel(g)
@@ -1133,6 +1136,8 @@ func (mv *MainView) setPromptForNewEntry(g *gocui.Gui, v *gocui.View) error {
 }
 
 func (mv *MainView) insertNewTask(g *gocui.Gui) error {
+	// TODO in addition to duplicating existing task fields (to get an appropriate coordinal) it'd be good to
+	/// run the pk setter on the new item so context is guaranteed to be correct
 	toDupe, err := mv.dbms.GetRow(ctx, &jqlpb.GetRowRequest{
 		Table: mv.renderTable(TableNouns),
 		Pk:    mv.newTaskInsertionPK,

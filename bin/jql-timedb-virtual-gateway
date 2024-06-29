@@ -17,8 +17,8 @@ def cli():
 
 
 def main():
-    @click.argument('jql_target', type=click.STRING, default="localhost:9999")
-    @click.argument('listen_addr', type=click.STRING, default="localhost:9998")
+    @click.option('--jql-target', type=click.STRING, default="localhost:9999")
+    @click.option('--listen-addr', type=click.STRING, default="localhost:9998")
     def run(jql_target, listen_addr):
         channel = grpc.insecure_channel(jql_target)
         client = jql_pb2_grpc.JQLStub(channel)

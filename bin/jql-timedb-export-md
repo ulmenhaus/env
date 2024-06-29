@@ -15,6 +15,7 @@ import os
 import pathlib
 import random
 import re
+import requests
 import shutil
 import subprocess
 import sys
@@ -23,8 +24,6 @@ import threading
 import time
 import urllib.parse
 
-import requests
-
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from timedb import pks
@@ -32,6 +31,7 @@ from timedb import pks
 HOST_NAME = 'localhost'
 PORT_NUMBER = 9090
 MEMOS_PORT_NUMBER = 9091
+DAEMON_BIND_ADDRESS = os.getenv("JQL_MD_BIND_ADDRESS") or "localhost"
 
 
 def markdown_table(rows):
@@ -985,7 +985,7 @@ def _daemon():
 
     thread = threading.Thread(target=watch_for_updates, daemon=True)
     thread.start()
-    httpd = HTTPServer(('localhost', PORT_NUMBER), MarkdownHandler)
+    httpd = HTTPServer((DAEMON_BIND_ADDRESS, PORT_NUMBER), MarkdownHandler)
     httpd.serve_forever()
 
 
@@ -1013,7 +1013,7 @@ def _memos_daemon():
 
     thread = threading.Thread(target=watch_for_updates, daemon=True)
     thread.start()
-    httpd = HTTPServer(('localhost', MEMOS_PORT_NUMBER), MemosHandler)
+    httpd = HTTPServer((DAEMON_BIND_ADDRESS, MEMOS_PORT_NUMBER), MemosHandler)
     httpd.serve_forever()
 
 
@@ -1045,7 +1045,6 @@ def main():
         _from_args()
     else:
         _from_jql()
-
 
 if __name__ == "__main__":
     main()

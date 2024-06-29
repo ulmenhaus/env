@@ -25,7 +25,7 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
                 jql_pb2.Condition(requires=[
                     jql_pb2.Filter(column=schema.Fields.Feed,
                                    negated=True,
-                                   equal_match=jql_pb2.EqualMatch(value="", )),
+                                   equal_match=jql_pb2.EqualMatch(value="")),
                 ], ),
             ],
         )
@@ -34,7 +34,8 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
     def _query_actionable_children(self, feeds_resp):
         primary = common.get_primary(feeds_resp)
         feeds = {row.entries[primary].formatted for row in feeds_resp.rows}
-        feed_attrs, _ = common.get_fields_for_items(self.client, schema.Tables.Nouns, feeds)
+        feed_attrs, _ = common.get_fields_for_items(self.client,
+                                                    schema.Tables.Nouns, feeds)
         cmap = {c.name: i for i, c in enumerate(feeds_resp.columns)}
         action_map = {
             schema.Values.StatusExploring: "Explore",
@@ -67,41 +68,63 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
         )
         nouns = self.client.ListRows(nouns_request)
         primary = common.get_primary(nouns)
+        noun_pks = [row.entries[primary].formatted for row in nouns.rows]
         children = {}
-        active_tasks = self.client.ListRows(jql_pb2.ListRowsRequest(
-            table=schema.Tables.Tasks,
-            conditions=[
-                jql_pb2.Condition(requires=[
-                    jql_pb2.Filter(
-                        column=schema.Fields.Status,
-                        in_match=jql_pb2.InMatch(values=[
-                            schema.Values.StatusPending,
-                            schema.Values.StatusPlanned,
-                            schema.Values.StatusActive,
-                        ]),
-                    ),
-                ]),
-            ],
-        ))
+        active_tasks = self.client.ListRows(
+            jql_pb2.ListRowsRequest(
+                table=schema.Tables.Tasks,
+                conditions=[
+                    jql_pb2.Condition(requires=[
+                        jql_pb2.Filter(
+                            column=schema.Fields.Status,
+                            in_match=jql_pb2.InMatch(values=[
+                                schema.Values.StatusPending,
+                                schema.Values.StatusPlanned,
+                                schema.Values.StatusActive,
+                            ]),
+                        ),
+                    ]),
+                ],
+            ))
         tasks_cmap = {c.name: i for i, c in enumerate(active_tasks.columns)}
         active_pairs = {
-            (task.entries[tasks_cmap[schema.Fields.Action]].formatted, task.entries[tasks_cmap[schema.Fields.Direct]].formatted)
-            for task in active_tasks.rows}
+            (task.entries[tasks_cmap[schema.Fields.Action]].formatted,
+             task.entries[tasks_cmap[schema.Fields.Direct]].formatted)
+            for task in active_tasks.rows
+        }
+        row_attrs, _ = common.get_fields_for_items(self.client,
+                                                   schema.Tables.Nouns,
+                                                   noun_pks)
         for row in nouns.rows:
             parent = row.entries[cmap[schema.Fields.Parent]].formatted
             local_action_map = dict(action_map)
             if "Feed.Action" in feed_attrs[parent]:
-                local_action_map[schema.Values.StatusImplementing] = feed_attrs[parent]["Feed.Action"][0]
-                local_action_map[schema.Values.StatusHabitual] = feed_attrs[parent]["Feed.Action"][0]
-                local_action_map[schema.Values.StatusSatisfied] = feed_attrs[parent]["Feed.Action"][0]
-                local_action_map[schema.Values.StatusRevisit] = feed_attrs[parent]["Feed.Action"][0]
-            towards = towards_map[row.entries[cmap[schema.Fields.Status]].formatted]
-            action = local_action_map[row.entries[cmap[schema.Fields.Status]].formatted]
+                local_action_map[
+                    schema.Values.
+                    StatusImplementing] = feed_attrs[parent]["Feed.Action"][0]
+                local_action_map[schema.Values.StatusHabitual] = feed_attrs[
+                    parent]["Feed.Action"][0]
+                local_action_map[schema.Values.StatusSatisfied] = feed_attrs[
+                    parent]["Feed.Action"][0]
+                local_action_map[schema.Values.StatusRevisit] = feed_attrs[
+                    parent]["Feed.Action"][0]
+            towards = towards_map[row.entries[cmap[
+                schema.Fields.Status]].formatted]
+            action = local_action_map[row.entries[cmap[
+                schema.Fields.Status]].formatted]
             domain = feed_attrs[parent].get("Domain", [''])[0]
+            source = f"@timedb:{parent}:"
+            if domain == "@timedb:projects:":
+                domain = source
+                areas = row_attrs[row.entries[primary].formatted]['Area']
+                source = areas[0] if areas else ""
             genre = feed_attrs[parent].get("Feed.Genre", [''])[0]
             motivation = feed_attrs[parent].get("Feed.Motivation", [''])[0]
             direct = row.entries[primary].formatted
-            if 'yes' in feed_attrs[parent].get("Feed.StripContext", []) or row.entries[cmap[schema.Fields.Modifier]].formatted == common.ALIAS_MODIFIER:
+            if 'yes' in feed_attrs[parent].get(
+                    "Feed.StripContext", []) or row.entries[
+                        cmap[schema.Fields.
+                             Modifier]].formatted == common.ALIAS_MODIFIER:
                 direct = row.entries[cmap[schema.Fields.Description]].formatted
             if (action, direct) in active_pairs:
                 # Don't show practices that already have active tasks
@@ -111,7 +134,7 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
                 "_pk": [practice],
                 "Action": [action],
                 "Direct": [direct],
-                "Source": [f"@timedb:{parent}:"],
+                "Source": [source],
                 "Domain": [domain],
                 "Genre": [genre],
                 "Motivation": [motivation],
@@ -151,4 +174,5 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
         return children
 
     def GetRow(self, request, context):
-        return common.get_row(self.ListRows(jql_pb2.ListRowsRequest(), context), request.pk)
+        return common.get_row(
+            self.ListRows(jql_pb2.ListRowsRequest(), context), request.pk)

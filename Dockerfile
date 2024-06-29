@@ -1,7 +1,5 @@
 FROM ubuntu
 
-WORKDIR /ulmenhaus/env
-
 RUN apt-get update
 
 RUN echo 2 | apt-get install -y tzdata
@@ -44,8 +42,10 @@ RUN pip3 install --break-system-packages \
 
 RUN ln -s /usr/bin/python3 /usr/local/bin/python3
 
-COPY lib /ulmenhaus/env/lib
-COPY bin /ulmenhaus/env/bin
+WORKDIR /src/github.com/ulmenhaus/env
 
-ENV PYTHONPATH=/ulmenhaus/env/lib/py:./lib/py
-ENV PATH=/ulmenhaus/env/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+COPY . /src/github.com/ulmenhaus/env/
+
+ENV PYTHONPATH=/src/github.com/ulmenhaus/env/lib/py:./lib/py
+ENV PATH=/src/github.com/ulmenhaus/env/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ENV GOPATH=/src
