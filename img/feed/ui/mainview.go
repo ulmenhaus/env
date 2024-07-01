@@ -1027,6 +1027,9 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 				if len(padded) < 3 {
 					padded = strings.Repeat("0", 3-len(padded)) + padded
 				}
+				if item.Coordinal == padded {
+					continue
+				}
 				item.Coordinal = padded
 				_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
 					UpdateOnly: true,
