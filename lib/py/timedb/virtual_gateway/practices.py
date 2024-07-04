@@ -117,7 +117,7 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
             if domain == "@timedb:projects:":
                 domain = source
                 areas = row_attrs[row.entries[primary].formatted]['Area']
-                source = areas[0] if areas else ""
+                source = areas[0] if areas else source
             genre = feed_attrs[parent].get("Feed.Genre", [''])[0]
             motivation = feed_attrs[parent].get("Feed.Motivation", [''])[0]
             direct = row.entries[primary].formatted
