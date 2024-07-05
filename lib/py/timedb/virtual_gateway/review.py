@@ -25,49 +25,100 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
         progresses = self._breakdown_progress(tasks)
         progresses.update(self._incremental_progress(tasks))
         entries = {}
+        pk2task = {}
+        primary, cmap = common.list_rows_meta(tasks)
+        for task in tasks.rows:
+            pk2task[task.entries[primary].formatted] = task
         for workstream, progress in progresses.items():
+            if workstream in pk2task:
+                entry_pk = f"@{{tasks {workstream}}}"
+                task = pk2task[workstream]
+                action = task.entries[cmap[schema.Fields.Action]].formatted
+                direct = task.entries[cmap[schema.Fields.Direct]].formatted
+                entry_description = f"{action} {direct}"
+            else:
+                entry_pk = f"@{{nouns {workstream}}}"
+                entry_description = workstream
             entries[workstream] = {
-                "_pk": [workstream],
+                "_pk": [entry_pk],
                 "A Type": ["Workstream"],
-                "Description": [workstream],
+                # TODO technically I need to include any prepositions from the action
+                # so should use the pk library, but this is good enough for most purposes
+                "Description": [entry_description],
                 "Progress": [str(progress.progress)],
                 "Total": [str(progress.total)],
-                "Z %%": [f"{(str(progress.percentage()) + '%%').ljust(3)} {progress.bar()}"],
+                "Z %%": [
+                    f"{(str(progress.percentage()) + '%%').ljust(3)} {progress.bar()}"
+                ],
             }
         return entries
 
     def _breakdown_progress(self, tasks):
         primary, cmap = common.list_rows_meta(tasks)
+        task2children = collections.defaultdict(list)
+        pk2task = {}
+        for task in tasks.rows:
+            parent = task.entries[cmap[schema.Fields.PrimaryGoal]].formatted
+            pk = task.entries[primary].formatted
+            task2children[parent].append(task)
+            pk2task[pk] = task
         # Explicit breakdowns
-        breakdowns = [
-            task.entries[cmap[schema.Fields.Direct]].formatted
-            for task in tasks.rows if task.entries[cmap[
-                schema.Fields.Indirect]].formatted == 'breakdown'
+        breakdown_tasks = [
+            task.entries[primary].formatted for task in tasks.rows if
+            task.entries[cmap[schema.Fields.Indirect]].formatted == 'breakdown'
         ]
-        projects = [
-            task.entries[cmap[schema.Fields.Direct]].formatted
-            for task in tasks.rows
+        project_tasks = [
+            task.entries[primary].formatted for task in tasks.rows
             if task.entries[cmap[schema.Fields.Action]].formatted == 'Work'
             and task.entries[cmap[
                 schema.Fields.Indirect]].formatted == 'regularity'
         ]
+        breakdowns = [
+            pk2task[pk].entries[cmap[schema.Fields.Direct]].formatted
+            for pk in breakdown_tasks
+        ]
         # TODO if a path-to-match could support multiple values then we could
         # query all projects in parallel instead of in separate requests
-        for project in projects:
+        for project_task in project_tasks:
+            project = pk2task[project_task].entries[cmap[
+                schema.Fields.Direct]].formatted
             resp = self._query_project_workstreams(project)
             primary = common.get_primary(resp)
             for row in resp.rows:
                 breakdowns.append(row.entries[primary].formatted)
         all_children = self._query_workstream_children(breakdowns)
-        progress = {breakdown: ProgressAmount() for breakdown in breakdowns}
-        primary, cmap = common.list_rows_meta(all_children)
+        noun_progress = {
+            breakdown: ProgressAmount()
+            for breakdown in breakdowns
+        }
+        noun_primary, noun_cmap = common.list_rows_meta(all_children)
         for child in all_children.rows:
-            parent = child.entries[cmap[schema.Fields.Parent]].formatted
-            status = child.entries[cmap[schema.Fields.Status]].formatted
-            progress[parent].total += 1
+            parent = child.entries[noun_cmap[schema.Fields.Parent]].formatted
+            status = child.entries[noun_cmap[schema.Fields.Status]].formatted
+            noun_progress[parent].total += 1
             if status not in schema.active_statuses():
-                progress[parent].progress += 1
-        return progress
+                noun_progress[parent].progress += 1
+        # For project plans we go based on the status of the noun. For explicit breakdowns
+        # we go based on the status of the tasks.
+        progresses = {}
+        for project_task in project_tasks:
+            project = pk2task[project_task].entries[cmap[
+                schema.Fields.Direct]].formatted
+            progresses[project] = noun_progress[project]
+        for breakdown_task in breakdown_tasks:
+            children = task2children[breakdown_task]
+            progress = len(
+                set([
+                    child.entries[cmap[schema.Fields.Direct]].formatted
+                    for child in children
+                    if child.entries[cmap[schema.Fields.Status]].formatted
+                    not in schema.active_statuses()
+                ]))
+            breakdown = pk2task[breakdown_task].entries[cmap[
+                schema.Fields.Direct]].formatted
+            progresses[breakdown_task] = ProgressAmount(
+                progress, noun_progress[breakdown].total)
+        return progresses
 
     def _incremental_progress(self, tasks):
         primary, cmap = common.list_rows_meta(tasks)
