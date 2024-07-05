@@ -17,22 +17,24 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
         # TODO support setting this via filter so I can review any cycle
         ancestor_pk = self._query_active_cycle_pk()
         descendants = self._query_descendants(ancestor_pk)
-        workstream_progress = self._workstream_progress(descendants)
         rows = {}
-        for workstream, progress in workstream_progress.items():
-            rows[workstream] = {
+        rows.update(self._workstream_entries(descendants))
+        return common.list_rows('vt.review', rows, request)
+
+    def _workstream_entries(self, tasks):
+        progresses = self._breakdown_progress(tasks)
+        progresses.update(self._incremental_progress(tasks))
+        entries = {}
+        for workstream, progress in progresses.items():
+            entries[workstream] = {
                 "_pk": [workstream],
                 "A Type": ["Workstream"],
                 "Description": [workstream],
                 "Progress": [str(progress.progress)],
                 "Total": [str(progress.total)],
+                "Z %%": [f"{(str(progress.percentage()) + '%%').ljust(3)} {progress.bar()}"],
             }
-        return common.list_rows('vt.review', rows, request)
-
-    def _workstream_progress(self, tasks):
-        progress = self._breakdown_progress(tasks)
-        progress.update(self._incremental_progress(tasks))
-        return progress
+        return entries
 
     def _breakdown_progress(self, tasks):
         primary, cmap = common.list_rows_meta(tasks)
@@ -70,10 +72,44 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
     def _incremental_progress(self, tasks):
         primary, cmap = common.list_rows_meta(tasks)
         incrementals = [
-            task for task in tasks.rows if task.entries[cmap[
-                schema.Fields.Indirect]].formatted == 'incrementality'
+            task.entries[primary].formatted for task in tasks.rows
+            if task.entries[cmap[schema.Fields.Indirect]].formatted ==
+            'incrementality'
         ]
-        return {}
+        task2children = collections.defaultdict(list)
+        pk2task = {}
+        for task in tasks.rows:
+            parent = task.entries[cmap[schema.Fields.PrimaryGoal]].formatted
+            pk = task.entries[primary].formatted
+            task2children[parent].append(task)
+            pk2task[pk] = task
+        progress = {
+            incremental: ProgressAmount()
+            for incremental in incrementals
+        }
+        for incremental in incrementals:
+            task = pk2task[incremental]
+            children = task2children[incremental]
+            params = task.entries[cmap[schema.Fields.Parameters]].formatted
+            param_values = eval(f"dict({params})")
+            task_values = list(
+                range(param_values['start'], param_values['end'] + 1,
+                      param_values['delta']))
+            max_i = 0
+            for child in children:
+                params = child.entries[cmap[
+                    schema.Fields.Parameters]].formatted
+                if 'fmt' in param_values:
+                    cur_index = param_values['fmt'].split(" ").index("{cur}")
+                    cur_value = int(params.split(" ")[cur_index])
+                else:
+                    cur_value = int(params)
+                if cur_value not in task_values:
+                    continue
+                index_of_child = task_values.index(cur_value)
+                max_i = max(max_i, index_of_child)
+            progress[incremental] = ProgressAmount(max_i + 1, len(task_values))
+        return progress
 
     def _query_descendants(self, ancestor_pk):
         return self.client.ListRows(
@@ -131,7 +167,8 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
                     jql_pb2.Condition(requires=[
                         jql_pb2.Filter(
                             column=schema.Fields.Status,
-                            equal_match=jql_pb2.EqualMatch(value=schema.Values.StatusHabitual),
+                            equal_match=jql_pb2.EqualMatch(
+                                value=schema.Values.StatusHabitual),
                         ),
                         jql_pb2.Filter(
                             column=schema.Fields.Action,
@@ -146,7 +183,6 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
             ))
         primary = common.get_primary(tasks)
         return tasks.rows[0].entries[primary].formatted
-        
 
 
 class ProgressAmount(object):
@@ -157,3 +193,13 @@ class ProgressAmount(object):
 
     def __repr__(self):
         return str(dict(progres=self.progress, total=self.total))
+
+    def percentage(self):
+        return int(self.progress * 100 / self.total)
+
+    def bar(self):
+        blocks = self.percentage() // 4
+        bar = "█" * blocks
+        bar += " " * (25 - blocks)
+        bar += "|"
+        return bar

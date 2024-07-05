@@ -25,6 +25,7 @@ class Fields(object):
     Motivation = "Motivation"
     NounRelation = "Relation"
     Order = "Order"
+    Parameters = "Parameters"
     ParamStart = "Param~Start"
     Parent = "Parent"
     PrimaryGoal = "Primary Goal"
