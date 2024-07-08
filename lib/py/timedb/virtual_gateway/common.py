@@ -127,7 +127,7 @@ def _sort_key(attrs):
     try:
         # HACK use a highly padded string as the sort key for an entry that
         # begins with a number so we can mix numerical and lexicographic sorting
-        return str(int(as_shown.split(" ")[0].replace(",", ""))).zfill(40)
+        return str(int(as_shown.split(" ")[0].split("%")[0].replace(",", ""))).zfill(40)
     except ValueError:
         return as_shown
 
@@ -181,6 +181,10 @@ def selected_target(request):
 def is_foreign(entry):
     # TODO technically we should look for colons in the middle, but some pks right now
     # have colons in the middle that should be escaped first
+    if not entry:
+        return True
+    if entry.startswith("@{") and entry.endswith("}"):
+        return True
     return len(entry) > len("@timedb:") and entry.startswith(
         "@timedb:") and entry.endswith(":")
 
@@ -203,6 +207,10 @@ def foreign_fields(rows):
         if k not in fields_with_non_foreigns
     }
 
+
+def parse_foreign(entry):
+    polyforeign = entry[len("@{"):-len("}")]
+    return polyforeign.split(" ", 1)
 
 def strip_foreign(entry):
     return entry[len("@timedb:"):-1]

@@ -15,15 +15,78 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
 
     def ListRows(self, request, context):
         # TODO support setting this via filter so I can review any cycle
+        # TODO all entries need attention cycles
         ancestor_pk = self._query_active_cycle_pk()
         descendants = self._query_descendants(ancestor_pk)
         rows = {}
-        rows.update(self._workstream_entries(descendants))
+        progresses = self._breakdown_progress(descendants)
+        progresses.update(self._incremental_progress(descendants))
+        rows.update(self._workstream_entries(descendants, progresses))
+        rows.update(self._projects_and_goals(descendants, progresses))
         return common.list_rows('vt.review', rows, request)
 
-    def _workstream_entries(self, tasks):
-        progresses = self._breakdown_progress(tasks)
-        progresses.update(self._incremental_progress(tasks))
+    def _projects_and_goals(self, tasks, progresses):
+        primary, cmap = common.list_rows_meta(tasks)
+        task_pks = [row.entries[primary].formatted for row in tasks.rows]
+        fields, _ = common.get_fields_for_items(self.client,
+                                                schema.Tables.Tasks, task_pks)
+        project2workstreams = collections.defaultdict(list)
+        goal2projects = collections.defaultdict(list)
+        for pk, attrs in fields.items():
+            if '@timedb:Project:' in attrs['Class']:
+                project2workstreams[pk]
+                for workstream in fields[pk]['Workstream']:
+                    if common.is_foreign(workstream) and common.parse_foreign(
+                            workstream)[0] == schema.Tables.Tasks:
+                        project2workstreams[pk].append(
+                            common.parse_foreign(workstream)[1])
+                for goal in fields[pk]['Goal']:
+                    if common.is_foreign(goal) and common.parse_foreign(
+                            goal)[0] == schema.Tables.Tasks:
+                        goal2projects[common.parse_foreign(goal)[1]].append(pk)
+            if '@timedb:Goal:' in attrs['Class']:
+                goal2projects[pk]
+        entries = {}
+        project2progress = {pk: ProgressAmount() for pk in project2workstreams}
+        for project_pk, workstreams in project2workstreams.items():
+            for workstream in workstreams:
+                progress = progresses[workstream]
+                project2progress[project_pk].progress += progress.progress
+                project2progress[project_pk].total += progress.total
+
+        # TODO also display plans in this list
+        for project_pk, progress in project2progress.items():
+            entries[project_pk] = {
+                "_pk": [project_pk],
+                "A Type": ["Project"],
+                # TODO full pk not necessary here - remove params and span
+                "Description": [project_pk],
+                "Progress": [str(progress.progress)],
+                "Total": [str(progress.total)],
+                "Z %%": [
+                    f"{(str(progress.percentage()) + '%%').ljust(5)} {progress.bar()}"
+                ],
+            }
+        for goal_pk, project_pks in goal2projects.items():
+            progress = ProgressAmount()
+            for project_pk in project_pks:
+                project_progress = project2progress[project_pk]
+                progress.progress = project_progress.progress
+                progress.total += project_progress.total
+            entries[goal_pk] = {
+                "_pk": [goal_pk],
+                "A Type": ["Goal"],
+                # TODO full pk not necessary here - remove params and span
+                "Description": [goal_pk],
+                "Progress": [str(progress.progress)],
+                "Total": [str(progress.total)],
+                "Z %%": [
+                    f"{(str(progress.percentage()) + '%%').ljust(5)} {progress.bar()}"
+                ],
+            }
+        return entries
+
+    def _workstream_entries(self, tasks, progresses):
         entries = {}
         pk2task = {}
         primary, cmap = common.list_rows_meta(tasks)
@@ -48,7 +111,7 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
                 "Progress": [str(progress.progress)],
                 "Total": [str(progress.total)],
                 "Z %%": [
-                    f"{(str(progress.percentage()) + '%%').ljust(3)} {progress.bar()}"
+                    f"{(str(progress.percentage()) + '%%').ljust(5)} {progress.bar()}"
                 ],
             }
         return entries
@@ -67,7 +130,7 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
             task.entries[primary].formatted for task in tasks.rows if
             task.entries[cmap[schema.Fields.Indirect]].formatted == 'breakdown'
         ]
-        project_tasks = [
+        plan_tasks = [
             task.entries[primary].formatted for task in tasks.rows
             if task.entries[cmap[schema.Fields.Action]].formatted == 'Work'
             and task.entries[cmap[
@@ -77,15 +140,17 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
             pk2task[pk].entries[cmap[schema.Fields.Direct]].formatted
             for pk in breakdown_tasks
         ]
+        plan_workstreams = []
         # TODO if a path-to-match could support multiple values then we could
-        # query all projects in parallel instead of in separate requests
-        for project_task in project_tasks:
-            project = pk2task[project_task].entries[cmap[
+        # query all plans in parallel instead of in separate requests
+        for plan_task in plan_tasks:
+            plan = pk2task[plan_task].entries[cmap[
                 schema.Fields.Direct]].formatted
-            resp = self._query_project_workstreams(project)
+            resp = self._query_plan_workstreams(plan)
             primary = common.get_primary(resp)
             for row in resp.rows:
-                breakdowns.append(row.entries[primary].formatted)
+                plan_workstreams.append(row.entries[primary].formatted)
+        breakdowns.extend(plan_workstreams)
         all_children = self._query_workstream_children(breakdowns)
         noun_progress = {
             breakdown: ProgressAmount()
@@ -98,13 +163,11 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
             noun_progress[parent].total += 1
             if status not in schema.active_statuses():
                 noun_progress[parent].progress += 1
-        # For project plans we go based on the status of the noun. For explicit breakdowns
+        # For plans we go based on the status of the noun. For explicit breakdowns
         # we go based on the status of the tasks.
         progresses = {}
-        for project_task in project_tasks:
-            project = pk2task[project_task].entries[cmap[
-                schema.Fields.Direct]].formatted
-            progresses[project] = noun_progress[project]
+        for plan_workstream in plan_workstreams:
+            progresses[plan_workstream] = noun_progress[plan_workstream]
         for breakdown_task in breakdown_tasks:
             children = task2children[breakdown_task]
             progress = len(
@@ -177,7 +240,7 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
                 ],
             ))
 
-    def _query_project_workstreams(self, project_pk):
+    def _query_plan_workstreams(self, plan_pk):
         return self.client.ListRows(
             jql_pb2.ListRowsRequest(
                 table=schema.Tables.Nouns,
@@ -185,8 +248,7 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
                     jql_pb2.Condition(requires=[
                         jql_pb2.Filter(
                             column=schema.Fields.Parent,
-                            path_to_match=jql_pb2.PathToMatch(
-                                value=project_pk),
+                            path_to_match=jql_pb2.PathToMatch(value=plan_pk),
                         ),
                         jql_pb2.Filter(
                             column=schema.Fields.Feed,
@@ -246,6 +308,8 @@ class ProgressAmount(object):
         return str(dict(progres=self.progress, total=self.total))
 
     def percentage(self):
+        if self.total == 0:
+            return 100
         return int(self.progress * 100 / self.total)
 
     def bar(self):
