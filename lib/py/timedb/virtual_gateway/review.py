@@ -23,7 +23,44 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
         progresses.update(self._incremental_progress(descendants))
         rows.update(self._workstream_entries(descendants, progresses))
         rows.update(self._projects_and_goals(descendants, progresses))
+        rows.update(self._habit_entries(descendants))
         return common.list_rows('vt.review', rows, request)
+
+    def _habit_entries(self, tasks):
+        primary, cmap = common.list_rows_meta(tasks)
+        habit_tasks = [
+            task for task in tasks.rows
+            if task.entries[cmap[schema.Fields.Indirect]].formatted ==
+            'regularity'
+        ]
+        task2children = collections.defaultdict(list)
+        for task in tasks.rows:
+            parent = task.entries[cmap[schema.Fields.PrimaryGoal]].formatted
+            pk = task.entries[primary].formatted
+            task2children[parent].append(task)
+        rows = {}
+        for habit in habit_tasks:
+            habit_pk = habit.entries[primary].formatted
+            children = [task for task in task2children[habit_pk]]
+            successes = len([child for child in children if child.entries[cmap[schema.Fields.Status]].formatted == schema.Values.StatusSatisfied])
+            total = len([child for child in children if child.entries[cmap[schema.Fields.Status]].formatted not in schema.active_statuses()])
+            success_rate = ((successes * 100) // total) if total > 0 else 100
+            success_rate_str = f"\033[32m{success_rate}%%\033[0m" # green colored
+            if success_rate < 100:
+                # TODO would be good to color this based on a custom value for expected success rate
+                success_rate_str = f"\033[31m{success_rate}%%\033[0m" # red colored
+            rows[habit_pk] = {
+                "_pk": [habit_pk],
+                "A Type": ["Habit"],
+                # TODO full pk not necessary here - remove params, span, indirect
+                "Description": [habit_pk],
+                "Successes": [str(successes)],
+                "Total": [str(total)],
+                # TODO would be good to support a "hit rate" based on how frequently the habit
+                # is expected to happen
+                "Z Success Rate": [success_rate_str],
+            }
+        return rows
 
     def _projects_and_goals(self, tasks, progresses):
         primary, cmap = common.list_rows_meta(tasks)

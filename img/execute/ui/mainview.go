@@ -693,7 +693,7 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(TasksView, 'p', gocui.ModNone, mv.wrapTaskInRamps)
+	err = g.SetKeybinding(TasksView, 'P', gocui.ModNone, mv.wrapTaskInRamps)
 	if err != nil {
 		return err
 	}
@@ -2262,10 +2262,15 @@ func (mv *MainView) selectNextNounState(g *gocui.Gui, v *gocui.View) error {
 	case 3:
 		nextState = StatusHabitual
 	}
+	err := g.DeleteView(NextStateView)
+	if err != nil {
+		return err
+	}
+	mv.MainViewMode = MainViewModeListBar
 	if nextState == "" {
 		return nil
 	}
-	_, err := mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
+	_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
 		Table: TableNouns,
 		Pk:    mv.nounSwitchingStatePK,
 		Fields: map[string]string{
@@ -2273,11 +2278,6 @@ func (mv *MainView) selectNextNounState(g *gocui.Gui, v *gocui.View) error {
 		},
 		UpdateOnly: true,
 	})
-	if err != nil {
-		return err
-	}
-	mv.MainViewMode = MainViewModeListBar
-	err = g.DeleteView(NextStateView)
 	if err != nil {
 		return err
 	}
