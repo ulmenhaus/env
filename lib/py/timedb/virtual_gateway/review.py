@@ -18,40 +18,116 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
         # TODO all entries need attention cycles
         ancestor_pk = self._query_active_cycle_pk()
         descendants = self._query_descendants(ancestor_pk)
+        primary, cmap = common.list_rows_meta(descendants)
+        task_pks = [row.entries[primary].formatted for row in descendants.rows]
+        fields, _ = common.get_fields_for_items(self.client,
+                                                schema.Tables.Tasks, task_pks)
         rows = {}
         progresses = self._breakdown_progress(descendants)
         progresses.update(self._incremental_progress(descendants))
         rows.update(self._workstream_entries(descendants, progresses))
-        rows.update(self._projects_and_goals(descendants, progresses))
+        rows.update(self._projects_and_goals(descendants, progresses, fields))
         rows.update(self._habit_entries(descendants))
+        rows.update(self._stat_entries(descendants, fields))
         return common.list_rows('vt.review', rows, request)
 
-    def _habit_entries(self, tasks):
+    def _stat_entries(self, tasks, fields):
         primary, cmap = common.list_rows_meta(tasks)
-        habit_tasks = [
+        captured_fields = [
+            "Motivation", "Source", "Towards", "Area", "Genre", "Attendee"
+        ]
+        task_fields = [schema.Fields.Action, schema.Fields.Direct]
+        attention_cycles = [
             task for task in tasks.rows
-            if task.entries[cmap[schema.Fields.Indirect]].formatted ==
-            'regularity'
+            if task.entries[cmap[schema.Fields.Action]].formatted == 'Attend'
+            and task.entries[cmap[schema.Fields.Direct]].formatted == ''
         ]
         task2children = collections.defaultdict(list)
         for task in tasks.rows:
             parent = task.entries[cmap[schema.Fields.PrimaryGoal]].formatted
-            pk = task.entries[primary].formatted
+            task2children[parent].append(task)
+        domain2stats = {}
+        for attention_cycle in attention_cycles:
+            stats = collections.defaultdict(collections.Counter)
+            domain = attention_cycle.entries[cmap[schema.Fields.Indirect]].formatted
+            domain2stats[domain] = stats
+            pk = attention_cycle.entries[primary].formatted
+            initiatives = task2children[pk]
+            for initiative in initiatives:
+                initiative_pk = initiative.entries[primary].formatted
+                count = len(task2children[initiative_pk]) or 1
+                if self._exclude_initiative(initiative, fields[initiative_pk], cmap):
+                    continue
+                for field in captured_fields:
+                    values = fields[initiative_pk][field] or ["None"]
+                    for value in values:
+                        stats[field][value] += count
+                for field in task_fields:
+                    value = initiative.entries[cmap[field]].formatted or "None"
+                    stats[field][value] += count
+        # TODO populate stats with all possible values (e.g. from vt.practices)
+        rows = {}
+        pk = 0
+        for domain, stats in domain2stats.items():
+            for by, values in stats.items():
+                total = sum(values.values())
+                for value, count in values.items():
+                    as_progress = ProgressAmount(count, total)
+                    pk += 1
+                    rows[str(pk)] = {
+                        "_pk": [str(pk)],
+                        "A Domain": [domain],
+                        "A Class": ["Stat"],
+                        "By": [by],
+                        "Description": [value],
+                        "Number": [str(count)],
+                        "Total": [str(total)],
+                        "Z %%": [
+                            f"{(str(as_progress.percentage()) + '%%').ljust(5)} {as_progress.bar()}"
+                        ],
+                    }
+        return rows
+
+    def _exclude_initiative(self, task, task_fields, cmap):
+        # Goals don't by themselves map to any time spent on work so are excluded
+        # in calculating stats on time
+        for cls in task_fields["Class"]:
+            if cls == "Goal":
+                return True
+        return False
+
+    def _habit_entries(self, tasks):
+        primary, cmap = common.list_rows_meta(tasks)
+        habit_tasks = [
+            task for task in tasks.rows if task.entries[cmap[
+                schema.Fields.Indirect]].formatted == 'regularity'
+        ]
+        task2children = collections.defaultdict(list)
+        for task in tasks.rows:
+            parent = task.entries[cmap[schema.Fields.PrimaryGoal]].formatted
             task2children[parent].append(task)
         rows = {}
         for habit in habit_tasks:
             habit_pk = habit.entries[primary].formatted
             children = [task for task in task2children[habit_pk]]
-            successes = len([child for child in children if child.entries[cmap[schema.Fields.Status]].formatted == schema.Values.StatusSatisfied])
-            total = len([child for child in children if child.entries[cmap[schema.Fields.Status]].formatted not in schema.active_statuses()])
+            successes = len([
+                child for child in children
+                if child.entries[cmap[schema.Fields.Status]].formatted ==
+                schema.Values.StatusSatisfied
+            ])
+            total = len([
+                child for child in children
+                if child.entries[cmap[schema.Fields.Status]].formatted not in
+                schema.active_statuses()
+            ])
             success_rate = ((successes * 100) // total) if total > 0 else 100
-            success_rate_str = f"\033[32m{success_rate}%%\033[0m" # green colored
+            success_rate_str = f"\033[32m{success_rate}%%\033[0m"  # green colored
             if success_rate < 100:
                 # TODO would be good to color this based on a custom value for expected success rate
-                success_rate_str = f"\033[31m{success_rate}%%\033[0m" # red colored
+                success_rate_str = f"\033[31m{success_rate}%%\033[0m"  # red colored
             rows[habit_pk] = {
                 "_pk": [habit_pk],
-                "A Type": ["Habit"],
+                "A Class": ["Habit"],
                 # TODO full pk not necessary here - remove params, span, indirect
                 "Description": [habit_pk],
                 "Successes": [str(successes)],
@@ -62,11 +138,8 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
             }
         return rows
 
-    def _projects_and_goals(self, tasks, progresses):
+    def _projects_and_goals(self, tasks, progresses, fields):
         primary, cmap = common.list_rows_meta(tasks)
-        task_pks = [row.entries[primary].formatted for row in tasks.rows]
-        fields, _ = common.get_fields_for_items(self.client,
-                                                schema.Tables.Tasks, task_pks)
         project2workstreams = collections.defaultdict(list)
         goal2projects = collections.defaultdict(list)
         for pk, attrs in fields.items():
@@ -95,7 +168,7 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
         for project_pk, progress in project2progress.items():
             entries[project_pk] = {
                 "_pk": [project_pk],
-                "A Type": ["Project"],
+                "A Class": ["Project"],
                 # TODO full pk not necessary here - remove params and span
                 "Description": [project_pk],
                 "Progress": [str(progress.progress)],
@@ -112,7 +185,7 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
                 progress.total += project_progress.total
             entries[goal_pk] = {
                 "_pk": [goal_pk],
-                "A Type": ["Goal"],
+                "A Class": ["Goal"],
                 # TODO full pk not necessary here - remove params and span
                 "Description": [goal_pk],
                 "Progress": [str(progress.progress)],
@@ -141,7 +214,7 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
                 entry_description = workstream
             entries[workstream] = {
                 "_pk": [entry_pk],
-                "A Type": ["Workstream"],
+                "A Class": ["Workstream"],
                 # TODO technically I need to include any prepositions from the action
                 # so should use the pk library, but this is good enough for most purposes
                 "Description": [entry_description],
@@ -243,8 +316,9 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
             children = task2children[incremental]
             params = task.entries[cmap[schema.Fields.Parameters]].formatted
             param_values = eval(f"dict({params})")
+            end_delta = 1 if param_values['start'] < param_values['end'] else -1
             task_values = list(
-                range(param_values['start'], param_values['end'] + 1,
+                range(param_values['start'], param_values['end'] + end_delta,
                       param_values['delta']))
             max_i = 0
             for child in children:

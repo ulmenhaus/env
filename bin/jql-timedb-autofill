@@ -186,7 +186,8 @@ class HabitModes(object):
         ordered = sorted(previous_tasks,
                          key=lambda task: -task[1]["Param~Start"])
         param = start
-        # HACK assumes current is separated by spaces
+        # TODO this assumes current is separated by spaces but turning it into a
+        # regexp would be a better approach
         curr_index = fmt.split(" ").index("{cur}")
         get_param = lambda task_data: int(task_data["Parameters"].split(" ")[
             curr_index])
@@ -207,7 +208,7 @@ class HabitModes(object):
                 param = current + delta
             if fail and failures >= fail:
                 param = current - delta
-        if param > end:
+        if ((param > end) and (delta > 0)) or ((param < end) and (delta < 0)):
             return
         params = fmt.format(start=start, cur=param, end=end)
         action = self.task_data["Action"]

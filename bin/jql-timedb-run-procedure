@@ -1,0 +1,70 @@
+#! /usr/local/bin/python3
+"""
+For jql time management schema
+
+* takes the selected pk and runs any procedure associated with doing it or prompts the user to select the procedure
+"""
+
+import os
+import subprocess
+import sys
+
+# The python gRPC client lib's pre-fork hook can cause a deadlock that
+# prevents subprocess forking. Disabling fork support fixes this bug.
+os.environ["GRPC_ENABLE_FORK_SUPPORT"] = "0"
+
+from jql import jql_pb2, macro
+from timedb import schema
+
+
+def main():
+    with macro.macro_interface(sys.stdin, sys.stdout) as iface:
+        dbms = iface.get_dbms()
+        table, pk = iface.get_primary_selection()
+        if table != schema.Tables.Tasks:
+            raise ValueError(table)
+        resp = dbms.GetRow(jql_pb2.GetRowRequest(table=table, pk=pk))
+        cmap = {c.name: i for i, c in enumerate(resp.columns)}
+        action = resp.row.entries[cmap[schema.Fields.Action]].formatted
+        direct = resp.row.entries[cmap[schema.Fields.Direct]].formatted
+        indirect = resp.row.entries[cmap[schema.Fields.Indirect]].formatted
+        procedure_resp = dbms.ListRows(
+            jql_pb2.ListRowsRequest(
+                table=schema.Tables.Assertions,
+                conditions=[
+                    jql_pb2.Condition(requires=[
+                        jql_pb2.Filter(column=schema.Fields.Arg0,
+                                       in_match=jql_pb2.InMatch(values=[
+                                           f"nouns {noun}"
+                                           for noun in [direct, indirect]
+                                       ])),
+                        jql_pb2.Filter(column=schema.Fields.Relation,
+                                       equal_match=jql_pb2.EqualMatch(
+                                           value=".Procedure")),
+                    ]),
+                ],
+            ))
+        assn_cmap = {c.name: i for i, c in enumerate(procedure_resp.columns)}
+        procedures = [
+            row for row in procedure_resp.rows if row.entries[assn_cmap[
+                schema.Fields.Arg1]].formatted.startswith(f"### {action}")
+        ]
+        if len(procedures) == 1:
+            procedure, = procedures
+            body = procedure.entries[assn_cmap[schema.Fields.Arg1]].formatted
+            steps = body.split("\n- ")[1:]
+            if len(steps) == 1 and "```" in steps[0]:
+                command = steps[0].split("```")[1].strip()
+                subprocess.check_call(command, shell=True, env=os.environ)
+                # TODO we should also update the parameters/attributes to include
+                # the variation for record keeping in stats
+            else:
+                # TODO this should open up the procedure with the procedure runner
+                raise NotImplementedError()
+        else:
+            # TODO this should open up the prompt tool with the right resource filtered
+            raise NotImplementedError()
+
+
+if __name__ == "__main__":
+    main()

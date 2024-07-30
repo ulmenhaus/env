@@ -32,6 +32,7 @@ class Fields(object):
     Relation = "A Relation"
     Source = "Source"
     Status = 'Status'
+    Subset = 'Subset'
     Towards = "Towards"
     UDescription = "_Description"
 

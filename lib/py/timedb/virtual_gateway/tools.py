@@ -43,31 +43,64 @@ class ToolsBackend(jql_pb2_grpc.JQLServicer):
             target2relation[target_pk] = relation
 
         fields, _ = common.get_fields_for_items(self.client, schema.Tables.Nouns, list(target2relation.keys()))
+        taxonomies = set([value for d in fields.values() for k, v in d.items() for value in v if k == "Taxonomy"])
+        all_subsets = self._query_subsets(taxonomies)
         for target_pk, relation in target2relation.items():
-            default_actions = ["Exercise", "Ready", "Evaluate"]
+            excluded_rels = [".KitDomain"]
+            if all([rel in excluded_rels for rel in relation]):
+                continue
+            default_actions = ["Exercise", "Ready", "Evaluate", "Review"]
             if relation == [".Resource"]:
                 default_actions = ["Consult"]
             actions = fields.get(target_pk, {}).get("Feed.Action", []) or default_actions
+            subsets = ['']
+            for taxonomy in fields.get(target_pk, {}).get("Taxonomy", []):
+                subsets += all_subsets[common.strip_foreign(taxonomy)]
             for action in actions:
-                exercise = f"{action} {target_pk}"
-                pk = _encode_pk(exercise, selected_parent, selected_target)
-                attributes[pk] = {
-                    "_pk": [pk],
-                    "Relation": relation,
-                    "Action": [action],
-                    "Direct": [target_pk],
-                    "Parent": [selected_parent],
-                    "-> Item":
-                    [selected_target],  # added to ensure the filter still matches
-                    "Motivation": ["Preparation"],
-                    "Source": [""],
-                    "Towards": [""],
-                    "Domain": [""],
-                }
+                for subset in subsets:
+                    exercise = f"{action} {target_pk}"
+                    pk = _encode_pk(exercise, selected_parent, selected_target, subset)
+                    attributes[pk] = {
+                        "_pk": [pk],
+                        "Relation": relation,
+                        "Action": [action],
+                        "Direct": [target_pk],
+                        "Parent": [selected_parent],
+                        "-> Item":
+                        [selected_target],  # added to ensure the filter still matches
+                        "Motivation": ["Preparation"],
+                        "Source": [""],
+                        "Towards": [""],
+                        "Domain": [""],
+                        "Subset": [subset],
+                    }
         return attributes
 
+    def _query_subsets(self, taxonomies):
+        tax_list = list(map(common.strip_foreign, taxonomies))
+        request = jql_pb2.ListRowsRequest(
+            table=schema.Tables.Nouns,
+            conditions=[
+                jql_pb2.Condition(requires=[
+                    jql_pb2.Filter(
+                        column=schema.Fields.Parent,
+                        in_match=jql_pb2.InMatch(values=tax_list)),
+                    jql_pb2.Filter(
+                        column=schema.Fields.Status,
+                        equal_match=jql_pb2.EqualMatch(value=schema.Values.StatusHabitual)),
+                ]),
+            ],
+        )
+        children = self.client.ListRows(request)
+        cmap = {c.name: i for i, c in enumerate(children.columns)}
+        primary = common.get_primary(children)
+        subsets = collections.defaultdict(list)
+        for row in children.rows:
+            subsets[row.entries[cmap[schema.Fields.Parent]].formatted].append(row.entries[primary].formatted)
+        return subsets
+
     def GetRow(self, request, context):
-        _, parent, target = _decode_pk(request.pk)
+        _, parent, target, _ = _decode_pk(request.pk)
         resp = self.ListRows(jql_pb2.ListRowsRequest(
             conditions=[
                 jql_pb2.Condition(requires=[
@@ -96,9 +129,9 @@ def _extract_selected_parent(request):
                 return f.equal_match.value
     return ""
 
-def _encode_pk(exercise, parent, target):
-    return "\t".join([exercise, parent, target])
+def _encode_pk(exercise, parent, target, subset):
+    return "\t".join([exercise, parent, target, subset])
 
 def _decode_pk(pk):
-    exercise, parent, target = pk.split("\t")
-    return exercise, parent, target
+    exercise, parent, target, subset = pk.split("\t")
+    return exercise, parent, target, subset

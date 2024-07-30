@@ -661,6 +661,10 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 	if err := g.SetKeybinding(TasksView, gocui.KeyEnter, gocui.ModNone, mv.logTime); err != nil {
 		return err
 	}
+	err = g.SetKeybinding(TasksView, 'e', gocui.ModNone, mv.runProcedure)
+	if err != nil {
+		return err
+	}
 	err = g.SetKeybinding(TasksView, 'w', gocui.ModNone, mv.openLink)
 	if err != nil {
 		return err
@@ -886,6 +890,22 @@ func (mv *MainView) addToStatus(g *gocui.Gui, v *gocui.View, delta int) error {
 		return err
 	}
 	return mv.refreshView(g)
+}
+
+func (mv *MainView) runProcedure(g *gocui.Gui, v *gocui.View) error {
+	pk, err := mv.ResolveSelectedPK(g)
+	if err != nil {
+		return err
+	}
+	view := api.MacroCurrentView{
+		Table:            TableTasks,
+		PrimarySelection: pk,
+	}
+	_, err = api.RunMacro(ctx, mv.dbms, "jql-timedb-run-procedure", view, true)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (mv *MainView) openLink(g *gocui.Gui, v *gocui.View) error {

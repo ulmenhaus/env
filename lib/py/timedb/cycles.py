@@ -164,6 +164,8 @@ def add_task_from_template(dbms, table, pk):
         schema.Fields.ParamStart: "",
         schema.Fields.Status: schema.Values.StatusActive,
     }
+    if schema.Fields.Subset in cmap:
+        fields[schema.Fields.Indirect] = resp.row.entries[cmap[schema.Fields.Subset]].formatted
     dbms.WriteRow(jql_pb2.WriteRowRequest(
         table=schema.Tables.Tasks,
         pk=pk, # temporarily set the pk to match the pk from the original table

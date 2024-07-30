@@ -1,0 +1,34 @@
+#! /usr/local/bin/python3
+
+import os
+import subprocess
+import urllib.parse
+
+import click
+
+
+@click.group()
+def cli():
+    pass
+
+
+def main():
+
+    @click.argument('prompt', type=click.STRING)
+    @click.argument('service', default='chatgpt', type=click.STRING)
+    @click.argument('model', default='4o', type=click.STRING)
+    def llm(prompt, service, model):
+        if service == "chatgpt" and model == "4o":
+            prompt_url = "https://chatgpt.com/?model=gpt-4o&q=" + urllib.parse.quote(
+                prompt)
+            subprocess.check_call(["txtopen", prompt_url])
+        else:
+            raise ValueError(service, model)
+
+    cli.command()(llm)
+
+    cli(obj={})
+
+
+if __name__ == "__main__":
+    main()
