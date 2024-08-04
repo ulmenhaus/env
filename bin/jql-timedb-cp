@@ -1,0 +1,68 @@
+#! /usr/local/bin/python3
+"""
+Copy entries from one timedb to another
+"""
+
+import logging
+import os
+
+from concurrent import futures
+
+import click
+import grpc
+
+from timedb import schema
+
+from jql import jql_pb2, jql_pb2_grpc
+
+
+def _query_rows(client, entry, recursive):
+    query_filter = jql_pb2.Filter(column=schema.Fields.Identifier,
+                                  equal_match=jql_pb2.EqualMatch(value=entry))
+    if recursive:
+        query_filter = jql_pb2.Filter(
+            column=schema.Fields.Parent,
+            path_to_match=jql_pb2.PathToMatch(value=entry))
+
+    return client.ListRows(
+        jql_pb2.ListRowsRequest(
+            table=schema.Tables.Nouns,
+            conditions=[jql_pb2.Condition(requires=[query_filter])]))
+
+
+def _copy_entries(source_client, target_client, list_rows_resp):
+    cmap = {c.name: i for i, c in enumerate(list_rows_resp.columns)}
+    primary, = [i for i, c in enumerate(list_rows_resp.columns) if c.primary]
+    for row in list_rows_resp.rows:
+        pk = row.entries[primary].formatted
+        fields = {
+            key: row.entries[i].formatted
+            for key, i in cmap.items() if i != primary
+        }
+        target_client.WriteRow(
+            jql_pb2.WriteRowRequest(pk=pk,
+                                    table=schema.Tables.Nouns,
+                                    fields=fields))
+
+
+@click.command()
+@click.option('--source-timedb', type=click.STRING, default="localhost:9999")
+@click.option('--target-timedb', type=click.STRING, default="localhost:9989")
+@click.argument('entry', type=click.STRING)
+@click.option('-r', '--recursive', type=click.BOOL, default=True)
+def run(source_timedb, target_timedb, entry, recursive):
+    logging.basicConfig(level=logging.DEBUG)
+    source_client = jql_pb2_grpc.JQLStub(grpc.insecure_channel(source_timedb))
+    target_client = jql_pb2_grpc.JQLStub(grpc.insecure_channel(target_timedb))
+    list_rows_resp = _query_rows(source_client, entry, recursive)
+    _copy_entries(source_client, target_client, list_rows_resp)
+    # TODO would be nice to also sync the assertions between timedbs for things
+    # like procedures
+
+
+def main():
+    run()
+
+
+if __name__ == "__main__":
+    main()
