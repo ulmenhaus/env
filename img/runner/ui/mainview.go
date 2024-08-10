@@ -69,17 +69,26 @@ type MainView struct {
 }
 
 // NewMainView returns a MainView initialized with a given Table
-func NewMainView(g *gocui.Gui, dbms api.JQL_DBMS, jqlBinDir, defaultResourceFilter string) (*MainView, error) {
+func NewMainView(g *gocui.Gui, dbms api.JQL_DBMS, jqlBinDir, initResource, initQuery, initType string) (*MainView, error) {
 	rootTopic := RootTopic
-	if defaultResourceFilter != "" {
-		rootTopic = defaultResourceFilter
+	if initResource != "" {
+		rootTopic = initResource
+	}
+	typeIX := 1
+	if initType != "" {
+		for i, t := range ListResourcesTypes {
+			if string(t) == initType {
+				typeIX = i
+			}
+		}
 	}
 	mv := &MainView{
 		dbms:      dbms,
 		topic:     rootTopic,
-		TypeIX:    1,
+		TypeIX:    typeIX,
 		recursive: true,
 		jqlBinDir: jqlBinDir,
+		resourceQ: initQuery,
 	}
 	return mv, mv.refreshResources()
 }

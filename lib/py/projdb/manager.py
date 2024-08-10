@@ -36,9 +36,12 @@ class ProjectManager(object):
         """
         proj = self._cache["projects"].get(self.project)
         # HACK hard-coding localtion of runner
-        args = ["/usr/local/bin/runner", timedb_path, bin_path]
+        args = [
+            "/usr/local/bin/runner", "--mode", "client", "--addr", timedb_path,
+            "--table", "no", "--jql-bin-dir", bin_path
+        ]
         if proj and proj["Default Resource Filter"]:
-            args.append(proj["Default Resource Filter"])
+            args.extend(["--init-resource", proj["Default Resource Filter"]])
         os.execvp("/usr/local/bin/runner", args)
 
     def _prompt_for_description(self):

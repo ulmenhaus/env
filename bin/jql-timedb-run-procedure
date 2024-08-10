@@ -58,12 +58,14 @@ def main():
                 subprocess.check_call(command, shell=True, env=os.environ)
                 # TODO we should also update the parameters/attributes to include
                 # the variation for record keeping in stats
-            else:
-                # TODO this should open up the procedure with the procedure runner
-                raise NotImplementedError()
-        else:
-            # TODO this should open up the prompt tool with the right resource filtered
-            raise NotImplementedError()
+                return
+        # Fall back to the default behavior which is to open the prompt tool with
+        # the right procedures preselected
+        subprocess.check_call([
+            "tmux", "popup", "-E", "/usr/local/bin/runner", "--mode", "client",
+            "--addr", iface.attrs['address'], '--table', 'no', '--init-type',
+            'procedures', '--init-resource', direct, '--init-query', action
+        ])
 
 
 if __name__ == "__main__":
