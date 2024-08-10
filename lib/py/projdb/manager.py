@@ -35,7 +35,6 @@ class ProjectManager(object):
         Opens the jql timedb runner with the project's desired
         """
         proj = self._cache["projects"].get(self.project)
-        # HACK hard-coding localtion of runner
         args = [
             "/usr/local/bin/runner", "--mode", "client", "--addr", timedb_path,
             "--table", "no", "--jql-bin-dir", bin_path

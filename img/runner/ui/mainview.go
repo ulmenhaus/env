@@ -71,8 +71,10 @@ type MainView struct {
 // NewMainView returns a MainView initialized with a given Table
 func NewMainView(g *gocui.Gui, dbms api.JQL_DBMS, jqlBinDir, initResource, initQuery, initType string) (*MainView, error) {
 	rootTopic := RootTopic
+	recursive := true
 	if initResource != "" {
 		rootTopic = initResource
+		recursive = false
 	}
 	typeIX := 1
 	if initType != "" {
@@ -86,7 +88,7 @@ func NewMainView(g *gocui.Gui, dbms api.JQL_DBMS, jqlBinDir, initResource, initQ
 		dbms:      dbms,
 		topic:     rootTopic,
 		TypeIX:    typeIX,
-		recursive: true,
+		recursive: recursive,
 		jqlBinDir: jqlBinDir,
 		resourceQ: initQuery,
 	}
@@ -755,6 +757,7 @@ func (mv *MainView) enterFilterMode(g *gocui.Gui, v *gocui.View) error {
 func (mv *MainView) restoreDefault(g *gocui.Gui, v *gocui.View) error {
 	mv.topic = RootTopic
 	mv.resourceQ = ""
+	mv.recursive = true
 	return mv.refreshResources()
 }
 

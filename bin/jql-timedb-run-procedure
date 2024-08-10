@@ -62,9 +62,25 @@ def main():
         # Fall back to the default behavior which is to open the prompt tool with
         # the right procedures preselected
         subprocess.check_call([
-            "tmux", "popup", "-E", "/usr/local/bin/runner", "--mode", "client",
-            "--addr", iface.attrs['address'], '--table', 'no', '--init-type',
-            'procedures', '--init-resource', direct, '--init-query', action
+            "tmux",
+            "popup",
+            "-E",
+            "/usr/local/bin/runner",
+            "--mode",
+            "client",
+            "--addr",
+            iface.attrs['address'],
+            '--table',
+            'no',
+            '--init-type',
+            'procedures',
+            '--init-resource',
+            direct,
+            '--init-query',
+            action,
+            "--jql-bin-dir",
+            # TODO hard-coding location of jql bin dir for now
+            os.path.expanduser("~/src/github.com/ulmenhaus/env/bin"),
         ])
 
 
