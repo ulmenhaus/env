@@ -1,0 +1,58 @@
+#! /usr/local/bin/python3
+"""
+For jql time management schema
+
+Renders jql timedb attributes as markdown and displays them in the terminal
+"""
+
+import os
+
+import click
+import grpc
+
+import timedb.markdown.daemon
+import timedb.markdown.macro
+import timedb.markdown.watcher
+
+from jql import jql_pb2_grpc
+
+
+@click.group()
+def cli():
+    pass
+
+
+def main():
+
+    def daemon():
+        # TODO move this html into a package dir when I move these
+        # lib functions into a package
+        with open(
+                os.path.join(os.path.dirname(__file__),
+                             "fast-export-templ.html")) as f:
+            d = timedb.markdown.daemon.MarkdownDaemon(f.read())
+        d.serve_forever()
+
+    cli.command()(daemon)
+
+    def watcher():
+        # TODO for now we just hard-code the client parameters, but to support
+        # multiple renderers we should have a macro that actually starts up the watcher
+        # with the right params
+        with grpc.insecure_channel('localhost:9999') as channel:
+            client = jql_pb2_grpc.JQLStub(channel)
+            w = timedb.markdown.watcher.Watcher(client)
+            w.watch_forever()
+
+    cli.command()(watcher)
+
+    def macro():
+        h = timedb.markdown.macro.MacroHandler()
+        h.run()
+
+    cli.command()(macro)
+
+    cli(obj={})
+
+
+main()
