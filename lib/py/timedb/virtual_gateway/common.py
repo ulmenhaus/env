@@ -127,7 +127,8 @@ def _sort_key(attrs):
     try:
         # HACK use a highly padded string as the sort key for an entry that
         # begins with a number so we can mix numerical and lexicographic sorting
-        return str(int(as_shown.split(" ")[0].split("%")[0].replace(",", ""))).zfill(40)
+        return str(int(as_shown.split(" ")[0].split("%")[0].replace(
+            ",", ""))).zfill(40)
     except ValueError:
         return as_shown
 
@@ -146,27 +147,28 @@ def decode_pk(pk):
 
 
 def possible_targets(client, request, table):
-    nouns_request = jql_pb2.ListRowsRequest(table=schema.Tables.Nouns)
-    nouns_response = client.ListRows(nouns_request)
-    primary, = [i for i, c in enumerate(nouns_response.columns) if c.primary]
-    nouns_cmap = {c.name: i for i, c in enumerate(nouns_response.columns)}
-    noun_pks = [
-        f"{row.entries[primary].formatted}" for row in nouns_response.rows
-    ]
-    entries = [{
-        "_pk": [pk],
-        "-> Item": [f"{schema.Tables.Nouns} {pk}"]
-    } for pk in noun_pks]
-    final = apply_request_parameters(entries, request)
+    tgt_tables = [schema.Tables.Nouns, schema.Tables.Tasks]
+    entries = []
+    for tgt_table in tgt_tables:
+        tgt_request = jql_pb2.ListRowsRequest(table=tgt_table)
+        response = client.ListRows(tgt_request)
+        primary, = [i for i, c in enumerate(response.columns) if c.primary]
+        pks = [
+            f"{tgt_table} {row.entries[primary].formatted}"
+            for row in response.rows
+        ]
+        entries.extend({"_pk": [pk], "-> Item": [pk]} for pk in pks)
+    filtered = apply_request_parameters(entries, request)
+    final = apply_request_limits(filtered, request)
     return jql_pb2.ListRowsResponse(
         table=table,
         columns=[jql_pb2.Column(name="-> Item", max_length=30, primary=True)],
         rows=[
-            jql_pb2.Row(entries=[jql_pb2.Entry(formatted=noun["-> Item"][0])])
-            for noun in final
+            jql_pb2.Row(entries=[jql_pb2.Entry(formatted=entry["-> Item"][0])])
+            for entry in final
         ],
-        total=len(entries),
-        all=len(noun_pks),
+        total=len(filtered),
+        all=len(entries),
     )
 
 
@@ -211,6 +213,7 @@ def foreign_fields(rows):
 def parse_foreign(entry):
     polyforeign = entry[len("@{"):-len("}")]
     return polyforeign.split(" ", 1)
+
 
 def strip_foreign(entry):
     return entry[len("@timedb:"):-1]
@@ -290,7 +293,8 @@ class TimingInfo(object):
 def get_timing_info(client, noun_pks):
     info = {}
     fields, assn_pks = get_fields_for_items(client, schema.Tables.Nouns,
-                                            noun_pks, ["Cadence", "StartDate", "Cost"])
+                                            noun_pks,
+                                            ["Cadence", "StartDate", "Cost"])
     all_days_since = _days_since(client, noun_pks)
     for noun_pk in noun_pks:
         cadence = fields[noun_pk].get("Cadence", [""])[0]
@@ -299,7 +303,8 @@ def get_timing_info(client, noun_pks):
         # If a cadence is set for the noun then it is habitual and we just calculate
         # based on the cadence and the last time the task was done
         if cadence:
-            days_since = str(all_days_since[noun_pk]).zfill(4) if noun_pk in all_days_since else ""
+            days_since = str(all_days_since[noun_pk]).zfill(
+                4) if noun_pk in all_days_since else ""
             days_until = ""
             if cadence and days_since:
                 cadence_period = int(cadence.split(" ")[0])
@@ -318,7 +323,7 @@ def get_timing_info(client, noun_pks):
         # of its start date
         elif start_date and cost:
             parsed_start = datetime.strptime(start_date, '%Y-%m-%d')
-            expected_days = 2 * (3 ** (int(cost.split(" ")[0]) - 1))
+            expected_days = 2 * (3**(int(cost.split(" ")[0]) - 1))
             expected_end = parsed_start + timedelta(days=expected_days)
             days_until_int = (expected_end - datetime.now()).days
             if days_until_int > 0:
@@ -326,11 +331,8 @@ def get_timing_info(client, noun_pks):
             else:
                 days_until = str(days_until_int).zfill(5)
             info[noun_pk] = TimingInfo(
-                str((datetime.now() - parsed_start).days).zfill(4),
-                days_until,
-                "",
-                ""
-            )
+                str((datetime.now() - parsed_start).days).zfill(4), days_until,
+                "", "")
     return info
 
 
@@ -362,7 +364,8 @@ def _days_since(client, noun_pks):
         tasks_response = client.ListRows(tasks_request)
         _, tasks_cmap = list_rows_meta(tasks_response)
         for row in tasks_response.rows:
-            noun_to_tasks[row.entries[tasks_cmap[column]].formatted].append(row)
+            noun_to_tasks[row.entries[tasks_cmap[column]].formatted].append(
+                row)
 
     # Get matching tasks based on properties
     references = [f"@timedb:{noun_pk}:" for noun_pk in noun_pks]
@@ -381,8 +384,10 @@ def _days_since(client, noun_pks):
     _, assn_cmap = list_rows_meta(assn_response)
     task_pk_to_nouns = collections.defaultdict(set)
     for row in assn_response.rows:
-        noun = strip_foreign(row.entries[assn_cmap[schema.Fields.Arg1]].formatted)
-        table, pk = row.entries[assn_cmap[schema.Fields.Arg0]].formatted.split(" ", 1)
+        noun = strip_foreign(
+            row.entries[assn_cmap[schema.Fields.Arg1]].formatted)
+        table, pk = row.entries[assn_cmap[schema.Fields.Arg0]].formatted.split(
+            " ", 1)
         if table != schema.Tables.Tasks:
             continue
         task_pk_to_nouns[pk].add(noun)
@@ -415,13 +420,14 @@ def _days_since(client, noun_pks):
                 ret[noun] = days_since
     return ret
 
+
 def get_row(list_resp, pk):
     primary = get_primary(list_resp)
     for row in list_resp.rows:
         if row.entries[primary].formatted == pk:
             return jql_pb2.GetRowResponse(
                 table='vt.practices',
-                columns = list_resp.columns,
+                columns=list_resp.columns,
                 row=row,
             )
     raise ValueError("no such pk", pk)

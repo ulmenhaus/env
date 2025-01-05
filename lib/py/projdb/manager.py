@@ -172,6 +172,11 @@ class ProjectManager(object):
             if assn['A Relation'] != ".Command" or assn[
                     'Arg0'] != f"nouns {resource}":
                 continue
+            if "\n```\n" in assn['Arg1']:
+                parts = assn['Arg1'].split("\n")
+                if len(parts) < 4 or not parts[0].startswith("### ") or parts[1] != '```' or parts[3] != '```':
+                    continue
+                commands[parts[0][len("### "):]] = parts[2]
             for line in assn['Arg1'].split("\n"):
                 parts = line.split("|", 2)
                 if len(parts) != 3:

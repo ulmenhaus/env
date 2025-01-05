@@ -20,6 +20,8 @@ class ToolsBackend(jql_pb2_grpc.JQLServicer):
         return common.list_rows('vt.tools', exercises, request)
 
     def _query_exercises(self, selected_target, selected_parent):
+        if not selected_target:
+            return {}
         requires = jql_pb2.Filter(
             column=schema.Fields.Arg0,
             equal_match=jql_pb2.EqualMatch(value=f"nouns {selected_target}"))
@@ -39,11 +41,43 @@ class ToolsBackend(jql_pb2_grpc.JQLServicer):
             if not common.is_foreign(target):
                 continue
             target_pk = common.strip_foreign(target)
-            relation = [row.entries[cmap[schema.Fields.Relation]].formatted]
+            relation = row.entries[cmap[schema.Fields.Relation]].formatted
             target2relation[target_pk] = relation
 
-        fields, _ = common.get_fields_for_items(self.client, schema.Tables.Nouns, list(target2relation.keys()))
-        taxonomies = set([value for d in fields.values() for k, v in d.items() for value in v if k == "Taxonomy"])
+        # Supplement explicit relations with the implicit relation of being
+        # a child of the toolkit
+        #
+        # TODO taking the union of explicit and implicit relations between
+        # nouns is a common enough operation (see e.g. vt.relatives) that it
+        # either should have a common library or a virtual table
+        requires = [
+            jql_pb2.Filter(
+                column=schema.Fields.Parent,
+                equal_match=jql_pb2.EqualMatch(value=selected_target)),
+            jql_pb2.Filter(
+                column=schema.Fields.Status,
+                in_match=jql_pb2.InMatch(
+                    values=[schema.Values.StatusSatisfied, schema.Values.StatusHabitual])),
+        ]
+        child_request = jql_pb2.ListRowsRequest(
+            table=schema.Tables.Nouns,
+            conditions=[
+                jql_pb2.Condition(requires=requires),
+            ])
+        children = self.client.ListRows(child_request)
+        cmap = {c.name: i for i, c in enumerate(children.columns)}
+        primary = common.get_primary(children)
+        for child in children.rows:
+            target2relation[child.entries[primary].formatted] = child.entries[
+                cmap[schema.Fields.NounRelation]].formatted or "Item"
+
+        fields, _ = common.get_fields_for_items(self.client,
+                                                schema.Tables.Nouns,
+                                                list(target2relation.keys()))
+        taxonomies = set([
+            value for d in fields.values() for k, v in d.items() for value in v
+            if k == "Taxonomy"
+        ])
         all_subsets = self._query_subsets(taxonomies)
         for target_pk, relation in target2relation.items():
             excluded_rels = [".KitDomain"]
@@ -52,22 +86,25 @@ class ToolsBackend(jql_pb2_grpc.JQLServicer):
             default_actions = ["Exercise", "Ready", "Evaluate", "Review"]
             if relation == [".Resource"]:
                 default_actions = ["Consult"]
-            actions = fields.get(target_pk, {}).get("Feed.Action", []) or default_actions
+            actions = fields.get(target_pk, {}).get("Feed.Action",
+                                                    []) or default_actions
             subsets = ['']
             for taxonomy in fields.get(target_pk, {}).get("Taxonomy", []):
                 subsets += all_subsets[common.strip_foreign(taxonomy)]
             for action in actions:
                 for subset in subsets:
                     exercise = f"{action} {target_pk}"
-                    pk = _encode_pk(exercise, selected_parent, selected_target, subset)
+                    pk = _encode_pk(exercise, selected_parent, selected_target,
+                                    subset)
                     attributes[pk] = {
                         "_pk": [pk],
-                        "Relation": relation,
+                        "Relation": [relation],
                         "Action": [action],
                         "Direct": [target_pk],
                         "Parent": [selected_parent],
                         "-> Item":
-                        [selected_target],  # added to ensure the filter still matches
+                        [selected_target
+                         ],  # added to ensure the filter still matches
                         "Motivation": ["Preparation"],
                         "Source": [""],
                         "Towards": [""],
@@ -82,12 +119,11 @@ class ToolsBackend(jql_pb2_grpc.JQLServicer):
             table=schema.Tables.Nouns,
             conditions=[
                 jql_pb2.Condition(requires=[
-                    jql_pb2.Filter(
-                        column=schema.Fields.Parent,
-                        in_match=jql_pb2.InMatch(values=tax_list)),
-                    jql_pb2.Filter(
-                        column=schema.Fields.Status,
-                        equal_match=jql_pb2.EqualMatch(value=schema.Values.StatusHabitual)),
+                    jql_pb2.Filter(column=schema.Fields.Parent,
+                                   in_match=jql_pb2.InMatch(values=tax_list)),
+                    jql_pb2.Filter(column=schema.Fields.Status,
+                                   equal_match=jql_pb2.EqualMatch(
+                                       value=schema.Values.StatusHabitual)),
                 ]),
             ],
         )
@@ -96,30 +132,33 @@ class ToolsBackend(jql_pb2_grpc.JQLServicer):
         primary = common.get_primary(children)
         subsets = collections.defaultdict(list)
         for row in children.rows:
-            subsets[row.entries[cmap[schema.Fields.Parent]].formatted].append(row.entries[primary].formatted)
+            subsets[row.entries[cmap[schema.Fields.Parent]].formatted].append(
+                row.entries[primary].formatted)
         return subsets
 
     def GetRow(self, request, context):
         _, parent, target, _ = _decode_pk(request.pk)
-        resp = self.ListRows(jql_pb2.ListRowsRequest(
-            conditions=[
+        resp = self.ListRows(
+            jql_pb2.ListRowsRequest(conditions=[
                 jql_pb2.Condition(requires=[
-                    jql_pb2.Filter(column='Parent',
-                                   equal_match=jql_pb2.EqualMatch(value=parent)),
-                    jql_pb2.Filter(column='-> Item',
-                                   equal_match=jql_pb2.EqualMatch(value=target)),
+                    jql_pb2.Filter(
+                        column='Parent',
+                        equal_match=jql_pb2.EqualMatch(value=parent)),
+                    jql_pb2.Filter(
+                        column='-> Item',
+                        equal_match=jql_pb2.EqualMatch(value=target)),
                 ], ),
-            ],
-        ), context)
+            ], ), context)
         primary = common.get_primary(resp)
         for row in resp.rows:
             if row.entries[primary].formatted == request.pk:
                 return jql_pb2.GetRowResponse(
                     table='vt.tools',
-                    columns = resp.columns,
+                    columns=resp.columns,
                     row=row,
                 )
         raise ValueError(request.pk)
+
 
 def _extract_selected_parent(request):
     for condition in request.conditions:
@@ -129,8 +168,10 @@ def _extract_selected_parent(request):
                 return f.equal_match.value
     return ""
 
+
 def _encode_pk(exercise, parent, target, subset):
     return "\t".join([exercise, parent, target, subset])
+
 
 def _decode_pk(pk):
     exercise, parent, target, subset = pk.split("\t")

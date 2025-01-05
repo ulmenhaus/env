@@ -89,9 +89,9 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
         return rows
 
     def _exclude_initiative(self, task, task_fields, cmap):
-        # Goals don't by themselves map to any time spent on work so are excluded
-        # in calculating stats on time
         for cls in task_fields["Class"]:
+            # Goals don't by themselves map to any time spent on work so are excluded
+            # in calculating stats on time
             if cls == "Goal":
                 return True
         return False

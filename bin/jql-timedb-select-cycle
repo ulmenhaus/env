@@ -97,6 +97,12 @@ def main():
         table = "vt.ideas"
         field = "Idea"
         formatted = iface['current_view']['primary_selection']
+    elif "--attributes" in sys.argv:
+        table = "vt.attributes"
+        field = "-> Item"
+        current_table = iface['current_view']['table']
+        selection = iface['current_view']['primary_selection']
+        formatted = f"{current_table} {selection}"
     elif "--relatives" in sys.argv:
         table = "vt.relatives"
         field = "-> Item"

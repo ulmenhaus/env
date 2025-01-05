@@ -54,7 +54,7 @@ def main():
             body = procedure.entries[assn_cmap[schema.Fields.Arg1]].formatted
             steps = body.split("\n- ")[1:]
             if len(steps) == 1 and "```" in steps[0]:
-                command = steps[0].split("```")[1].strip()
+                command = steps[0].split("```")[1].strip().format(indirect=indirect,direct=direct)
                 subprocess.check_call(command, shell=True, env=os.environ)
                 # TODO we should also update the parameters/attributes to include
                 # the variation for record keeping in stats
