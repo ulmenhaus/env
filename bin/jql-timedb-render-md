@@ -46,9 +46,10 @@ def main():
 
     cli.command()(watcher)
 
-    def macro():
+    @click.option('--split', is_flag=True, help='Trea the screen as split')
+    def macro(split):
         h = timedb.markdown.macro.MacroHandler()
-        h.run()
+        h.run(split)
 
     cli.command()(macro)
 

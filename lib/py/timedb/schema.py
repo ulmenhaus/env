@@ -1,8 +1,10 @@
 class Tables(object):
     Actions = "actions"
     Assertions = 'assertions'
+    Attributes = "vt.attributes"
     Contexts = "contexts"
     Nouns = 'nouns'
+    Relatives = "vt.relatives"
     Tasks = 'tasks'
 
 
@@ -20,6 +22,7 @@ class Fields(object):
     Feed = "Feed"
     Identifier = "_Identifier"
     Indirect = "Indirect"
+    Item = "-> Item"
     Link = "Link"
     Modifier = "A Modifier"
     Motivation = "Motivation"

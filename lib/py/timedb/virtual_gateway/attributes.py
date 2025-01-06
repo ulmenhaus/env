@@ -37,9 +37,7 @@ class AttributesBackend(jql_pb2_grpc.JQLServicer):
         primary = common.get_primary(assertions)
         attributes = {}
         for row in assertions.rows:
-            pk = row.entries[primary].formatted
-            attributes[pk] = {
-                "_pk": [pk],
+            attrs = {
                 "Relation":
                 [row.entries[cmap[schema.Fields.Relation]].formatted],
                 "Value": [row.entries[cmap[schema.Fields.Arg1]].formatted],
@@ -50,6 +48,11 @@ class AttributesBackend(jql_pb2_grpc.JQLServicer):
                 ],  # added so that duplicated items still show up in the filter
                 "Order": [row.entries[cmap[schema.Fields.Order]].formatted],
             }
+            pk = common.encode_pk(row.entries[primary].formatted, attrs)
+            attributes[pk] = {
+                "_pk": [pk],
+            }
+            attributes[pk].update(attrs)
         return attributes
 
     def WriteRow(self, request, context):
@@ -63,9 +66,10 @@ class AttributesBackend(jql_pb2_grpc.JQLServicer):
             k: request.fields[v]
             for k, v in mapping.items() if v in request.fields
         }
+        pk, _ = common.decode_pk(request.pk)
         update = jql_pb2.WriteRowRequest(
             table=schema.Tables.Assertions,
-            pk=request.pk,
+            pk=pk,
             fields=fields,
             insert_only=request.insert_only,
             update_only=request.update_only,
@@ -73,10 +77,11 @@ class AttributesBackend(jql_pb2_grpc.JQLServicer):
         return self.client.WriteRow(update)
 
     def DeleteRow(self, request, context):
+        pk, _ = common.decode_pk(request.pk)
         return self.client.DeleteRow(
             jql_pb2.DeleteRowRequest(
                 table=schema.Tables.Assertions,
-                pk=request.pk,
+                pk=pk,
             ))
 
 
