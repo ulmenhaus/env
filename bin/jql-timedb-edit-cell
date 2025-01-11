@@ -1,0 +1,58 @@
+#! /usr/local/bin/python3
+"""
+For jql concept management schema
+
+Edit a given cell in jql timedb
+"""
+
+import os
+import subprocess
+import sys
+import tempfile
+
+from jql import jql_pb2, macro
+from timedb import cycles, pks, schema
+
+from timedb.virtual_gateway import common
+
+
+def _edit_attribute(dbms, pk):
+    assn_pk, attrs = common.decode_pk(pk)
+    resp = dbms.GetRow(
+        jql_pb2.GetRowRequest(table=schema.Tables.Assertions, pk=assn_pk))
+    cmap = {c.name: i for i, c in enumerate(resp.columns)}
+    tmpdir = os.path.join(os.getcwd(), "tmp")
+    os.makedirs(tmpdir, exist_ok=True)
+    content = resp.row.entries[cmap[schema.Fields.Arg1]].formatted
+    with tempfile.NamedTemporaryFile(suffix=".md", delete=False,
+                                     dir=tmpdir) as f:
+        f.write(content.encode("utf-8"))
+        fname = f.name
+    call = [
+        "tmux", "popup", "-h", "75%", "-w", "75%", "-E", "/usr/bin/vim", "-nw",
+        "-q", fname
+    ]
+    subprocess.Popen(call).wait()
+    with open(fname) as f:
+        new_content = f.read()
+    resp = dbms.WriteRow(
+        jql_pb2.WriteRowRequest(
+            table=schema.Tables.Assertions,
+            pk=assn_pk,
+            fields={schema.Fields.Arg1: new_content},
+            update_only=True,
+        ))
+
+
+def main():
+    with macro.macro_interface(sys.stdin, sys.stdout) as iface:
+        dbms = iface.get_dbms()
+        table, pk = iface.get_primary_selection()
+        if table == schema.Tables.Attributes:
+            _edit_attribute(dbms, pk)
+        else:
+            pass
+
+
+if __name__ == "__main__":
+    main()

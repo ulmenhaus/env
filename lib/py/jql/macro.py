@@ -31,6 +31,9 @@ class MacroInterface(object):
         return self.attrs["current_view"]["table"], self.attrs["current_view"][
             "primary_selection"]
 
+    def get_primary_column(self):
+        return self.attrs["current_view"]["primary_column"]
+
     def call_back(self, f):
         if self.attrs["snapshot"]:
             self.attrs["snapshot"] = json.dumps(self.snapshot)

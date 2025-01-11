@@ -22,6 +22,7 @@ type MacroCurrentView struct {
 	Table            string              `json:"table"`
 	PKs              []string            `json:"pks"`
 	PrimarySelection string              `json:"primary_selection"`
+	PrimaryColumn    string              `json:"primary_column"`
 	Filter           MacroResponseFilter `json:"filter"`
 	OrderBy          string              `json:"order_by"`
 	OrderDec         bool                `json:"order_dec"`

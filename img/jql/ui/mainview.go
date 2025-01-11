@@ -1152,12 +1152,13 @@ func (mv *MainView) runMacro(ch rune) error {
 	for _, row := range response.Rows {
 		pks = append(pks, row.Entries[api.GetPrimary(response.Columns)].Formatted)
 	}
-	row, _ := mv.SelectedEntry()
+	row, col := mv.SelectedEntry()
 	primarySelection := mv.response.Rows[row].Entries[api.GetPrimary(mv.response.Columns)]
 	currentView := api.MacroCurrentView{
 		Table:            mv.request.Table,
 		PKs:              pks,
 		PrimarySelection: primarySelection.Formatted,
+		PrimaryColumn:    mv.response.Columns[col].GetName(),
 	}
 
 	path := entries[locIndex].GetFormatted()
