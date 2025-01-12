@@ -120,7 +120,7 @@
         },
         "nouns.Relation": {
             "features": {
-                "values": ", Elem, Item, Vertex, Part, Feature, Possession, Activity, Source"
+              "values": ", Elem, Item, Vertex, Part, Feature, Possession, Activity, Source, Project"
             },
             "type": "enum"
         },

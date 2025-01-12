@@ -16,14 +16,9 @@ from timedb import cycles, pks, schema
 from timedb.virtual_gateway import common
 
 
-def _edit_attribute(dbms, pk):
-    assn_pk, attrs = common.decode_pk(pk)
-    resp = dbms.GetRow(
-        jql_pb2.GetRowRequest(table=schema.Tables.Assertions, pk=assn_pk))
-    cmap = {c.name: i for i, c in enumerate(resp.columns)}
+def _edit_content(content):
     tmpdir = os.path.join(os.getcwd(), "tmp")
     os.makedirs(tmpdir, exist_ok=True)
-    content = resp.row.entries[cmap[schema.Fields.Arg1]].formatted
     with tempfile.NamedTemporaryFile(suffix=".md", delete=False,
                                      dir=tmpdir) as f:
         f.write(content.encode("utf-8"))
@@ -34,7 +29,16 @@ def _edit_attribute(dbms, pk):
     ]
     subprocess.Popen(call).wait()
     with open(fname) as f:
-        new_content = f.read()
+        return f.read().strip()
+
+
+def _edit_attribute(dbms, pk):
+    assn_pk, attrs = common.decode_pk(pk)
+    resp = dbms.GetRow(
+        jql_pb2.GetRowRequest(table=schema.Tables.Assertions, pk=assn_pk))
+    cmap = {c.name: i for i, c in enumerate(resp.columns)}
+    content = resp.row.entries[cmap[schema.Fields.Arg1]].formatted
+    new_content = _edit_content(content)
     resp = dbms.WriteRow(
         jql_pb2.WriteRowRequest(
             table=schema.Tables.Assertions,
@@ -44,12 +48,73 @@ def _edit_attribute(dbms, pk):
         ))
 
 
+def _edit_attribute_set(dbms, pk, column):
+    arg0_pk, _ = common.decode_pk(pk)
+    relation = f".{column}"
+    resp = dbms.ListRows(
+        jql_pb2.ListRowsRequest(
+            table=schema.Tables.Assertions,
+            order_by=schema.Fields.Order,
+            conditions=[
+                jql_pb2.Condition(requires=[
+                    jql_pb2.Filter(
+                        column=schema.Fields.Arg0,
+                        equal_match=jql_pb2.EqualMatch(value=arg0_pk),
+                    ),
+                    jql_pb2.Filter(
+                        column=schema.Fields.Relation,
+                        equal_match=jql_pb2.EqualMatch(value=relation),
+                    ),
+                ]),
+            ],
+        ), )
+    cmap = {c.name: i for i, c in enumerate(resp.columns)}
+    primary = common.get_primary(resp)
+    values = [
+        row.entries[cmap[schema.Fields.Arg1]].formatted for row in resp.rows
+    ]
+    if len(values) == 1:
+        content = values[0]
+    else:
+        content = "\n".join(f"* {value}" for value in values)
+    new_content = _edit_content(content)
+    if not new_content:
+        new_values = []
+    elif new_content.startswith("* "):
+        new_values = new_content[2:].split("\n* ")
+    else:
+        new_values = [new_content]
+    for row in resp.rows:
+        dbms.DeleteRow(
+            jql_pb2.DeleteRowRequest(
+                table=schema.Tables.Assertions,
+                pk=row.entries[primary].formatted,
+            ))
+    for i, value in enumerate(new_values):
+        fields = {
+            schema.Fields.Arg0: arg0_pk,
+            schema.Fields.Arg1: value,
+            schema.Fields.Relation: relation,
+            schema.Fields.Order: str(i),
+        }
+        pk = pks.pk_for_assertion(fields)
+        dbms.WriteRow(
+            jql_pb2.WriteRowRequest(
+                pk=pk,
+                table=schema.Tables.Assertions,
+                fields=fields,
+                insert_only=True,
+            ))
+
+
 def main():
     with macro.macro_interface(sys.stdin, sys.stdout) as iface:
         dbms = iface.get_dbms()
         table, pk = iface.get_primary_selection()
         if table == schema.Tables.Attributes:
             _edit_attribute(dbms, pk)
+        if table == schema.Tables.Relatives:
+            _edit_attribute_set(dbms, pk, iface.get_primary_column())
         else:
             pass
 

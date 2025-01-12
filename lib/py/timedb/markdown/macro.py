@@ -23,6 +23,8 @@ class MacroHandler(object):
             table, pk = iface.get_primary_selection()
         full_pk, field = self._normalize_pk(table, pk)
         subprocess.Popen(["tmux", "select-pane", "-R"]).wait()
+        prefix = "send-left "
         if not split:
             subprocess.Popen(["tmux", "resize-pane", "-Z"]).wait()
-        subprocess.Popen(["tmux", "send", f"send-left {field}\t{full_pk}", "ENTER"]).wait()
+            prefix = ""
+        subprocess.Popen(["tmux", "send", f"{prefix}{field}\t{full_pk}", "ENTER"]).wait()
