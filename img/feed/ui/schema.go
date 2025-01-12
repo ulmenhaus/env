@@ -45,4 +45,6 @@ const (
 	JQLName string = "jql"
 
 	FeedManual string = "manual"
+
+	ValueProjectPlans string = "project plans"
 )

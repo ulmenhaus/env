@@ -209,11 +209,11 @@ func (mv *MainView) fetchResources() error {
 			domainName = "other"
 		}
 		isProject := false
-		if noun2domain[entryName] == "projects" {
+		if noun2domain[entryName] == ValueProjectPlans {
 			domainName = entryName
 			isProject = true
 		}
-		if noun2domain[parent] == "projects" {
+		if noun2domain[parent] == ValueProjectPlans {
 			domainName = parent
 			isProject = true
 		}

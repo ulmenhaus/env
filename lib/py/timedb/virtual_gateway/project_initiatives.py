@@ -146,9 +146,14 @@ def _query_project_plans(client):
         conditions=[
             jql_pb2.Condition(requires=[
                 jql_pb2.Filter(
+                    column=schema.Fields.Relation,
+                    equal_match=jql_pb2.EqualMatch(
+                        value=schema.Values.RelationDomain),
+                ),
+                jql_pb2.Filter(
                     column=schema.Fields.Arg1,
                     equal_match=jql_pb2.EqualMatch(
-                        value="@timedb:Project Plan:"),
+                        value=schema.Values.DomainProjectPlans),
                 ),
             ]),
         ],
