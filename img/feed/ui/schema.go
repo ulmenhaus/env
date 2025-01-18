@@ -46,5 +46,5 @@ const (
 
 	FeedManual string = "manual"
 
-	ValueProjectPlans string = "project plans"
+	ValuePlanModifier string = "Plan for"
 )

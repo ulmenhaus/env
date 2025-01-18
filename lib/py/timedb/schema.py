@@ -53,8 +53,7 @@ class Values(object):
     StatusRevisit = 'Revisit'
     StatusSatisfied = 'Satisfied'
 
-    DomainProjectPlans = '@timedb:project plans:'
-    RelationDomain = ".Domain"
+    ModifierPlanFor = 'Plan for'
 
 
 def active_statuses():

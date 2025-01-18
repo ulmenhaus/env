@@ -198,6 +198,14 @@ func (mv *MainView) fetchResources() error {
 		status. If they have neither and no in progress tasks and no feed, then we also
 		add it.
 	*/
+	plan2description := map[string]string{}
+	for _, row := range resp.Rows {
+		entryName := row.Entries[api.IndexOfField(resp.Columns, FieldIdentifier)].Formatted
+		modifier := row.Entries[api.IndexOfField(resp.Columns, FieldModifier)].Formatted
+		if modifier == ValuePlanModifier {
+			plan2description[entryName] = row.Entries[api.IndexOfField(resp.Columns, FieldDescription)].Formatted
+		}
+	}
 	for _, row := range resp.Rows {
 		if !isTrackedFeed(row, resp.Columns) {
 			continue
@@ -209,12 +217,12 @@ func (mv *MainView) fetchResources() error {
 			domainName = "other"
 		}
 		isProject := false
-		if noun2domain[entryName] == ValueProjectPlans {
-			domainName = entryName
+		if description, ok := plan2description[entryName]; ok {
+			domainName = description
 			isProject = true
 		}
-		if noun2domain[parent] == ValueProjectPlans {
-			domainName = parent
+		if description, ok := plan2description[parent]; ok {
+			domainName = description
 			isProject = true
 		}
 		if _, ok := domains[domainName]; !ok {

@@ -22,7 +22,7 @@ class NounsBackend(jql_pb2_grpc.JQLServicer):
                 jql_pb2.Condition(requires=[
                     jql_pb2.Filter(
                         column=schema.Fields.Parent,
-                        in_match=jql_pb2.InMatch(values=project_plans),
+                        in_match=jql_pb2.InMatch(values=list(project_plans)),
                     ),
                 ]),
             ],
@@ -125,13 +125,14 @@ class AssertionsBackend(jql_pb2_grpc.JQLServicer):
         project_plans = _query_project_plans(self.client)
         plan2areas = _query_areas_for_plans(self.client, project_plans)
         for project_plan, areas in plan2areas.items():
+            description = project_plans[project_plan]
             for area in areas:
                 entries[f"{project_plan}.{area}"] = {
                     "_pk": [f"{project_plan}.{area}"],
                     schema.Fields.Relation: [".Domain"],
                     schema.Fields.Arg0:
                     [f"nouns {_area_pk(area, project_plan)}"],
-                    schema.Fields.Arg1: [f"@timedb:{project_plan}:"],
+                    schema.Fields.Arg1: [f"@timedb:{description}:"],
                     schema.Fields.Order: ["0"],
                 }
         return common.list_rows('vt.project_initiative_assertions',
@@ -141,32 +142,6 @@ class AssertionsBackend(jql_pb2_grpc.JQLServicer):
 
 
 def _query_project_plans(client):
-    assn_request = jql_pb2.ListRowsRequest(
-        table=schema.Tables.Assertions,
-        conditions=[
-            jql_pb2.Condition(requires=[
-                jql_pb2.Filter(
-                    column=schema.Fields.Relation,
-                    equal_match=jql_pb2.EqualMatch(
-                        value=schema.Values.RelationDomain),
-                ),
-                jql_pb2.Filter(
-                    column=schema.Fields.Arg1,
-                    equal_match=jql_pb2.EqualMatch(
-                        value=schema.Values.DomainProjectPlans),
-                ),
-            ]),
-        ],
-    )
-    assn_resp = client.ListRows(assn_request)
-    primary, cmap = common.list_rows_meta(assn_resp)
-    names = set()
-    for row in assn_resp.rows:
-        full_pk = row.entries[cmap[schema.Fields.Arg0]].formatted
-        if not full_pk.startswith("nouns "):
-            continue
-        names.add(full_pk[len("nouns "):])
-    names = sorted(names)
     active_projects_req = jql_pb2.ListRowsRequest(
         table=schema.Tables.Nouns,
         conditions=[
@@ -176,8 +151,9 @@ def _query_project_plans(client):
                     in_match=jql_pb2.InMatch(values=schema.active_statuses()),
                 ),
                 jql_pb2.Filter(
-                    column=schema.Fields.Identifier,
-                    in_match=jql_pb2.InMatch(values=names),
+                    column=schema.Fields.Modifier,
+                    equal_match=jql_pb2.EqualMatch(
+                        value=schema.Values.ModifierPlanFor),
                 ),
             ]),
         ],
@@ -185,14 +161,17 @@ def _query_project_plans(client):
 
     active_resp = client.ListRows(active_projects_req)
     primary, cmap = common.list_rows_meta(active_resp)
-    active = [row.entries[primary].formatted for row in active_resp.rows]
-    return sorted(active)
+    return {
+        row.entries[primary].formatted:
+        row.entries[cmap[schema.Fields.Description]].formatted
+        for row in active_resp.rows
+    }
 
 
 def _query_areas_for_plans(client, plans):
     taxonomies = set()
     plan2tax = {plan: [] for plan in plans}
-    fields, _ = common.get_fields_for_items(client, schema.Tables.Nouns, plans)
+    fields, _ = common.get_fields_for_items(client, schema.Tables.Nouns, list(plans))
     for plan, attr_set in fields.items():
         for taxonomy in attr_set['Taxonomy']:
             if common.is_foreign(taxonomy):
