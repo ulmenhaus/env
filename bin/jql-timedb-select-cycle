@@ -12,7 +12,9 @@ import datetime
 import json
 import sys
 
-from timedb import pks
+from jql import jql_pb2
+from timedb import pks, schema
+from timedb.virtual_gateway import common
 
 
 def find_active_root_cycle(snapshot):
@@ -77,6 +79,11 @@ def main():
     changed = False
     order_by = ""
     order_dec = False
+    proto_bytes = bytes.fromhex(
+        iface['current_view']['encoded_request'])
+    # TODO move this into the standard macro interface
+    request = jql_pb2.ListRowsRequest()
+    request.ParseFromString(proto_bytes)
     if "--pending" in sys.argv:
         snapshot = json.loads(iface["snapshot"])
         formatted = find_pending_root_cycle(snapshot)
@@ -98,18 +105,37 @@ def main():
         field = "Idea"
         formatted = iface['current_view']['primary_selection']
     elif "--attributes" in sys.argv:
+        current_table = iface['current_view']['table']
         table = "vt.attributes"
         field = "-> Item"
-        current_table = iface['current_view']['table']
-        selection = iface['current_view']['primary_selection']
-        formatted = f"{current_table} {selection}"
+        iface['current_view']['group_by'] = schema.Fields.AttributeRelation
+        iface['current_view']['group_by_selected'] = ".Note"
+        if current_table == schema.Tables.Attributes:
+            target = common.selected_target(request)
+            table, formatted = target.split(" ", 1)
+            field = schema.primary_for_table(table)
+        elif current_table == schema.Tables.Relatives:
+            formatted = common.selected_target(request)
+            iface['current_view']['group_by_selected'] = f".{iface['current_view']['primary_column']}"
+        else:
+            selection = iface['current_view']['primary_selection']
+            formatted = f"{current_table} {selection}"
     elif "--relatives" in sys.argv:
         table = "vt.relatives"
         field = "-> Item"
         current_table = iface['current_view']['table']
         selection = iface['current_view']['primary_selection']
+        iface['current_view']['group_by'] = schema.Fields.RelativeRelation
+        iface['current_view']['group_by_selected'] = schema.Values.RelationIdentity
         if current_table in ['nouns', 'tasks']:
             formatted = f"{current_table} {selection}"
+        elif current_table == schema.Tables.Relatives:
+            target = common.selected_target(request)
+            table, formatted = target.split(" ", 1)
+            field = schema.primary_for_table(table)
+            iface['current_view']['group_by'] = ""
+        elif current_table == schema.Tables.Attributes:
+            formatted = common.selected_target(request)
         elif current_table.startswith('vt.'):
             formatted = selection.split("\t")[0]
     elif "--habituals" in sys.argv:

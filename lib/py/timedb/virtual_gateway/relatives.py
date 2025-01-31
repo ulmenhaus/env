@@ -12,12 +12,19 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
     def __init__(self, client):
         super().__init__()
         self.client = client
+        # A user can use the new entry UI to add columns to the current visualization
+        self.extra_columns = set()
+        self.extra_columns_target = None
 
     def ListRows(self, request, context):
         selected_target = common.selected_target(request)
         if not selected_target:
             return common.possible_targets(self.client, request, 'vt.relatives')
 
+        if self.extra_columns_target != selected_target:
+            # Reset the extra columns because we're looking at a new target
+            self.extra_columns = set()
+            self.extra_columns_target = selected_target
         selected_table, selected_item = selected_target.split(" ", 1)
         relatives = {}
         if selected_table == schema.Tables.Nouns:
@@ -61,6 +68,10 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
                 self._query_implied_relatives(selected_item, schema.Tables.Tasks,
                                               schema.Fields.UDescription,
                                               "w/ Identity"))
+        for fields in relatives.values():
+            for extra_col in self.extra_columns:
+                if extra_col not in fields:
+                    fields[extra_col] = [""]
         # TODO Captured implied relations
         # 1. From arguments (direct/indirect of tasks, modified for nouns)
         # 2. Items which use a particular schema (as referenced by parent)
@@ -148,6 +159,10 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
         return relatives
 
     def WriteRow(self, request, context):
+        if not common.is_encoded_pk(request.pk):
+            # This pk was provided by the user to add a column to the UI
+            self.extra_columns.add(request.pk)
+            return jql_pb2.WriteRowResponse()
         pk, pk_map = common.decode_pk(request.pk)
         for field, value in request.fields.items():
             if field in pk_map:

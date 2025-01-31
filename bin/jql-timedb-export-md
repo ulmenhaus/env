@@ -444,7 +444,7 @@ def render_pic(src):
             "-w",
             wd,
             "-v",
-            "{}:{}".format(wd, wd),
+            "{}:{}".format(os.getenv("JQL_HOST_MOUNT_PREFIX") + wd, wd),
             "ulmenhaus/env",
             src,
         ])

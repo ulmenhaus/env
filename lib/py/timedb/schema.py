@@ -12,6 +12,7 @@ class Fields(object):
     Action = "Action"
     Arg0 = "Arg0"
     Arg1 = "Arg1"
+    AttributeRelation = "Relation"
     Code = "Code"
     Context = "Context"
     Coordinal = "Coordinal"
@@ -28,11 +29,12 @@ class Fields(object):
     Motivation = "Motivation"
     NounRelation = "Relation"
     Order = "Order"
-    Parameters = "Parameters"
     ParamStart = "Param~Start"
+    Parameters = "Parameters"
     Parent = "Parent"
     PrimaryGoal = "Primary Goal"
     Relation = "A Relation"
+    RelativeRelation = "Relation"
     Source = "Source"
     Status = 'Status'
     Subset = 'Subset'
@@ -55,9 +57,17 @@ class Values(object):
 
     ModifierPlanFor = 'Plan for'
 
+    RelationIdentity = 'w/ Identity'
 
 def active_statuses():
     return [
         Values.StatusActive, Values.StatusExploring, Values.StatusHabitual, Values.StatusIdea,
         Values.StatusImplementing, Values.StatusPlanned, Values.StatusPlanning
     ]
+
+def primary_for_table(table):
+    if table == Tables.Nouns:
+        return Fields.Identifier
+    elif table == Tables.Tasks:
+        return Fields.UDescription
+    return ""

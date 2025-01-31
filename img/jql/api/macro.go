@@ -19,13 +19,18 @@ type MacroResponseFilter struct {
 }
 
 type MacroCurrentView struct {
-	Table            string              `json:"table"`
-	PKs              []string            `json:"pks"`
-	PrimarySelection string              `json:"primary_selection"`
-	PrimaryColumn    string              `json:"primary_column"`
-	Filter           MacroResponseFilter `json:"filter"`
-	OrderBy          string              `json:"order_by"`
-	OrderDec         bool                `json:"order_dec"`
+	PKs              []string `json:"pks"`
+	PrimarySelection string   `json:"primary_selection"`
+	PrimaryColumn    string   `json:"primary_column"`
+	EncodedRequest   string   `json:"encoded_request"`
+	// TODO the following fields are redundant with the encoded request
+	// field and should be deprecated
+	Table           string              `json:"table"`
+	Filter          MacroResponseFilter `json:"filter"`
+	OrderBy         string              `json:"order_by"`
+	OrderDec        bool                `json:"order_dec"`
+	GroupBy         string              `json:"group_by"`
+	GroupBySelected string              `json:"group_by_selected"`
 }
 
 type MacroInterface struct {

@@ -6,6 +6,7 @@ RUN echo 2 | apt-get install -y tzdata
 
 RUN apt-get update && apt-get install -y  \
 	build-essential \
+	docker.io \
 	dpic \
 	gmt-common \
 	golang \

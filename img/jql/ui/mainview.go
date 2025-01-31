@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"os/exec"
 	"regexp"
@@ -14,6 +15,7 @@ import (
 	"github.com/ulmenhaus/env/img/jql/cli"
 	"github.com/ulmenhaus/env/img/jql/types"
 	"github.com/ulmenhaus/env/proto/jql/jqlpb"
+	"google.golang.org/protobuf/proto"
 )
 
 var (
@@ -1154,11 +1156,16 @@ func (mv *MainView) runMacro(ch rune) error {
 	}
 	row, col := mv.SelectedEntry()
 	primarySelection := mv.response.Rows[row].Entries[api.GetPrimary(mv.response.Columns)]
+	requestBytes, err := proto.Marshal(&mv.request)
+	if err != nil {
+		return err
+	}
 	currentView := api.MacroCurrentView{
 		Table:            mv.request.Table,
 		PKs:              pks,
 		PrimarySelection: primarySelection.Formatted,
 		PrimaryColumn:    mv.response.Columns[col].GetName(),
+		EncodedRequest:   hex.EncodeToString(requestBytes),
 	}
 
 	path := entries[locIndex].GetFormatted()
@@ -1195,6 +1202,16 @@ func (mv *MainView) runMacro(ch rune) error {
 	if orderBy != "" {
 		mv.request.OrderBy = orderBy
 		mv.request.Dec = output.CurrentView.OrderDec
+	}
+	if output.CurrentView.GroupBy != "" {
+		mv.request.GroupBy = &jqlpb.GroupBy{
+			Groupings: []*jqlpb.RequestedGrouping{
+				{
+					Field:    output.CurrentView.GroupBy,
+					Selected: output.CurrentView.GroupBySelected,
+				},
+			},
+		}
 	}
 	err = mv.updateTableViewContents(true)
 	if err != nil {

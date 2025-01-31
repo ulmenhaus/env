@@ -145,6 +145,8 @@ def decode_pk(pk):
     noun_pk, assn_pks = pk.split("\t")
     return noun_pk, json.loads(assn_pks)
 
+def is_encoded_pk(pk):
+    return "\t" in pk
 
 def possible_targets(client, request, table):
     tgt_tables = [schema.Tables.Nouns, schema.Tables.Tasks]

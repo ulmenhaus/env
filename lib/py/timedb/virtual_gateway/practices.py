@@ -95,6 +95,11 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
         row_attrs, _ = common.get_fields_for_items(self.client,
                                                    schema.Tables.Nouns,
                                                    noun_pks)
+        pk2row = {}
+        for row in nouns.rows:
+            pk = row.entries[primary].formatted
+            pk2row[pk] = row
+
         for row in nouns.rows:
             parent = row.entries[cmap[schema.Fields.Parent]].formatted
             local_action_map = dict(action_map)
@@ -113,11 +118,11 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
             action = local_action_map[row.entries[cmap[
                 schema.Fields.Status]].formatted]
             domain = feed_attrs[parent].get("Domain", [''])[0]
+            if domain == "" and parent in pk2row:
+                parent_row = pk2row[parent]
+                grandparent = parent_row.entries[cmap[schema.Fields.Parent]].formatted
+                domain = feed_attrs[grandparent].get("Domain", [''])[0]
             source = f"@timedb:{parent}:"
-            if domain == "@timedb:projects:":
-                domain = source
-                areas = row_attrs[row.entries[primary].formatted]['Area']
-                source = areas[0] if areas else source
             genre = feed_attrs[parent].get("Feed.Genre", [''])[0]
             motivation = feed_attrs[parent].get("Feed.Motivation", [''])[0]
             direct = row.entries[primary].formatted
