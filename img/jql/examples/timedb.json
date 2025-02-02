@@ -78,8 +78,11 @@
             },
             "type": "id"
         },
-        "macros.Key": {
+	"macros.Description": {
             "primary": true,
+            "type": "string"
+	},
+        "macros.Key": {
             "type": "string"
         },
         "macros.Location": {

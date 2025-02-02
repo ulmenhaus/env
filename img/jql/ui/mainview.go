@@ -45,6 +45,9 @@ const (
 	// MainViewModeSelectBox is for when the user is selecting
 	// from a collection of predefined values for a field
 	MainViewModeSelectBox
+	// MainViewModePromptForMacro is for when the user is
+	// requested to select a macro to run
+	MainViewModePromptForMacro
 
 	// MacroTable is the name of the standard table containing
 	// macros
@@ -52,6 +55,9 @@ const (
 	// MacroLocationCol is the name of the column of the macros
 	// table containing the location of the program to run
 	MacroLocationCol = "Location"
+	// MacroKeyCol is the name of the column of the macros
+	// table containing the key of the program to run
+	MacroKeyCol = "Key"
 	// MacroV2Col is teh name of the column of the macros table
 	// indicating if the macro supports the v2 interface
 	MacroV2Col = "V2"
@@ -597,6 +603,8 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		err = mv.shiftSelectedGrouping(1)
 	case 'H':
 		err = mv.shiftSelectedGrouping(-1)
+	case 'm':
+		err = mv.switchMode(MainViewModePromptForMacro)
 	default:
 		err = mv.runMacro(ch)
 	}
@@ -1124,14 +1132,26 @@ func (mv *MainView) cursorUp(g *gocui.Gui, v *gocui.View) error {
 }
 
 func (mv *MainView) runMacro(ch rune) error {
-	resp, err := mv.dbms.GetRow(ctx, &jqlpb.GetRowRequest{
+	resp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
 		Table: MacroTable,
-		Pk:    string(ch),
+		Conditions: []*jqlpb.Condition{
+			{
+				Requires: []*jqlpb.Filter{
+					{
+						Column: MacroKeyCol,
+						Match:  &jqlpb.Filter_EqualMatch{EqualMatch: &jqlpb.EqualMatch{Value: string(ch)}},
+					},
+				},
+			},
+		},
 	})
 	if err != nil {
+		return err
+	}
+	if len(resp.GetRows()) == 0 {
 		return fmt.Errorf("Macro not found for '%s': %s", string(ch), err)
 	}
-	entries := resp.GetRow().GetEntries()
+	entries := resp.GetRows()[0].GetEntries()
 	locIndex := api.IndexOfField(resp.GetColumns(), MacroLocationCol)
 	v2Index := api.IndexOfField(resp.GetColumns(), MacroV2Col)
 	reloadIndex := api.IndexOfField(resp.GetColumns(), "Reload")

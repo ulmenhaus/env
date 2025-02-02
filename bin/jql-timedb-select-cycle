@@ -87,10 +87,6 @@ def main():
     if "--pending" in sys.argv:
         snapshot = json.loads(iface["snapshot"])
         formatted = find_pending_root_cycle(snapshot)
-    elif "--sources" in sys.argv:
-        table = "nouns"
-        field = "Relation"
-        formatted = "Source"
     elif "--ideate" in sys.argv:
         formatted = iface['current_view']['primary_selection']
         snapshot = json.loads(iface["snapshot"])
