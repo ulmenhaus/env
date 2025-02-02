@@ -58,6 +58,9 @@ const (
 	// MacroKeyCol is the name of the column of the macros
 	// table containing the key of the program to run
 	MacroKeyCol = "Key"
+	// MacroDescriptionCol is the name of the column of the macros
+	// table containing the description of the program to run
+	MacroDescriptionCol = "Description"
 	// MacroV2Col is teh name of the column of the macros table
 	// indicating if the macro supports the v2 interface
 	MacroV2Col = "V2"
@@ -196,7 +199,7 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 	// Virtual Tables store auxiliary pks in an entry's main pk to prevent unnecessary look-ups
 	// when modifying entries. These auxiliary pks are tab delimited so we hide them here
 	location.Write([]byte(fmt.Sprintf("    L%d C%d           %s", row, col, strings.Split(primarySelection.Formatted, "\t")[0])))
-	if mv.Mode == MainViewModeSelectBox {
+	if mv.Mode == MainViewModeSelectBox || mv.Mode == MainViewModePromptForMacro {
 		selectBox, err := g.SetView("selectBox", maxX/2-30, maxY/2-10, maxX/2+30, maxY/2+10)
 		if err != nil {
 			if err != gocui.ErrUnknownView {
@@ -239,7 +242,7 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 
 	}
 	switch mv.Mode {
-	case MainViewModeSelectBox:
+	case MainViewModeSelectBox, MainViewModePromptForMacro:
 		selectBox, err := g.View("selectBox")
 		if err != nil {
 			return err
@@ -349,6 +352,11 @@ func (mv *MainView) handleSelectInput(g *gocui.Gui, v *gocui.View) error {
 		selected = options[len(options)-1]
 	} else {
 		selected = options[index]
+	}
+	if mv.Mode == MainViewModePromptForMacro {
+		mv.switchMode(MainViewModeTable)
+		var ch rune
+		return mv.runMacro(ch, selected)
 	}
 	mv.switchMode(MainViewModeTable)
 	return mv.updateEntryValue(selected)
@@ -604,9 +612,9 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 	case 'H':
 		err = mv.shiftSelectedGrouping(-1)
 	case 'm':
-		err = mv.switchMode(MainViewModePromptForMacro)
+		err = mv.promptForMacro()
 	default:
-		err = mv.runMacro(ch)
+		err = mv.runMacro(ch, "")
 	}
 }
 
@@ -1131,17 +1139,22 @@ func (mv *MainView) cursorUp(g *gocui.Gui, v *gocui.View) error {
 	return nil
 }
 
-func (mv *MainView) runMacro(ch rune) error {
+func (mv *MainView) runMacro(ch rune, description string) error {
+	filter := &jqlpb.Filter{
+		Column: MacroKeyCol,
+		Match:  &jqlpb.Filter_EqualMatch{EqualMatch: &jqlpb.EqualMatch{Value: string(ch)}},
+	}
+	if description != "" {
+		filter = &jqlpb.Filter{
+			Column: MacroDescriptionCol,
+			Match:  &jqlpb.Filter_EqualMatch{EqualMatch: &jqlpb.EqualMatch{Value: string(description)}},
+		}
+	}
 	resp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
 		Table: MacroTable,
 		Conditions: []*jqlpb.Condition{
 			{
-				Requires: []*jqlpb.Filter{
-					{
-						Column: MacroKeyCol,
-						Match:  &jqlpb.Filter_EqualMatch{EqualMatch: &jqlpb.EqualMatch{Value: string(ch)}},
-					},
-				},
+				Requires: []*jqlpb.Filter{filter},
 			},
 		},
 	})
@@ -1237,6 +1250,12 @@ func (mv *MainView) runMacro(ch rune) error {
 	if err != nil {
 		return fmt.Errorf("Could not update table view after macro: %s", err)
 	}
+	if description != "" {
+		// TODO this is a bit hacky - if we are searching by description
+		// then the user is prompted for a macro and so we can't show this
+		// error text and just return nil
+		return nil
+	}
 	return fmt.Errorf("Ran macro %s", path)
 }
 
@@ -1285,6 +1304,22 @@ func (mv *MainView) writeGroupings(v *gocui.View) {
 		}
 		v.Write([]byte("\n"))
 	}
+}
+
+func (mv *MainView) promptForMacro() error {
+	resp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
+		Table: MacroTable,
+	})
+	if err != nil {
+		return err
+	}
+	primary := api.GetPrimary(resp.GetColumns())
+	mv.selectOptions = nil
+	for _, row := range resp.GetRows() {
+		mv.selectOptions = append(mv.selectOptions, row.GetEntries()[primary].Formatted)
+	}
+	mv.switchMode(MainViewModePromptForMacro)
+	return nil
 }
 
 func sortedKeys(m map[string]int64) []string {
