@@ -165,7 +165,7 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
                     "Domain": [domain],
                     "Motivation": ['Investment'],
                     "Genre": [genre],
-                    "Towards": ['something new'],
+                    "Towards": ['something regular'],
                 }
         all_noun_pks = set(row['Direct'][0] for row in children.values())
         noun2info = common.get_timing_info(self.client, all_noun_pks)

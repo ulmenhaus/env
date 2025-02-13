@@ -56,7 +56,7 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
             for initiative in initiatives:
                 initiative_pk = initiative.entries[primary].formatted
                 count = len(task2children[initiative_pk]) or 1
-                if self._exclude_initiative(initiative, fields[initiative_pk], cmap):
+                if self._exclude_initiative_from_stats(initiative, fields[initiative_pk], cmap):
                     continue
                 for field in captured_fields:
                     values = fields[initiative_pk][field] or ["None"]
@@ -88,12 +88,15 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
                     }
         return rows
 
-    def _exclude_initiative(self, task, task_fields, cmap):
+    def _exclude_initiative_from_stats(self, task, task_fields, cmap):
         for cls in task_fields["Class"]:
             # Goals don't by themselves map to any time spent on work so are excluded
             # in calculating stats on time
             if cls == "Goal":
                 return True
+        if task.entries[cmap[schema.Fields.Indirect]].formatted == "regularity":
+            # Habits are counted in habit entries so they aren't useful here
+            return True
         return False
 
     def _habit_entries(self, tasks):
