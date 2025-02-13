@@ -146,7 +146,7 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
         project2workstreams = collections.defaultdict(list)
         goal2projects = collections.defaultdict(list)
         for pk, attrs in fields.items():
-            if '@timedb:Project:' in attrs['Class']:
+            if '@{nouns Project}' in attrs['Class']:
                 project2workstreams[pk]
                 for workstream in fields[pk]['Workstream']:
                     if common.is_foreign(workstream) and common.parse_foreign(
@@ -157,7 +157,7 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
                     if common.is_foreign(goal) and common.parse_foreign(
                             goal)[0] == schema.Tables.Tasks:
                         goal2projects[common.parse_foreign(goal)[1]].append(pk)
-            if '@timedb:Goal:' in attrs['Class']:
+            if '@{nouns Goal}' in attrs['Class']:
                 goal2projects[pk]
         entries = {}
         project2progress = {pk: ProgressAmount() for pk in project2workstreams}

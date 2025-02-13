@@ -122,7 +122,7 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
                 parent_row = pk2row[parent]
                 grandparent = parent_row.entries[cmap[schema.Fields.Parent]].formatted
                 domain = feed_attrs[grandparent].get("Domain", [''])[0]
-            source = f"@timedb:{parent}:"
+            source = f"@{{nouns {parent}}}"
             genre = feed_attrs[parent].get("Feed.Genre", [''])[0]
             motivation = feed_attrs[parent].get("Feed.Motivation", [''])[0]
             direct = row.entries[primary].formatted
@@ -161,7 +161,7 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
                     "_pk": [practice],
                     "Action": [action],
                     "Direct": [direct],
-                    "Source": [f"@timedb:{parent}:"],
+                    "Source": [f"@{{nouns {parent}}}"],
                     "Domain": [domain],
                     "Motivation": ['Investment'],
                     "Genre": [genre],

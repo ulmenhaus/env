@@ -156,14 +156,14 @@ func (mv *MainView) gatherDomains() (map[string]string, error) {
 		if !strings.HasPrefix(arg0, "nouns ") {
 			continue
 		}
-		if !strings.HasPrefix(arg1, "@timedb:") {
+		if !strings.HasPrefix(arg1, "@{nouns ") {
 			continue
 		}
-		if !strings.HasSuffix(arg1, ":") {
+		if !strings.HasSuffix(arg1, "}") {
 			continue
 		}
 		source := arg0[len("nouns "):]
-		dst := arg1[len("@timedb:") : len(arg1)-1]
+		dst := arg1[len("@{nouns ") : len(arg1)-1]
 		noun2domain[source] = dst
 	}
 	return noun2domain, nil

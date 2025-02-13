@@ -36,7 +36,7 @@ def _fill_default_assertions(by_relation, subject, snapshot):
     cls = pks.class_for_task(action, task)
     by_relation['.Class'] = {
         cls: {
-            "Arg1": f"@timedb:{cls}:",
+            "Arg1": f"@{{nouns {cls}}}",
             "Order": "0",
         },
     }
@@ -51,12 +51,12 @@ def _fill_default_assertions(by_relation, subject, snapshot):
         if assn["Arg0"] == group and assn["A Relation"] == ".Member"
     ]
     # Attention cycles don't do group expansion
-    all_indirect = members if members and task['Action'] != 'Attend'  else [f"@timedb:{indirect}:"]
+    all_indirect = members if members and task['Action'] != 'Attend'  else [f"@{{nouns {indirect}}}"]
 
     if direct:
         by_relation[f".{direct_attr}"] = {
             direct_attr: {
-                "Arg1": f"@timedb:{direct}:",
+                "Arg1": f"@{{nouns {direct}}}",
                 "Order": "0",
             },
         }

@@ -121,8 +121,8 @@ def present_attrs(attrs):
                     return "●" * num + "○" * (denom - num)
             except:
                 pass
-        if attrs[0].startswith("@timedb:") and attrs[0].endswith(":"):
-            inner = attrs[0][len("@timedb:"):-1]
+        if attrs[0].startswith("@{nouns ") and attrs[0].endswith("}"):
+            inner = attrs[0][len("@{nouns "):-1]
             if inner and ":" not in inner:
                 # Disabling this behavior for now
                 # return inner
@@ -196,10 +196,7 @@ def is_foreign(entry):
     # have colons in the middle that should be escaped first
     if not entry:
         return True
-    if entry.startswith("@{") and entry.endswith("}"):
-        return True
-    return len(entry) > len("@timedb:") and entry.startswith(
-        "@timedb:") and entry.endswith(":")
+    return entry.startswith("@{") and entry.endswith("}")
 
 
 def foreign_fields(rows):
@@ -210,7 +207,7 @@ def foreign_fields(rows):
             for item in v:
                 # Eventually we will support entries like @:nouns <pk>" and @:tasks <pk>:
                 # but for now the only foreign key references are nouns referenced
-                # as @timedb:<pk>:
+                # as @{nouns <pk>}
                 field_to_tables[k].add("nouns")
                 if not is_foreign(item):
                     fields_with_non_foreigns.add(k)
@@ -227,7 +224,7 @@ def parse_foreign(entry):
 
 
 def strip_foreign(entry):
-    return entry[len("@timedb:"):-1]
+    return entry[len("@{nouns "):-1]
 
 
 def convert_foreign_fields(before, foreign):
@@ -379,7 +376,7 @@ def _days_since(client, noun_pks):
                 row)
 
     # Get matching tasks based on properties
-    references = [f"@timedb:{noun_pk}:" for noun_pk in noun_pks]
+    references = [f"@{{nouns {noun_pk}}}" for noun_pk in noun_pks]
     assn_request = jql_pb2.ListRowsRequest(
         table=schema.Tables.Assertions,
         conditions=[

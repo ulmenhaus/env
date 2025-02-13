@@ -103,7 +103,7 @@ class NounsBackend(jql_pb2_grpc.JQLServicer):
                 fields={
                     schema.Fields.Relation: ".Area",
                     schema.Fields.Arg0: f"nouns {request.pk}",
-                    schema.Fields.Arg1: f"@timedb:{area}:",
+                    schema.Fields.Arg1: f"@{{nouns {area}}}",
                     schema.Fields.Order: "0",
                 },
             ))
@@ -132,7 +132,7 @@ class AssertionsBackend(jql_pb2_grpc.JQLServicer):
                     schema.Fields.Relation: [".Domain"],
                     schema.Fields.Arg0:
                     [f"nouns {_area_pk(area, project_plan)}"],
-                    schema.Fields.Arg1: [f"@timedb:{description}:"],
+                    schema.Fields.Arg1: [f"@{{nouns {description}}}"],
                     schema.Fields.Order: ["0"],
                 }
         return common.list_rows('vt.project_initiative_assertions',

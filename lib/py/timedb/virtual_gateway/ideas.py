@@ -79,7 +79,7 @@ class IdeasBackend(jql_pb2_grpc.JQLServicer):
             idea["Coordinal"] = [
                 row.entries[ideas_cmap[schema.Fields.Coordinal]].formatted
             ]
-            idea["Idea"] = [f"@timedb:{noun_pk}:"]
+            idea["Idea"] = [f"@{{nouns {noun_pk}}}"]
             idea["_pk"] = [common.encode_pk(noun_pk, assn_pks[noun_pk])]
             if idea["PE"] and idea["PE"][0] and idea["Cost"] and idea["Cost"][
                     0]:

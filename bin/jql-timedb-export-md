@@ -177,9 +177,9 @@ def gather_classes(assertions, tasks):
     for key, value in assertions.items():
         src, rel, tgt = map(value.get, ["Arg0", "A Relation", "Arg1"])
         if rel != ".Class" or not tgt.startswith(
-                "@timedb:") or not tgt.endswith(":"):
+                "@{nouns ") or not tgt.endswith("}"):
             continue
-        tgt_pk = tgt[len("@timedb:"):-1]
+        tgt_pk = tgt[len("@{nouns "):-1]
         if ":" in tgt_pk:
             continue
         src2cls[src] = tgt_pk
@@ -206,7 +206,7 @@ def generate_ideas_markdown(snapshot):
     for noun in sorted(noun2ideas):
         if not noun.startswith("nouns "):
             continue
-        col = "@timedb:" + noun[len("nouns "):] + ":"
+        col = "@{nouns " + noun[len("nouns "):] + "}"
         table.append([col, str(noun2ideas[noun])])
     markdown += f"{sum(noun2ideas.values())} ideas in {len(noun2ideas)} entries\n"
     markdown += resolve_jql_links(markdown_table(table))
@@ -365,9 +365,9 @@ def generate_markdown(snapshot, table, pk):
     for key, value in assertions.items():
         src, rel, tgt = map(value.get, ["Arg0", "A Relation", "Arg1"])
         if not rel.startswith(".") or not tgt.startswith(
-                "@timedb:") or not tgt.endswith(":"):
+                "@{nouns ") or not tgt.endswith("}"):
             continue
-        tgt_pk = tgt[len("@timedb:"):-1]
+        tgt_pk = tgt[len("@{nouns "):-1]
         if ":" in tgt_pk:
             continue
         # NOTE for now timedb refs only support nouns as I haven't needed links to tasks
@@ -456,8 +456,8 @@ def render_pic(src):
 def simplify_assertions(key2rel2orobs):
     # for predicates that are just lists of references to other entries, we want to display them
     # as though they are singletons
-    is_ref = lambda entry: entry.startswith("@timedb:") and entry.endswith(
-        ":") and ":" not in entry[len("@timedb:"):-1]
+    is_ref = lambda entry: entry.startswith("@{nouns ") and entry.endswith(
+        ":") and ":" not in entry[len("@{nouns "):-1]
     is_list_of_refs = lambda orobs: len(orobs) > 1 and all(
         is_ref(orob[1]) for orob in orobs)
     chars_per_row = 36
@@ -488,7 +488,7 @@ def simplify_assertions(key2rel2orobs):
 
 
 def resolve_jql_links(base_markdown):
-    inputs = base_markdown.split("@timedb:")
+    inputs = base_markdown.split("@{nouns ")
     parts = []
     for i, inpt in enumerate(inputs):
         if i == 0:

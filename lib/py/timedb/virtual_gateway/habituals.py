@@ -58,7 +58,7 @@ class HabitualsBackend(jql_pb2_grpc.JQLServicer):
             pk = common.encode_pk(habitual, info.cadence_pk)
             entries[pk] = {
                 "Parent": [parents[habitual]],
-                "Habitual": [f"@timedb:{habitual}:"],
+                "Habitual": [f"@{{nouns {habitual}}}"],
                 "Days Since": [info.days_since or "-∞"],
                 "Days Until": [info.days_until or "-∞"],
                 "_pk": [pk],

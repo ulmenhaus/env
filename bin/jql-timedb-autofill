@@ -38,7 +38,7 @@ class HabitModes(object):
                 assertion["Arg0"][len("nouns "):]
                 for assertion in self.data['assertions'].values()
                 if assertion["A Relation"] == '.Class'
-                and assertion['Arg1'] == f"@timedb:{cls}:"
+                and assertion['Arg1'] == f"@{{nouns {cls}}}"
             ]
 
         original_span = self.task_data["Param~Span"]

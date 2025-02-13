@@ -58,7 +58,7 @@ def _parse_habits_table(snapshot, full_pk, section_title):
 
 
 def _parse_possible_timedb_ref(val):
-    return val.split(":")[1] if val.startswith("@timedb:") else val
+    return val.split("@{nouns ")[1].split("}")[0] if val.startswith("@{nouns ") else val
 
 
 def _add_habit(snapshot, habit, cm, group2members, habit_mode):

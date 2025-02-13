@@ -78,7 +78,7 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
         return common.list_rows('vt.relatives', relatives, request)
 
     def _query_explicit_relatives(self, selected_item):
-        arg1 = f"@timedb:{selected_item}:"
+        arg1 = f"@{{nouns {selected_item}}}"
         relatives_request = jql_pb2.ListRowsRequest(
             table=schema.Tables.Assertions,
             conditions=[
@@ -104,7 +104,7 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
         for pk, relative in relatives.items():
             relative["_pk"] = [common.encode_pk(pk, assn_pks[pk])]
             # TODO switching to a common list function broke this field and it won't work
-            # properly until we support @:<table> <pk>: style fields instead of @timedb:<pk>:
+            # properly until we support @:<table> <pk>: style fields instead of @{nouns <pk>}
             relative["Display Name"] = [pk]
             relative["-> Item"] = [f"{schema.Tables.Nouns} {selected_item}"]
             exact_matches = [k for k, v in relative.items() if arg1 in v]
