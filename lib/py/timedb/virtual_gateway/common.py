@@ -112,6 +112,15 @@ def present_attrs(attrs):
     if len(attrs) == 0:
         return ""
     if len(attrs) == 1:
+        entry = attrs[0]
+        if entry and is_foreign(entry):
+            table, value = parse_foreign(entry)
+            if table == "ratings":
+                try:
+                    num, denom = map(int, value.split(" "))
+                    return "●" * num + "○" * (denom - num)
+                except:
+                    pass
         if attrs[0].startswith("@timedb:") and attrs[0].endswith(":"):
             inner = attrs[0][len("@timedb:"):-1]
             if inner and ":" not in inner:
