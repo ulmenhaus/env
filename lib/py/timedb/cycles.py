@@ -179,6 +179,7 @@ def add_task_from_template(dbms, table, pk):
     
     # finally add the attributes
     attrs = {
+        schema.Fields.Genre: resp.row.entries[cmap[schema.Fields.Genre]].formatted,
         schema.Fields.Motivation: resp.row.entries[cmap[schema.Fields.Motivation]].formatted,
         schema.Fields.Source: resp.row.entries[cmap[schema.Fields.Source]].formatted,
         schema.Fields.Towards: resp.row.entries[cmap[schema.Fields.Towards]].formatted,

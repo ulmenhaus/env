@@ -21,6 +21,7 @@ class Fields(object):
     Disambiguator = "Disambiguator"
     Domain = "Domain"
     Feed = "Feed"
+    Genre = "Genre"
     Identifier = "_Identifier"
     Indirect = "Indirect"
     Item = "-> Item"
