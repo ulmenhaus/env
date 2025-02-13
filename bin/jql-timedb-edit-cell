@@ -48,8 +48,7 @@ def _edit_attribute(dbms, pk):
         ))
 
 
-def _edit_attribute_set(dbms, pk, column):
-    arg0_pk, _ = common.decode_pk(pk)
+def _edit_attribute_set(dbms, arg0_pk, column):
     relation = f".{column}"
     resp = dbms.ListRows(
         jql_pb2.ListRowsRequest(
@@ -113,11 +112,11 @@ def main():
         table, pk = iface.get_primary_selection()
         if table == schema.Tables.Attributes:
             _edit_attribute(dbms, pk)
-        if table == schema.Tables.Relatives:
-            _edit_attribute_set(dbms, pk, iface.get_primary_column())
-        else:
-            pass
-
+        elif table == schema.Tables.Relatives:
+            arg0_pk, _ = common.decode_pk(pk)
+            _edit_attribute_set(dbms, arg0_pk, iface.get_primary_column())
+        elif table in [schema.Tables.Tasks, schema.Tables.Nouns]:
+            _edit_attribute_set(dbms, f"{table} {pk}", "Note")
 
 if __name__ == "__main__":
     main()
