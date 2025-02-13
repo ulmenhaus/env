@@ -159,6 +159,7 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	}
+	mv.TableView.TotalWidth = maxX - 2
 	v, err := g.SetView("table", 0, 3+groupingsOffset, maxX-2, maxY+groupingsOffset-5)
 	if err != nil {
 		if err != gocui.ErrUnknownView {

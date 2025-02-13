@@ -38,6 +38,8 @@ type TableView struct {
 	Values     [][]string
 	Widths     []int
 	Selections SelectionSet
+	XOffset    int
+	TotalWidth int
 }
 
 // Move moves the table's cursor in the input direction
@@ -47,6 +49,7 @@ func (tv *TableView) Move(d Direction) {
 		if len(tv.Values) > 0 && tv.Selections.Primary.Column < len(tv.Values[0])-1 {
 			tv.Selections.Primary.Column++
 		}
+		tv.overflowRight()
 	case DirectionUp:
 		if tv.Selections.Primary.Row > 0 {
 			tv.Selections.Primary.Row--
@@ -55,6 +58,7 @@ func (tv *TableView) Move(d Direction) {
 		if tv.Selections.Primary.Column > 0 {
 			tv.Selections.Primary.Column--
 		}
+		tv.overflowLeft()
 	case DirectionDown:
 		if tv.Selections.Primary.Row < len(tv.Values)-1 {
 			tv.Selections.Primary.Row++
@@ -90,7 +94,7 @@ func stringMult(s string, n int) string {
 func (tv *TableView) WriteContents(v io.Writer) error {
 	// TODO paginate horizantally and vertically
 	// Also figure out how to make the cursor disappear when inactive
-	content := ""
+	header := ""
 	for j, val := range tv.Header {
 		width := tv.Widths[j]
 		if len(val) >= width {
@@ -101,10 +105,12 @@ func (tv *TableView) WriteContents(v io.Writer) error {
 				val += " "
 			}
 		}
-		content += "   " + val + stringMult(" ", 5)
+		header += "   " + val + stringMult(" ", 5)
 	}
-	content += "\n"
+	header += "\n"
+	content := header[tv.XOffset:]
 	for i, row := range tv.Values {
+		rowString := ""
 		for j, rawVal := range row {
 			width := tv.Widths[j]
 			rawVal = strings.Split(rawVal, "\n")[0]
@@ -119,8 +125,9 @@ func (tv *TableView) WriteContents(v io.Writer) error {
 			}
 
 			level := tv.selectionLevel(Coordinate{Row: i, Column: j})
-			content += fmt.Sprintf("%s%s%s%s", stringMult(">", level), stringMult(" ", 3-level), string(val), stringMult(" ", 5))
+			rowString += fmt.Sprintf("%s%s%s%s", stringMult(">", level), stringMult(" ", 3-level), string(val), stringMult(" ", 5))
 		}
+		content += rowString[tv.XOffset:]
 		content += "\n"
 	}
 	_, err := fmt.Fprintf(v, content)
@@ -142,4 +149,24 @@ func (tv *TableView) SelectColumn() {
 func (tv *TableView) SelectNone() {
 	tv.Selections.Secondary = make(map[Coordinate]bool)
 	tv.Selections.Tertiary = make(map[Coordinate]bool)
+}
+
+func (tv *TableView) overflowRight() {
+	widthNeeded := 0
+	for i:=0; i <= tv.Selections.Primary.Column; i ++ {
+		widthNeeded += tv.Widths[i] + 8 // HACK 8 is our buffer size on each side
+	}
+	if widthNeeded > tv.TotalWidth {
+		tv.XOffset = widthNeeded - tv.TotalWidth 
+	}
+}
+
+func (tv *TableView) overflowLeft() {
+	widthToCursor := 0
+	for i:=0; i < tv.Selections.Primary.Column; i ++ {
+		widthToCursor += tv.Widths[i] + 8 // HACK 8 is our buffer size on each side
+	}
+	if tv.XOffset > widthToCursor {
+		tv.XOffset = widthToCursor
+	}
 }
