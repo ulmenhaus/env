@@ -108,6 +108,9 @@ message Column {
 
 message Entry {
 	string formatted = 1;
+  string display_value = 2;
+  string link = 3;
+  string local_link = 4;
 }
 
 message Row {

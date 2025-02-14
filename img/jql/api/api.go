@@ -515,6 +515,23 @@ func ParsePolyforeign(entry *jqlpb.Entry) (string, []string) {
 	return parts[0], []string{parts[1]}
 }
 
+func ParseLink(entry *jqlpb.Entry) (string, []string) {
+	formatted := entry.Link
+
+	parts := strings.SplitN(formatted, " ", 2)
+	if len(parts) < 2 {
+		return "", []string{}
+	}
+	return parts[0], []string{parts[1]}
+}
+
+func GetDisplayValue(entry *jqlpb.Entry) string {
+	if entry.GetDisplayValue() != "" {
+		return entry.GetDisplayValue()
+	}
+	return entry.GetFormatted()
+}
+
 type RemoteDBMS struct {
 	jqlpb.JQLClient
 	Address string

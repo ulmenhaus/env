@@ -726,7 +726,7 @@ func (mv *MainView) updateTableViewContents(resetCursorRow bool) error {
 				_, keys := api.ParsePolyforeign(entry)
 				formatted = append(formatted, strings.Join(keys, ","))
 			} else {
-				formatted = append(formatted, entry.Formatted)
+				formatted = append(formatted, api.GetDisplayValue(entry))
 			}
 		}
 		mv.TableView.Values = append(mv.TableView.Values, formatted)
@@ -824,6 +824,11 @@ loop:
 			}
 		case jqlpb.EntryType_POLYFOREIGN:
 			table, keys = api.ParsePolyforeign(mv.response.Rows[row].Entries[col])
+			if tables[table] != nil {
+				break loop
+			}
+		case jqlpb.EntryType_STRING:
+			table, keys = api.ParseLink(mv.response.Rows[row].Entries[col])
 			if tables[table] != nil {
 				break loop
 			}

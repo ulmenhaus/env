@@ -40,7 +40,7 @@ class ToolsBackend(jql_pb2_grpc.JQLServicer):
             target = row.entries[cmap[schema.Fields.Arg1]].formatted
             if not common.is_foreign(target):
                 continue
-            target_pk = common.strip_foreign(target)
+            target_pk = common.strip_foreign_noun(target)
             relation = row.entries[cmap[schema.Fields.Relation]].formatted
             target2relation[target_pk] = relation
 
@@ -90,7 +90,7 @@ class ToolsBackend(jql_pb2_grpc.JQLServicer):
                                                     []) or default_actions
             subsets = ['']
             for taxonomy in fields.get(target_pk, {}).get("Taxonomy", []):
-                subsets += all_subsets[common.strip_foreign(taxonomy)]
+                subsets += all_subsets[common.strip_foreign_noun(taxonomy)]
             for action in actions:
                 for subset in subsets:
                     exercise = f"{action} {target_pk}"
@@ -114,7 +114,7 @@ class ToolsBackend(jql_pb2_grpc.JQLServicer):
         return attributes
 
     def _query_subsets(self, taxonomies):
-        tax_list = list(map(common.strip_foreign, taxonomies))
+        tax_list = list(map(common.strip_foreign_noun, taxonomies))
         request = jql_pb2.ListRowsRequest(
             table=schema.Tables.Nouns,
             conditions=[

@@ -12,10 +12,11 @@ ALIAS_MODIFIER = 'alias of'
 def get_fields_for_items(client, table, pks, fields=()):
     prefix = f"{table} " if table else ""
     ret = {pk: collections.defaultdict(list) for pk in pks}
+    full_pks = [f"{prefix}{pk}" for pk in pks]
     filters = [
         jql_pb2.Filter(
             column=schema.Fields.Arg0,
-            in_match=jql_pb2.InMatch(values=[f"{prefix}{pk}" for pk in pks]),
+            in_match=jql_pb2.InMatch(values=full_pks),
         ),
     ]
 
@@ -108,26 +109,39 @@ def _filter_matches(row, f):
         raise ValueError("Unknown filter type", match_type)
 
 
+def link_attrs(attrs):
+    if len(attrs) != 1:
+        return ""
+    attr, = attrs
+    return strip_foreign(attr) if is_foreign(attr) else ""
+
+
+def format_attrs(attrs):
+    if len(attrs) == 0:
+        return ""
+    if len(attrs) == 1:
+        return attrs[0]
+    return "\n".join(f"* {attr}" for attr in attrs)
+
+
 def present_attrs(attrs):
     if len(attrs) == 0:
         return ""
     if len(attrs) == 1:
         entry = attrs[0]
+        lines = entry.split("\n")
+        if len(lines) > 1:
+            return lines[0] + f" + {len(lines) - 1} lines"
         if is_foreign(entry):
             try:
-                table, value = parse_foreign(entry)
+                table, pk = parse_foreign(entry)
                 if table == "ratings":
-                    num, denom = map(int, value.split(" "))
+                    num, denom = map(int, pk.split(" "))
                     return "●" * num + "○" * (denom - num)
+                return pk
             except:
                 pass
-        if attrs[0].startswith("@{nouns ") and attrs[0].endswith("}"):
-            inner = attrs[0][len("@{nouns "):-1]
-            if inner and ":" not in inner:
-                # Disabling this behavior for now
-                # return inner
-                pass
-        return attrs[0]
+        return entry
     return f"{len(attrs)} entries"
 
 
@@ -154,8 +168,10 @@ def decode_pk(pk):
     noun_pk, assn_pks = pk.split("\t")
     return noun_pk, json.loads(assn_pks)
 
+
 def is_encoded_pk(pk):
     return "\t" in pk
+
 
 def possible_targets(client, request, table):
     tgt_tables = [schema.Tables.Nouns, schema.Tables.Tasks]
@@ -199,60 +215,22 @@ def is_foreign(entry):
     return entry.startswith("@{") and entry.endswith("}")
 
 
-def foreign_fields(rows):
-    field_to_tables = collections.defaultdict(set)
-    fields_with_non_foreigns = set()
-    for row in rows:
-        for k, v in row.items():
-            for item in v:
-                # Eventually we will support entries like @:nouns <pk>" and @:tasks <pk>:
-                # but for now the only foreign key references are nouns referenced
-                # as @{nouns <pk>}
-                field_to_tables[k].add("nouns")
-                if not is_foreign(item):
-                    fields_with_non_foreigns.add(k)
-    return {
-        k: v
-        for k, v in field_to_tables.items()
-        if k not in fields_with_non_foreigns
-    }
-
-
 def parse_foreign(entry):
-    polyforeign = entry[len("@{"):-len("}")]
-    return polyforeign.split(" ", 1)
+    return strip_foreign(entry).split(" ", 1)
 
 
 def strip_foreign(entry):
+    return entry[len("@{"):-len("}")]
+
+
+def strip_foreign_noun(entry):
     return entry[len("@{nouns "):-1]
-
-
-def convert_foreign_fields(before, foreign):
-    after = []
-    for row in before:
-        new_row = collections.defaultdict(list)
-        for k, v in row.items():
-            if k in foreign:
-                # For now we only allow referencing nouns from assertions, but we may support other tables in the future
-                new_row[k] = list(map(strip_foreign, v))
-            else:
-                new_row[k] = v
-        after.append(new_row)
-    return after
 
 
 def list_rows(table_name, rows, request, values=None, allow_foreign=True):
     values = values if values else {}
     type_of = {k: jql_pb2.EntryType.ENUM for k in values}
-    field_to_tables = foreign_fields(rows.values()) if allow_foreign else {}
-    foreign_tables = {}
-    for field, tables in field_to_tables.items():
-        type_of[field] = jql_pb2.EntryType.FOREIGN if len(
-            tables) == 1 else jql_pb2.EntryType.POLYFOREIGN
-        if len(tables) == 1:
-            foreign_tables[field] = list(tables)[0]
-    converted = convert_foreign_fields(rows.values(), field_to_tables)
-    filtered = apply_request_parameters(converted, request)
+    filtered = apply_request_parameters(rows.values(), request)
     grouped, groupings = apply_grouping(filtered, request)
     max_lens = gather_max_lens(grouped, [])
     final = apply_request_limits(grouped, request)
@@ -263,7 +241,6 @@ def list_rows(table_name, rows, request, values=None, allow_foreign=True):
             jql_pb2.Column(
                 name=field,
                 type=type_of.get(field, jql_pb2.EntryType.STRING),
-                foreign_table=foreign_tables.get(field, ''),
                 values=values.get(field, []),
                 max_length=max_lens.get(field, 10),
                 # TODO we probably don't need each caller to provide a _pk field
@@ -272,11 +249,14 @@ def list_rows(table_name, rows, request, values=None, allow_foreign=True):
         ],
         rows=[
             jql_pb2.Row(entries=[
-                jql_pb2.Entry(formatted=present_attrs(relative[field]))
-                for field in fields
+                jql_pb2.Entry(
+                    formatted=format_attrs(relative.get(field, [])),
+                    display_value=present_attrs(relative.get(field, [])),
+                    link=link_attrs(relative.get(field, [])),
+                ) for field in fields
             ]) for relative in final
         ],
-        all=len(converted),
+        all=len(rows),
         total=len(grouped),
         groupings=groupings,
     )
@@ -392,7 +372,7 @@ def _days_since(client, noun_pks):
     _, assn_cmap = list_rows_meta(assn_response)
     task_pk_to_nouns = collections.defaultdict(set)
     for row in assn_response.rows:
-        noun = strip_foreign(
+        noun = strip_foreign_noun(
             row.entries[assn_cmap[schema.Fields.Arg1]].formatted)
         table, pk = row.entries[assn_cmap[schema.Fields.Arg0]].formatted.split(
             " ", 1)

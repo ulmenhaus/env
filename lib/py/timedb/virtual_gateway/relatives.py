@@ -19,7 +19,8 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
     def ListRows(self, request, context):
         selected_target = common.selected_target(request)
         if not selected_target:
-            return common.possible_targets(self.client, request, 'vt.relatives')
+            return common.possible_targets(self.client, request,
+                                           'vt.relatives')
 
         if self.extra_columns_target != selected_target:
             # Reset the extra columns because we're looking at a new target
@@ -30,10 +31,14 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
         if selected_table == schema.Tables.Nouns:
             relatives.update(self._query_explicit_relatives(selected_item))
             relatives.update(
-                self._query_implied_relatives(selected_item, schema.Tables.Nouns,
+                self._query_explicit_task_relatives(selected_item))
+            relatives.update(
+                self._query_implied_relatives(selected_item,
+                                              schema.Tables.Nouns,
                                               schema.Fields.Parent, "Child"))
             relatives.update(
-                self._query_implied_relatives(selected_item, schema.Tables.Nouns,
+                self._query_implied_relatives(selected_item,
+                                              schema.Tables.Nouns,
                                               schema.Fields.Modifier,
                                               "w/ Modifier"))
             # We query all descendants first so that more immediate relatives will override
@@ -45,36 +50,41 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
                                               "w/ Ancestor Concept",
                                               path_to_match=True))
             relatives.update(
-                self._query_implied_relatives(selected_item, schema.Tables.Nouns,
+                self._query_implied_relatives(selected_item,
+                                              schema.Tables.Nouns,
                                               schema.Fields.Description,
                                               "w/ Base Concept"))
             relatives.update(
-                self._query_implied_relatives(selected_item, schema.Tables.Nouns,
+                self._query_implied_relatives(selected_item,
+                                              schema.Tables.Nouns,
                                               schema.Fields.Identifier,
                                               "w/ Identity"))
             if selected_item == "Feed":
                 # Nouns with a non-empty Feed field are implicitly
                 # instances of the Feed class
                 relatives.update(
-                    self._query_implied_relatives(selected_item, schema.Tables.Nouns,
+                    self._query_implied_relatives(selected_item,
+                                                  schema.Tables.Nouns,
                                                   schema.Fields.Feed,
-                                                  "w/ Class", negated=True, value=""))
-                
+                                                  "w/ Class",
+                                                  negated=True,
+                                                  value=""))
+
         elif selected_table == schema.Tables.Tasks:
             relatives.update(
-                self._query_implied_relatives(selected_item, schema.Tables.Tasks,
-                                              schema.Fields.PrimaryGoal, "Child"))
+                self._query_implied_relatives(selected_item,
+                                              schema.Tables.Tasks,
+                                              schema.Fields.PrimaryGoal,
+                                              "Child"))
             relatives.update(
-                self._query_implied_relatives(selected_item, schema.Tables.Tasks,
+                self._query_implied_relatives(selected_item,
+                                              schema.Tables.Tasks,
                                               schema.Fields.UDescription,
                                               "w/ Identity"))
         for fields in relatives.values():
             for extra_col in self.extra_columns:
                 if extra_col not in fields:
                     fields[extra_col] = [""]
-        # TODO Captured implied relations
-        # 1. From arguments (direct/indirect of tasks, modified for nouns)
-        # 2. Items which use a particular schema (as referenced by parent)
         return common.list_rows('vt.relatives', relatives, request)
 
     def _query_explicit_relatives(self, selected_item):
@@ -110,7 +120,8 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
             exact_matches = [k for k, v in relative.items() if arg1 in v]
             if exact_matches:
                 rel = exact_matches[0]
-                relative["Relation"] = [f"{rel} this"] if is_verb(rel) else [f"w/ {rel}"]
+                relative["Relation"] = [f"{rel} this"
+                                        ] if is_verb(rel) else [f"w/ {rel}"]
             else:
                 relative["Relation"] = ["w/ Mention"]
             # TODO two edge cases for the relation
@@ -118,15 +129,50 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
             # 2. If there isn't an exact match we'll say "which reference this {class}"
         return relatives
 
-    def _query_implied_relatives(self,
-                                 selected_item,
-                                 table,
-                                 field,
-                                 relation,
-                                 path_to_match=False,
-                                 negated = False,
-                                 value = None,
-                                 ):
+    def _query_explicit_task_relatives(self, selected_item):
+        tasks = set()
+        # TODO once multiple conditions are allowed we can make this request in
+        # a single query
+        for column in [schema.Fields.Direct, schema.Fields.Indirect]:
+            relatives_request = jql_pb2.ListRowsRequest(
+                table=schema.Tables.Tasks,
+                conditions=[
+                    jql_pb2.Condition(requires=[
+                        jql_pb2.Filter(
+                            column=column,
+                            equal_match=jql_pb2.EqualMatch(value=selected_item,
+                                                           ),
+                        ),
+                    ]),
+                ],
+            )
+            response = self.client.ListRows(relatives_request)
+            primary, = [
+                i for i, c in enumerate(response.columns) if c.primary
+            ]
+            for row in response.rows:
+                tasks.add(row.entries[primary].formatted)
+        relatives, assn_pks = common.get_fields_for_items(
+            self.client, "tasks", list(tasks))
+        for pk, relative in relatives.items():
+            relative["_pk"] = [common.encode_pk(pk, assn_pks[pk])]
+            # TODO switching to a common list function broke this field and it won't work
+            # properly until we support @:<table> <pk>: style fields instead of @{nouns <pk>}
+            relative["Display Name"] = [pk]
+            relative["-> Item"] = [f"{schema.Tables.Nouns} {selected_item}"]
+            relative["Relation"] = ["w/ Mention"] # TODO need to make this the appropriate relation
+        return relatives
+
+    def _query_implied_relatives(
+        self,
+        selected_item,
+        table,
+        field,
+        relation,
+        path_to_match=False,
+        negated=False,
+        value=None,
+    ):
         to_match = value if value is not None else selected_item
         requires = jql_pb2.Filter(
             column=field,

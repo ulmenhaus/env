@@ -75,7 +75,8 @@ def _edit_attribute_set(dbms, arg0_pk, column):
     if len(values) == 1:
         content = values[0]
     else:
-        content = "\n".join(f"* {value}" for value in values)
+        # a new line at the end makes editing in vim easier
+        content = "\n".join(f"* {value}" for value in values) + '\n\n'
     new_content = _edit_content(content)
     if not new_content:
         new_values = []

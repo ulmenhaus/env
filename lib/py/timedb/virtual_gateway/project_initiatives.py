@@ -38,7 +38,7 @@ class NounsBackend(jql_pb2_grpc.JQLServicer):
             areas = fields[pk]["Area"]
             if not areas or not common.is_foreign(areas[0]):
                 continue
-            area = common.strip_foreign(areas[0])
+            area = common.strip_foreign_noun(areas[0])
             plan = task.entries[cmap[schema.Fields.Parent]].formatted
             plan2areas[plan].add(area)
             entry = {
@@ -175,8 +175,8 @@ def _query_areas_for_plans(client, plans):
     for plan, attr_set in fields.items():
         for taxonomy in attr_set['Taxonomy']:
             if common.is_foreign(taxonomy):
-                taxonomies.add(common.strip_foreign(taxonomy))
-                plan2tax[plan].append(common.strip_foreign(taxonomy))
+                taxonomies.add(common.strip_foreign_noun(taxonomy))
+                plan2tax[plan].append(common.strip_foreign_noun(taxonomy))
     children_req = jql_pb2.ListRowsRequest(
         table=schema.Tables.Nouns,
         conditions=[
