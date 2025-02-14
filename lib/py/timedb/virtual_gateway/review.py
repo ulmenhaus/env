@@ -23,10 +23,10 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
         fields, _ = common.get_fields_for_items(self.client,
                                                 schema.Tables.Tasks, task_pks)
         rows = {}
-        progresses = self._breakdown_progress(descendants)
+        progresses, plan2workstreams = self._breakdown_progress(descendants)
         progresses.update(self._incremental_progress(descendants))
         rows.update(self._workstream_entries(descendants, progresses))
-        rows.update(self._projects_and_goals(descendants, progresses, fields))
+        rows.update(self._projects_and_goals(descendants, progresses, fields, plan2workstreams))
         rows.update(self._habit_entries(descendants))
         rows.update(self._stat_entries(descendants, fields))
         return common.list_rows('vt.review', rows, request)
@@ -141,12 +141,22 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
             }
         return rows
 
-    def _projects_and_goals(self, tasks, progresses, fields):
+    def _projects_and_goals(self, tasks, progresses, fields, plan2workstreams):
         primary, cmap = common.list_rows_meta(tasks)
         project2workstreams = collections.defaultdict(list)
         goal2projects = collections.defaultdict(list)
+        pk2task = {row.entries[primary].formatted: row for row in tasks.rows}
         for pk, attrs in fields.items():
-            if '@{nouns Project}' in attrs['Class']:
+            task = pk2task[pk]
+            action = task.entries[cmap[schema.Fields.Action]].formatted
+            direct = task.entries[cmap[schema.Fields.Direct]].formatted
+            if action == schema.ProjectManagementValues.ActionExecuteProjectPlan:
+                project2workstreams[pk] = plan2workstreams[direct]
+                for goal in fields[pk]['Goal']:
+                    if common.is_foreign(goal) and common.parse_foreign(
+                            goal)[0] == schema.Tables.Tasks:
+                        goal2projects[common.parse_foreign(goal)[1]].append(pk)
+            elif action == schema.ProjectManagementValues.ActionWorkOnProject:
                 project2workstreams[pk]
                 for workstream in fields[pk]['Workstream']:
                     if common.is_foreign(workstream) and common.parse_foreign(
@@ -157,7 +167,7 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
                     if common.is_foreign(goal) and common.parse_foreign(
                             goal)[0] == schema.Tables.Tasks:
                         goal2projects[common.parse_foreign(goal)[1]].append(pk)
-            if '@{nouns Goal}' in attrs['Class']:
+            elif schema.ProjectManagementValues.is_goal_action(action):
                 goal2projects[pk]
         entries = {}
         project2progress = {pk: ProgressAmount() for pk in project2workstreams}
@@ -173,7 +183,7 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
                 "_pk": [project_pk],
                 "A Class": ["Project"],
                 # TODO full pk not necessary here - remove params and span
-                "Description": [project_pk],
+                "Description": [f"@{{tasks {project_pk}}}"],
                 "Progress": [str(progress.progress)],
                 "Total": [str(progress.total)],
                 "Z %%": [
@@ -190,7 +200,7 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
                 "_pk": [goal_pk],
                 "A Class": ["Goal"],
                 # TODO full pk not necessary here - remove params and span
-                "Description": [goal_pk],
+                "Description": [f"@{{tasks {goal_pk}}}"],
                 "Progress": [str(progress.progress)],
                 "Total": [str(progress.total)],
                 "Z %%": [
@@ -245,15 +255,14 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
         ]
         plan_tasks = [
             task.entries[primary].formatted for task in tasks.rows
-            if task.entries[cmap[schema.Fields.Action]].formatted == 'Work'
-            and task.entries[cmap[
-                schema.Fields.Indirect]].formatted == 'regularity'
+            if task.entries[cmap[schema.Fields.Action]].formatted == schema.ProjectManagementValues.ActionExecuteProjectPlan
         ]
         breakdowns = [
             pk2task[pk].entries[cmap[schema.Fields.Direct]].formatted
             for pk in breakdown_tasks
         ]
         plan_workstreams = []
+        plan2workstreams = collections.defaultdict(list)
         # TODO if a path-to-match could support multiple values then we could
         # query all plans in parallel instead of in separate requests
         for plan_task in plan_tasks:
@@ -262,7 +271,9 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
             resp = self._query_plan_workstreams(plan)
             primary = common.get_primary(resp)
             for row in resp.rows:
-                plan_workstreams.append(row.entries[primary].formatted)
+                workstream = row.entries[primary].formatted
+                plan_workstreams.append(workstream)
+                plan2workstreams[plan].append(workstream)
         breakdowns.extend(plan_workstreams)
         all_children = self._query_workstream_children(breakdowns)
         noun_progress = {
@@ -294,7 +305,7 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
                 schema.Fields.Direct]].formatted
             progresses[breakdown_task] = ProgressAmount(
                 progress, noun_progress[breakdown].total)
-        return progresses
+        return progresses, plan2workstreams
 
     def _incremental_progress(self, tasks):
         primary, cmap = common.list_rows_meta(tasks)

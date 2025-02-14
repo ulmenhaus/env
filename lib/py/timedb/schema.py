@@ -60,11 +60,14 @@ class Values(object):
 
     RelationIdentity = 'w/ Identity'
 
+
 def active_statuses():
     return [
-        Values.StatusActive, Values.StatusExploring, Values.StatusHabitual, Values.StatusIdea,
-        Values.StatusImplementing, Values.StatusPlanned, Values.StatusPlanning
+        Values.StatusActive, Values.StatusExploring, Values.StatusHabitual,
+        Values.StatusIdea, Values.StatusImplementing, Values.StatusPlanned,
+        Values.StatusPlanning
     ]
+
 
 def primary_for_table(table):
     if table == Tables.Nouns:
@@ -72,3 +75,16 @@ def primary_for_table(table):
     elif table == Tables.Tasks:
         return Fields.UDescription
     return ""
+
+
+class ProjectManagementValues(object):
+    ActionWorkOnProject = "Work"
+    ActionExecuteProjectPlan = "Execute"
+
+    @staticmethod
+    def is_goal_action(action):
+        return action in ["Extend", "Improve", "Sustain"]
+
+class SpecialClassesForRelatives(object):
+    FeedClass = "Feed"
+

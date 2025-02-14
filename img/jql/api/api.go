@@ -344,7 +344,7 @@ func (s *LocalDBMS) calculateGroupings(in *jqlpb.ListRowsRequest, table *types.T
 
 // DBMSShim is a layer on top of the LocalDBMS that provides gRPC handles for exposing the DBMS as a daemon
 type DBMSShim struct {
-	*jqlpb.UnimplementedJQLServer
+	jqlpb.UnimplementedJQLServer
 	api JQL_DBMS
 }
 
@@ -434,7 +434,7 @@ func GetTables(ctx context.Context, dbms JQL_DBMS) (map[string]*jqlpb.TableMeta,
 
 // Router is a layer on top of the LocalDBMS that provides gRPC handles for exposing the DBMS as a daemon
 type Router struct {
-	*jqlpb.UnimplementedJQLServer
+	jqlpb.UnimplementedJQLServer
 	api            jqlpb.JQLServer
 	virtualGateway jqlpb.JQLServer
 }

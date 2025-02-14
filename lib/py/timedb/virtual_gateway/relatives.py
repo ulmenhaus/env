@@ -59,7 +59,7 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
                                               schema.Tables.Nouns,
                                               schema.Fields.Identifier,
                                               "w/ Identity"))
-            if selected_item == "Feed":
+            if selected_item == schema.SpecialClassesForRelatives.FeedClass:
                 # Nouns with a non-empty Feed field are implicitly
                 # instances of the Feed class
                 relatives.update(
@@ -113,9 +113,7 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
             self.client, "", arg0s)
         for pk, relative in relatives.items():
             relative["_pk"] = [common.encode_pk(pk, assn_pks[pk])]
-            # TODO switching to a common list function broke this field and it won't work
-            # properly until we support @:<table> <pk>: style fields instead of @{nouns <pk>}
-            relative["Display Name"] = [pk]
+            relative["Display Name"] = [f"@{{{pk}}}"]
             relative["-> Item"] = [f"{schema.Tables.Nouns} {selected_item}"]
             exact_matches = [k for k, v in relative.items() if arg1 in v]
             if exact_matches:
@@ -156,9 +154,7 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
             self.client, "tasks", list(tasks))
         for pk, relative in relatives.items():
             relative["_pk"] = [common.encode_pk(pk, assn_pks[pk])]
-            # TODO switching to a common list function broke this field and it won't work
-            # properly until we support @:<table> <pk>: style fields instead of @{nouns <pk>}
-            relative["Display Name"] = [pk]
+            relative["Display Name"] = [f"@{{{pk}}}"]
             relative["-> Item"] = [f"{schema.Tables.Nouns} {selected_item}"]
             relative["Relation"] = ["w/ Mention"] # TODO need to make this the appropriate relation
         return relatives
@@ -199,7 +195,7 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
             self.client, "", arg0s)
         for pk, relative in relatives.items():
             relative["_pk"] = [common.encode_pk(pk, assn_pks[pk])]
-            relative["Display Name"] = [pk]
+            relative["Display Name"] = [f"@{{{pk}}}"]
             relative["-> Item"] = [f"{table} {selected_item}"]
             relative["Relation"] = [relation]
         return relatives
