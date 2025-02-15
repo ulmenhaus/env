@@ -150,14 +150,11 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
             task = pk2task[pk]
             action = task.entries[cmap[schema.Fields.Action]].formatted
             direct = task.entries[cmap[schema.Fields.Direct]].formatted
-            if action == schema.ProjectManagementValues.ActionExecuteProjectPlan:
-                project2workstreams[pk] = plan2workstreams[direct]
-                for goal in fields[pk]['Goal']:
-                    if common.is_foreign(goal) and common.parse_foreign(
-                            goal)[0] == schema.Tables.Tasks:
-                        goal2projects[common.parse_foreign(goal)[1]].append(pk)
-            elif action == schema.ProjectManagementValues.ActionWorkOnProject:
+            if schema.ProjectManagementValues.is_phase_action(action):
                 project2workstreams[pk]
+                if action == schema.ProjectManagementValues.ActionExecuteProjectPlan:
+                    project2workstreams[pk] = plan2workstreams[direct]
+
                 for workstream in fields[pk]['Workstream']:
                     if common.is_foreign(workstream) and common.parse_foreign(
                             workstream)[0] == schema.Tables.Tasks:

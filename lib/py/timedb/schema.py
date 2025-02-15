@@ -80,11 +80,25 @@ def primary_for_table(table):
 class ProjectManagementValues(object):
     ActionWorkOnProject = "Work"
     ActionExecuteProjectPlan = "Execute"
+    ActionFocusOnArea = "Focus"
 
     @staticmethod
     def is_goal_action(action):
         return action in ["Extend", "Improve", "Sustain"]
 
+    @staticmethod
+    def is_phase_action(action):
+        """
+        Phases of projects are the subsets of their work that are scoped to
+        particular goal cycles. They tie together workstreams and goals in
+        three ways:
+
+        **Work tasks**: specify subsets of workstreams from a project plan
+        **Execute tasks**: imply that a whole project plan is in scope
+        **Focus tasks**: denote focus areas with goals and workstreams but don't show as projects
+        """
+        return action in ["Work", "Execute", "Focus"]
+
+
 class SpecialClassesForRelatives(object):
     FeedClass = "Feed"
-

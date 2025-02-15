@@ -54,8 +54,11 @@ def pk_terms_for_task(task, actions):
     return mandate
 
 
+def sanitize_pk(pk):
+    return pk.replace("{", "").replace("}", "")
+
 def pk_for_task(task, actions):
-    return "".join(pk_terms_for_task(task, actions))
+    return sanitize_pk("".join(pk_terms_for_task(task, actions)))
 
 
 def pk_for_noun(noun):
@@ -79,7 +82,7 @@ def pk_for_noun(noun):
         idn = f"[{ctx}][{cnl}] {idn}" if ctx else f"[{cnl}] {idn}"
     elif ctx != "":
         idn = f"[{ctx}] {idn}"
-    return idn
+    return sanitize_pk(idn)
 
 
 # TODO the PKSetter reimplements this interface for v2 macros. Once v1 macros are deprecated we can
