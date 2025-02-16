@@ -1,0 +1,122 @@
+#! /usr/local/bin/python3
+"""
+For jql concept management schema
+
+Provide the values of an entry based on a template
+"""
+
+import os
+import subprocess
+import sys
+import tempfile
+
+from jql import jql_pb2, macro
+from timedb import cycles, pks, schema
+
+from timedb.virtual_gateway import common
+
+
+def _fill_template(dbms, full_pk):
+    table, pk = common.parse_full_pk(full_pk)
+    if table != schema.Tables.Tasks:
+        raise ValueError("Table should be tasks", table)
+    template_path = _find_template_path(dbms, pk)
+    attributes = _parse_template(template_path)
+    _fill_attributes(dbms, pk, attributes)
+
+
+def _fill_attributes(dbms, pk, attributes):
+    existing, _ = common.get_fields_for_items(dbms, schema.Tables.Tasks, [pk])
+    attrs, = existing.values()
+    common_keys = set(attributes) & set(attrs)
+    if common_keys:
+        raise ValueError("Template would override existing attributes",
+                         common_keys)
+    full_pk = f"{schema.Tables.Tasks} {pk}"
+    for key, sub_attrs in attributes.items():
+        for i, sub_attr in enumerate(sub_attrs):
+            fields = {
+                schema.Fields.Arg0: full_pk,
+                schema.Fields.Arg1: sub_attr,
+                schema.Fields.Relation: f".{key}",
+                schema.Fields.Order: str(i),
+            }
+            pk = pks.pk_for_assertion(fields)
+            dbms.WriteRow(
+                jql_pb2.WriteRowRequest(
+                    pk=pk,
+                    table=schema.Tables.Assertions,
+                    fields=fields,
+                    insert_only=True,
+                ))
+
+
+def _parse_template(template_path):
+    with open(template_path) as f:
+        contents = f.read()
+    # We treat sub-headers and bullets equivalently - sub-headers are easier
+    # for navigating a template with an editor but both just indicate a
+    # separate attribute for jql
+    normalized = contents.replace("\n### ", "\n* ")
+    sections = normalized.split("\n## ")[1:]
+    parsed = {}
+    for section in sections:
+        split = [s.strip() for s in section.split("\n* ")]
+        parsed[split[0]] = split[1:]
+    return parsed
+
+
+def _find_template_path(dbms, task_pk):
+    resp = dbms.GetRow(
+        jql_pb2.GetRowRequest(table=schema.Tables.Tasks, pk=task_pk))
+    primary, cmap = common.list_rows_meta(resp)
+    action = resp.row.entries[cmap[schema.Fields.Action]].formatted
+    direct = resp.row.entries[cmap[schema.Fields.Direct]].formatted
+    all_templates = dbms.ListRows(
+        jql_pb2.ListRowsRequest(
+            table=schema.Tables.Assertions,
+            conditions=[
+                jql_pb2.Condition(requires=[
+                    jql_pb2.Filter(
+                        column=schema.Fields.Relation,
+                        equal_match=jql_pb2.EqualMatch(value='.Class'),
+                    ),
+                    jql_pb2.Filter(
+                        column=schema.Fields.Arg1,
+                        equal_match=jql_pb2.EqualMatch(
+                            value='@{nouns Template}'),
+                    ),
+                ])
+            ],
+        ), )
+    assn_primary, assn_cmap = common.list_rows_meta(all_templates)
+    template_paths = [
+        template.entries[assn_cmap[schema.Fields.Arg0]].formatted
+        for template in all_templates.rows
+    ]
+    fields, _ = common.get_fields_for_items(dbms, "", template_paths)
+    for template, template_fields in fields.items():
+        table, pk = common.parse_full_pk(template)
+        if table != schema.Tables.Files:
+            continue
+        action_matches = {action, "*"} & set(
+            template_fields['Template.Action'])
+        direct_matches = {direct, "*"} & set(
+            template_fields['Template.Direct'])
+        if action_matches and direct_matches:
+            return pk
+
+
+def main():
+    with macro.macro_interface(sys.stdin, sys.stdout) as iface:
+        dbms = iface.get_dbms()
+        table, pk = iface.get_primary_selection()
+        if table in [schema.Tables.Relatives, schema.Tables.Assertions]:
+            arg0_pk, _ = common.decode_pk(pk)
+            _fill_template(dbms, arg0_pk)
+        else:
+            pass
+
+
+if __name__ == "__main__":
+    main()
