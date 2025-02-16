@@ -6,12 +6,13 @@ Defines the constants of the time tracking schema for jql
 
 const (
 	// The status views share the names with the statuses themselves
-	StatusIdea         string = "Idea"
 	StatusExploring    string = "Exploring"
-	StatusPlanning     string = "Planning"
-	StatusImplementing string = "Implementing"
-	StatusSatisfied    string = "Satisfied"
 	StatusFresh        string = "Fresh" // Fresh is not a real status in the schma, but an internal way to denote potential ideas from automted feeds
+	StatusHabitual    string = "Habitual"
+	StatusIdea         string = "Idea"
+	StatusImplementing string = "Implementing"
+	StatusPlanning     string = "Planning"
+	StatusSatisfied    string = "Satisfied"
 
 	ResourcesView string = "Resources"
 	DomainView    string = "Domains"

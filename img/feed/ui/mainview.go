@@ -180,6 +180,10 @@ func (mv *MainView) fetchResources() error {
 						Match:   &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ""}},
 						Negated: true,
 					},
+					{
+						Column:  FieldStatus,
+						Match:   &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: StatusHabitual}},
+					},
 				},
 			},
 		},

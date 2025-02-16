@@ -104,7 +104,7 @@ def _filter_matches(row, f):
         return (f.equal_match.value in values) ^ f.negated
     elif match_type == 'contains_match':
         return (f.contains_match.value.lower() in "\n".join(
-            row[f.column]).lower()) ^ f.negated
+            row.get(f.column, "")).lower()) ^ f.negated
     else:
         raise ValueError("Unknown filter type", match_type)
 
@@ -215,8 +215,11 @@ def is_foreign(entry):
     return entry.startswith("@{") and entry.endswith("}")
 
 
+def parse_full_pk(full_pk):
+    return full_pk.split(" ", 1)
+
 def parse_foreign(entry):
-    return strip_foreign(entry).split(" ", 1)
+    return parse_full_pk(strip_foreign(entry))
 
 
 def strip_foreign(entry):
