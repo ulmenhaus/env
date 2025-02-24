@@ -38,6 +38,12 @@ def get_fields_for_items(client, table, pks, fields=()):
         i for i, c in enumerate(assertions_response.columns) if c.primary
     ]
     assn_pks = collections.defaultdict(dict)
+    has_tasks = any([full_pk.startswith("tasks ") for full_pk in full_pks])
+    if has_tasks:
+        for task_pk, attributes in _implicit_task_attributes_from_params(client, full_pks).items():
+            pk = task_pk.split(" ", 1)[1] if table else task_pk
+            for k, v in attributes.items():
+                ret[pk][k] = [v]
     for row in assertions_response.rows:
         rel = row.entries[assn_cmap[schema.Fields.Relation]].formatted
         value = row.entries[assn_cmap[schema.Fields.Arg1]].formatted
@@ -46,6 +52,52 @@ def get_fields_for_items(client, table, pks, fields=()):
         ret[pk][rel[1:]].append(value)
         assn_pks[pk][rel[1:]] = [row.entries[assn_primary].formatted, value]
     return ret, assn_pks
+
+def _implicit_task_attributes_from_params(client, full_pks):
+    actions = client.ListRows(
+        jql_pb2.ListRowsRequest(table=schema.Tables.Actions))
+    action_primary, action_cmap = list_rows_meta(actions)
+    actions_by_primary = {
+        action.entries[action_primary].formatted: action
+        for action in actions.rows
+    }
+    task_pks = [task for table, task in map(parse_full_pk, full_pks)]
+    tasks = client.ListRows(jql_pb2.ListRowsRequest(
+        table=schema.Tables.Tasks,
+        conditions=[
+            jql_pb2.Condition(requires=[
+                jql_pb2.Filter(
+                    column=schema.Fields.UDescription,
+                    in_match=jql_pb2.InMatch(values=task_pks),
+                ),
+            ]),
+        ],
+    ))
+    pk2attributes = {}
+    primary, cmap = list_rows_meta(tasks)
+    for task in tasks.rows:
+        task_pk = task.entries[primary].formatted
+        action_primary = task.entries[cmap[schema.Fields.Action]].formatted
+        direct = task.entries[cmap[schema.Fields.Direct]].formatted
+        indirect = task.entries[cmap[schema.Fields.Indirect]].formatted
+        full_pk = f"tasks {task_pk}"
+        pk2attributes[full_pk] = {}
+        if action_primary in actions_by_primary:
+            action = actions_by_primary[action_primary]
+            if direct:
+                ps = action.entries[action_cmap[schema.Fields.Direct]].formatted
+                relation = schema.relation_from_parameter_schema(ps)
+                pk2attributes[full_pk][relation] = f"@{{nouns {direct}}}"
+            if indirect:
+                ps = action.entries[action_cmap[schema.Fields.Indirect]].formatted
+                relation = schema.relation_from_parameter_schema(ps)
+                pk2attributes[full_pk][relation] = f"@{{nouns {indirect}}}"
+        else:
+            if direct:
+                pk2attributes[full_pk]["Direct"] = f"@{{nouns {direct}}}"
+            if indirect:
+                pk2attributes[full_pk]["Indirect"] = f"@{{nouns {indirect}}}"
+    return pk2attributes
 
 
 def apply_request_parameters(rows, request):

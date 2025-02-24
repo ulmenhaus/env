@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/jroimartin/gocui"
 	"github.com/spf13/cobra"
@@ -169,7 +170,7 @@ func runExecute() error {
 			cfg.Table = ui.TablePractices
 			return cfg.SwitchTool("jql", "", cli.Filter{
 				Key:   ui.FieldDomain,
-				Value: info.Domain,
+				Value: fmt.Sprintf("@{nouns %s}", info.Domain),
 			})
 		}
 		return nil

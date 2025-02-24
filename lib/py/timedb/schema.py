@@ -103,3 +103,10 @@ class ProjectManagementValues(object):
 
 class SpecialClassesForRelatives(object):
     FeedClass = "Feed"
+
+
+def relation_from_parameter_schema(ps):
+    for part in ps.split(" "):
+        if part and part[0].isupper():
+            return part
+    return "Unknown"

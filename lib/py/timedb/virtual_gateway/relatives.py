@@ -128,7 +128,14 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
         return relatives
 
     def _query_explicit_task_relatives(self, selected_item):
-        tasks = set()
+        actions = self.client.ListRows(
+            jql_pb2.ListRowsRequest(table=schema.Tables.Actions))
+        action_primary, action_cmap = common.list_rows_meta(actions)
+        actions_by_primary = {
+            action.entries[action_primary].formatted: action
+            for action in actions.rows
+        }
+        tasks = {}
         # TODO once multiple conditions are allowed we can make this request in
         # a single query
         for column in [schema.Fields.Direct, schema.Fields.Indirect]:
@@ -145,18 +152,29 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
                 ],
             )
             response = self.client.ListRows(relatives_request)
-            primary, = [
-                i for i, c in enumerate(response.columns) if c.primary
-            ]
+            primary, cmap = common.list_rows_meta(response)
             for row in response.rows:
-                tasks.add(row.entries[primary].formatted)
+                tasks[row.entries[primary].formatted] = row
         relatives, assn_pks = common.get_fields_for_items(
             self.client, "tasks", list(tasks))
         for pk, relative in relatives.items():
+            relation = "w/ Unknown"
+            task = tasks[pk]
+            action_primary = task.entries[cmap[schema.Fields.Action]].formatted
+            if action_primary in actions_by_primary:
+                action = actions_by_primary[action_primary]
+                direct = task.entries[cmap[schema.Fields.Direct]].formatted
+                if direct == selected_item:
+                    ps = action.entries[action_cmap[schema.Fields.Direct]].formatted
+                    relation = f"w/ {schema.relation_from_parameter_schema(ps)}"
+                indirect = task.entries[cmap[schema.Fields.Indirect]].formatted
+                if indirect == selected_item:
+                    ps = action.entries[action_cmap[schema.Fields.Indirect]].formatted
+                    relation = f"w/ {schema.relation_from_parameter_schema(ps)}"
             relative["_pk"] = [common.encode_pk(pk, assn_pks[pk])]
-            relative["Display Name"] = [f"@{{{pk}}}"]
+            relative["Display Name"] = [f"@{{tasks {pk}}}"]
             relative["-> Item"] = [f"{schema.Tables.Nouns} {selected_item}"]
-            relative["Relation"] = ["w/ Mention"] # TODO need to make this the appropriate relation
+            relative["Relation"] = [relation]
         return relatives
 
     def _query_implied_relatives(
