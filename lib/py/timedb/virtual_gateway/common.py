@@ -273,6 +273,8 @@ def parse_full_pk(full_pk):
 def parse_foreign(entry):
     return parse_full_pk(strip_foreign(entry))
 
+def full_pk(table, pk):
+    return f"{table} {pk}"
 
 def strip_foreign(entry):
     return entry[len("@{"):-len("}")]
