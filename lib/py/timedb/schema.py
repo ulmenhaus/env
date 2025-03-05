@@ -14,6 +14,7 @@ class Fields(object):
     Arg0 = "Arg0"
     Arg1 = "Arg1"
     AttributeRelation = "Relation"
+    Class = "Class"
     Code = "Code"
     Context = "Context"
     Coordinal = "Coordinal"
@@ -110,3 +111,6 @@ def relation_from_parameter_schema(ps):
         if part and part[0].isupper():
             return part
     return "Unknown"
+
+def indirect_indicates_habit(indirect):
+    return indirect in ["regularity", "incrementality", "breakdown", "habituality", "continuity"]

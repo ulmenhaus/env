@@ -1,4 +1,5 @@
 import collections
+import datetime
 import json
 
 from datetime import datetime, timedelta
@@ -80,10 +81,20 @@ def _implicit_task_attributes_from_params(client, full_pks):
         action_primary = task.entries[cmap[schema.Fields.Action]].formatted
         direct = task.entries[cmap[schema.Fields.Direct]].formatted
         indirect = task.entries[cmap[schema.Fields.Indirect]].formatted
+        start = task.entries[cmap[schema.Fields.ParamStart]].formatted
+        date = datetime.strptime(start, "%d %b %Y").strftime("%Y-%m-%d")
         full_pk = f"tasks {task_pk}"
-        pk2attributes[full_pk] = {}
+        pk2attributes[full_pk] = {
+            schema.Fields.Action: action_primary,
+            "Date": date,
+        }
         if action_primary in actions_by_primary:
             action = actions_by_primary[action_primary]
+            cls = action.entries[action_cmap[schema.Fields.Class]].formatted
+            if schema.indirect_indicates_habit(indirect):
+                pk2attributes[full_pk]["Class"] = "Habit"
+            else:
+                pk2attributes[full_pk]["Class"] = cls
             if direct:
                 ps = action.entries[action_cmap[schema.Fields.Direct]].formatted
                 relation = schema.relation_from_parameter_schema(ps)
