@@ -1,0 +1,74 @@
+#! /usr/local/bin/python3
+"""
+For jql concept management schema
+
+Provide the values of an entry based on group members
+"""
+
+import os
+import subprocess
+import sys
+import tempfile
+
+from jql import jql_pb2, macro
+from timedb import cycles, pks, schema
+
+from timedb.virtual_gateway import common
+
+
+def _populate_from_group(dbms, task_pk):
+    task = dbms.GetRow(
+        jql_pb2.GetRowRequest(table=schema.Tables.Tasks, pk=task_pk))
+    primary, cmap = common.list_rows_meta(task)
+    indirect = task.row.entries[cmap[schema.Fields.Indirect]].formatted
+    members = dbms.ListRows(
+        jql_pb2.ListRowsRequest(
+            table=schema.Tables.Assertions,
+            conditions=[
+                jql_pb2.Condition(requires=[
+                    jql_pb2.Filter(
+                        column=schema.Fields.Relation,
+                        equal_match=jql_pb2.EqualMatch(value=".Member"),
+                    ),
+                    jql_pb2.Filter(
+                        column=schema.Fields.Arg0,
+                        equal_match=jql_pb2.EqualMatch(
+                            value=f"nouns {indirect}"),
+                    ),
+                ]),
+            ],
+        ))
+    assn_primary, assn_cmap = common.list_rows_meta(members)
+    for i, assn in enumerate(members.rows):
+        fields = {
+            schema.Fields.Arg0: f"tasks {task_pk}",
+            schema.Fields.Arg1: assn.entries[assn_cmap[schema.Fields.Arg1]].formatted,
+            schema.Fields.Relation: f".Attendee",
+            schema.Fields.Order: str(i),
+        }
+        pk = pks.pk_for_assertion(fields)
+        dbms.WriteRow(
+            jql_pb2.WriteRowRequest(
+                pk=pk,
+                table=schema.Tables.Assertions,
+                fields=fields,
+                insert_only=True,
+            ))
+
+
+def main():
+    with macro.macro_interface(sys.stdin, sys.stdout) as iface:
+        dbms = iface.get_dbms()
+        table, pk = iface.get_primary_selection()
+        if table == schema.Tables.Relatives:
+            arg0_pk, _ = common.decode_pk(pk)
+            ref_table, ref_pk = common.parse_full_pk(arg0_pk)
+            if ref_table != schema.Tables.Tasks:
+                raise ValueError("Macro only works for tasks table", ref_table)
+            _populate_from_group(dbms, ref_pk)
+        else:
+            raise ValueError("Please run this macro from vt.relatives")
+
+
+if __name__ == "__main__":
+    main()
