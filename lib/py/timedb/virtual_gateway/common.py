@@ -38,7 +38,7 @@ def get_fields_for_items(client, table, pks, fields=()):
     assn_primary, = [
         i for i, c in enumerate(assertions_response.columns) if c.primary
     ]
-    assn_pks = collections.defaultdict(dict)
+    assn_pks = collections.defaultdict(lambda : collections.defaultdict(list))
     has_tasks = any([full_pk.startswith("tasks ") for full_pk in full_pks])
     if has_tasks:
         for task_pk, attributes in _implicit_task_attributes_from_params(client, full_pks).items():
@@ -51,7 +51,7 @@ def get_fields_for_items(client, table, pks, fields=()):
         arg0 = row.entries[assn_cmap[schema.Fields.Arg0]].formatted
         pk = arg0.split(" ", 1)[1] if table else arg0
         ret[pk][rel[1:]].append(value)
-        assn_pks[pk][rel[1:]] = [row.entries[assn_primary].formatted, value]
+        assn_pks[pk][rel[1:]].append([row.entries[assn_primary].formatted, value])
     return ret, assn_pks
 
 def _implicit_task_attributes_from_params(client, full_pks):

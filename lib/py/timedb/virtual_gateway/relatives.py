@@ -226,7 +226,7 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
         pk, pk_map = common.decode_pk(request.pk)
         for field, value in request.fields.items():
             if field in pk_map:
-                assn_pk, current = pk_map[field]
+                assn_pk, current = pk_map[field][0]
                 request = jql_pb2.WriteRowRequest(
                     table=schema.Tables.Assertions,
                     pk=assn_pk,
@@ -247,6 +247,16 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
                 )
                 self.client.WriteRow(request)
         return jql_pb2.WriteRowResponse()
+
+    def DeleteRow(self, request, context):
+        entry_pk, assn_pks = common.decode_pk(request.pk)
+        for assns in assn_pks.values():
+            for assn_pk, _ in assns:
+                self.client.DeleteRow(jql_pb2.DeleteRowRequest(
+                    table=schema.Tables.Assertions,
+                    pk=assn_pk,
+                ))
+        return jql_pb2.DeleteRowResponse()
 
 
 def is_verb(attribute):

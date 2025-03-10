@@ -11,10 +11,10 @@ class MacroHandler(object):
     def _normalize_pk(self, table, pk):
         if table == schema.Tables.Attributes:
             assn_pk, attrs = common.decode_pk(pk)
-            item_pk = attrs[schema.Fields.Item][0]
-            return item_pk, attrs[schema.Fields.NounRelation][0]
+            item_pk = attrs[schema.Fields.Item][0][0]
+            return item_pk, attrs[schema.Fields.NounRelation][0][0]
         elif table == schema.Tables.Relatives:
-            pk, attrs = common.decode_pk(pk)
+            pk, _ = common.decode_pk(pk)
         return f"{table} {pk}", ".Note"
 
     def run(self, split):

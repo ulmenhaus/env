@@ -81,7 +81,7 @@ class HabitualsBackend(jql_pb2_grpc.JQLServicer):
             self.client.WriteRow(request)
             return jql_pb2.IncrementEntryResponse()
         elif request.column in pk_map:
-            assn_pk, current = pk_map[request.column]
+            assn_pk, current = pk_map[request.column][0]
             values = VALUES[request.column]
             current_index = values.index(current) if current in values else 0
             next_value = values[(current_index + request.amount) % len(values)]
@@ -114,7 +114,7 @@ class HabitualsBackend(jql_pb2_grpc.JQLServicer):
         noun_pk, pk_map = common.decode_pk(request.pk)
         for field, value in request.fields.items():
             if field in pk_map:
-                assn_pk, current = pk_map[field]
+                assn_pk, current = pk_map[field][0]
                 request = jql_pb2.WriteRowRequest(
                     table=schema.Tables.Assertions,
                     pk=assn_pk,

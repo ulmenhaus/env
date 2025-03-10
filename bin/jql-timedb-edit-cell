@@ -33,7 +33,7 @@ def _edit_content(content):
 
 
 def _edit_attribute(dbms, pk):
-    assn_pk, attrs = common.decode_pk(pk)
+    assn_pk, _ = common.decode_pk(pk)
     resp = dbms.GetRow(
         jql_pb2.GetRowRequest(table=schema.Tables.Assertions, pk=assn_pk))
     cmap = {c.name: i for i, c in enumerate(resp.columns)}
