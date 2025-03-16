@@ -22,6 +22,13 @@ class AttributesBackend(jql_pb2_grpc.JQLServicer):
         attributes = self._query_attributes(selected_target)
         return common.list_rows('vt.attributes', attributes, request)
 
+    def _create_row_mapping(self, pk, attrs):
+        mapping = {
+            "_pk": [pk],
+        }
+        mapping.update(attrs)
+        return mapping
+
     def _query_attributes(self, selected_target):
         requires = jql_pb2.Filter(
             column=schema.Fields.Arg0,
@@ -49,11 +56,13 @@ class AttributesBackend(jql_pb2_grpc.JQLServicer):
                 "Order": [row.entries[cmap[schema.Fields.Order]].formatted],
             }
             pk = common.encode_pk(row.entries[primary].formatted, attrs)
-            attributes[pk] = {
-                "_pk": [pk],
-            }
-            attributes[pk].update(attrs)
+            attributes[pk] = self._create_row_mapping(pk, attrs)
         return attributes
+
+    def GetRow(self, request, context):
+        _assn_pk, attrs = common.decode_pk(request.pk)
+        mapping = self._create_row_mapping(request.pk, attrs)
+        return common.return_row('vt.attributes', mapping)
 
     def WriteRow(self, request, context):
         mapping = {

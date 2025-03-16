@@ -38,10 +38,11 @@ def get_fields_for_items(client, table, pks, fields=()):
     assn_primary, = [
         i for i, c in enumerate(assertions_response.columns) if c.primary
     ]
-    assn_pks = collections.defaultdict(lambda : collections.defaultdict(list))
+    assn_pks = collections.defaultdict(lambda: collections.defaultdict(list))
     has_tasks = any([full_pk.startswith("tasks ") for full_pk in full_pks])
     if has_tasks:
-        for task_pk, attributes in _implicit_task_attributes_from_params(client, full_pks).items():
+        for task_pk, attributes in _implicit_task_attributes_from_params(
+                client, full_pks).items():
             pk = task_pk.split(" ", 1)[1] if table else task_pk
             for k, v in attributes.items():
                 ret[pk][k] = [v]
@@ -51,8 +52,10 @@ def get_fields_for_items(client, table, pks, fields=()):
         arg0 = row.entries[assn_cmap[schema.Fields.Arg0]].formatted
         pk = arg0.split(" ", 1)[1] if table else arg0
         ret[pk][rel[1:]].append(value)
-        assn_pks[pk][rel[1:]].append([row.entries[assn_primary].formatted, value])
+        assn_pks[pk][rel[1:]].append(
+            [row.entries[assn_primary].formatted, value])
     return ret, assn_pks
+
 
 def _implicit_task_attributes_from_params(client, full_pks):
     actions = client.ListRows(
@@ -63,17 +66,18 @@ def _implicit_task_attributes_from_params(client, full_pks):
         for action in actions.rows
     }
     task_pks = [task for table, task in map(parse_full_pk, full_pks)]
-    tasks = client.ListRows(jql_pb2.ListRowsRequest(
-        table=schema.Tables.Tasks,
-        conditions=[
-            jql_pb2.Condition(requires=[
-                jql_pb2.Filter(
-                    column=schema.Fields.UDescription,
-                    in_match=jql_pb2.InMatch(values=task_pks),
-                ),
-            ]),
-        ],
-    ))
+    tasks = client.ListRows(
+        jql_pb2.ListRowsRequest(
+            table=schema.Tables.Tasks,
+            conditions=[
+                jql_pb2.Condition(requires=[
+                    jql_pb2.Filter(
+                        column=schema.Fields.UDescription,
+                        in_match=jql_pb2.InMatch(values=task_pks),
+                    ),
+                ]),
+            ],
+        ))
     pk2attributes = {}
     primary, cmap = list_rows_meta(tasks)
     for task in tasks.rows:
@@ -96,11 +100,13 @@ def _implicit_task_attributes_from_params(client, full_pks):
             else:
                 pk2attributes[full_pk]["Class"] = cls
             if direct:
-                ps = action.entries[action_cmap[schema.Fields.Direct]].formatted
+                ps = action.entries[action_cmap[
+                    schema.Fields.Direct]].formatted
                 relation = schema.relation_from_parameter_schema(ps)
                 pk2attributes[full_pk][relation] = f"@{{nouns {direct}}}"
             if indirect:
-                ps = action.entries[action_cmap[schema.Fields.Indirect]].formatted
+                ps = action.entries[action_cmap[
+                    schema.Fields.Indirect]].formatted
                 relation = schema.relation_from_parameter_schema(ps)
                 pk2attributes[full_pk][relation] = f"@{{nouns {indirect}}}"
         else:
@@ -281,11 +287,14 @@ def is_foreign(entry):
 def parse_full_pk(full_pk):
     return full_pk.split(" ", 1)
 
+
 def parse_foreign(entry):
     return parse_full_pk(strip_foreign(entry))
 
+
 def full_pk(table, pk):
     return f"{table} {pk}"
+
 
 def strip_foreign(entry):
     return entry[len("@{"):-len("}")]
@@ -293,6 +302,32 @@ def strip_foreign(entry):
 
 def strip_foreign_noun(entry):
     return entry[len("@{nouns "):-1]
+
+
+def _mapping_to_row(mapping, fields):
+    return jql_pb2.Row(entries=[
+        jql_pb2.Entry(
+            formatted=format_attrs(mapping.get(field, [])),
+            display_value=present_attrs(mapping.get(field, [])),
+            link=link_attrs(mapping.get(field, [])),
+        ) for field in fields
+    ])
+
+
+def _fields_to_columns(fields, type_of=None, values=None, max_lens=None):
+    type_of = type_of or {}
+    values = values or {}
+    max_lens = max_lens or {}
+    return [
+        jql_pb2.Column(
+            name=field,
+            type=type_of.get(field, jql_pb2.EntryType.STRING),
+            values=values.get(field, []),
+            max_length=max_lens.get(field, 10),
+            # TODO we probably don't need each caller to provide a _pk field
+            # and instead can use the key in the provieded dict as _pk
+            primary=field == '_pk') for field in fields
+    ]
 
 
 def list_rows(table_name, rows, request, values=None, allow_foreign=True):
@@ -305,28 +340,26 @@ def list_rows(table_name, rows, request, values=None, allow_foreign=True):
     fields = sorted(set().union(*(final)) - {"-> Item"}) or ["None"]
     return jql_pb2.ListRowsResponse(
         table=table_name,
-        columns=[
-            jql_pb2.Column(
-                name=field,
-                type=type_of.get(field, jql_pb2.EntryType.STRING),
-                values=values.get(field, []),
-                max_length=max_lens.get(field, 10),
-                # TODO we probably don't need each caller to provide a _pk field
-                # and instead can use the key in the provieded dict as _pk
-                primary=field == '_pk') for field in fields
-        ],
-        rows=[
-            jql_pb2.Row(entries=[
-                jql_pb2.Entry(
-                    formatted=format_attrs(relative.get(field, [])),
-                    display_value=present_attrs(relative.get(field, [])),
-                    link=link_attrs(relative.get(field, [])),
-                ) for field in fields
-            ]) for relative in final
-        ],
+        columns=_fields_to_columns(fields, type_of, values, max_lens),
+        rows=[_mapping_to_row(relative, fields) for relative in final],
         all=len(rows),
         total=len(grouped),
         groupings=groupings,
+    )
+
+
+def return_row(table_name, row):
+    fields = sorted(set(row.keys()) - {"-> Item"}) or ["None"]
+    return jql_pb2.GetRowResponse(
+        table=table_name,
+        columns=_fields_to_columns(fields),
+        row=jql_pb2.Row(entries=[
+            jql_pb2.Entry(
+                formatted=format_attrs(row.get(field, [])),
+                display_value=present_attrs(row.get(field, [])),
+                link=link_attrs(row.get(field, [])),
+            ) for field in fields
+        ]),
     )
 
 

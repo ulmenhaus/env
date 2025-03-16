@@ -13,15 +13,14 @@ import tempfile
 from jql import jql_pb2, macro
 from timedb import cycles, pks, schema
 
-from timedb.virtual_gateway import common
-
 
 def _edit_content(content):
     tmpdir = os.path.join(os.getcwd(), "tmp")
     os.makedirs(tmpdir, exist_ok=True)
     with tempfile.NamedTemporaryFile(suffix=".md", delete=False,
                                      dir=tmpdir) as f:
-        f.write(content.encode("utf-8"))
+        # a new line at the end makes editing in vim easier
+        f.write((content + '\n\n').encode("utf-8"))
         fname = f.name
     call = [
         "tmux", "popup", "-h", "75%", "-w", "75%", "-E", "/usr/bin/vim", "-nw",
@@ -32,92 +31,28 @@ def _edit_content(content):
         return f.read().strip()
 
 
-def _edit_attribute(dbms, pk):
-    assn_pk, _ = common.decode_pk(pk)
-    resp = dbms.GetRow(
-        jql_pb2.GetRowRequest(table=schema.Tables.Assertions, pk=assn_pk))
+def _edit_cell(dbms, table, pk, column):
+    resp = dbms.GetRow(jql_pb2.GetRowRequest(table=table, pk=pk))
     cmap = {c.name: i for i, c in enumerate(resp.columns)}
-    content = resp.row.entries[cmap[schema.Fields.Arg1]].formatted
+    content = resp.row.entries[cmap[column]].formatted
     new_content = _edit_content(content)
+    if new_content == content:
+        return
     resp = dbms.WriteRow(
         jql_pb2.WriteRowRequest(
-            table=schema.Tables.Assertions,
-            pk=assn_pk,
-            fields={schema.Fields.Arg1: new_content},
+            table=table,
+            pk=pk,
+            fields={column: new_content},
             update_only=True,
         ))
-
-
-def _edit_attribute_set(dbms, arg0_pk, column):
-    relation = f".{column}"
-    resp = dbms.ListRows(
-        jql_pb2.ListRowsRequest(
-            table=schema.Tables.Assertions,
-            order_by=schema.Fields.Order,
-            conditions=[
-                jql_pb2.Condition(requires=[
-                    jql_pb2.Filter(
-                        column=schema.Fields.Arg0,
-                        equal_match=jql_pb2.EqualMatch(value=arg0_pk),
-                    ),
-                    jql_pb2.Filter(
-                        column=schema.Fields.Relation,
-                        equal_match=jql_pb2.EqualMatch(value=relation),
-                    ),
-                ]),
-            ],
-        ), )
-    cmap = {c.name: i for i, c in enumerate(resp.columns)}
-    primary = common.get_primary(resp)
-    values = [
-        row.entries[cmap[schema.Fields.Arg1]].formatted for row in resp.rows
-    ]
-    if len(values) == 1:
-        content = values[0]
-    else:
-        # a new line at the end makes editing in vim easier
-        content = "\n".join(f"* {value}" for value in values) + '\n\n'
-    new_content = _edit_content(content)
-    if not new_content:
-        new_values = []
-    elif new_content.startswith("* "):
-        new_values = new_content[2:].split("\n* ")
-    else:
-        new_values = [new_content]
-    for row in resp.rows:
-        dbms.DeleteRow(
-            jql_pb2.DeleteRowRequest(
-                table=schema.Tables.Assertions,
-                pk=row.entries[primary].formatted,
-            ))
-    for i, value in enumerate(new_values):
-        fields = {
-            schema.Fields.Arg0: arg0_pk,
-            schema.Fields.Arg1: value,
-            schema.Fields.Relation: relation,
-            schema.Fields.Order: str(i),
-        }
-        pk = pks.pk_for_assertion(fields)
-        dbms.WriteRow(
-            jql_pb2.WriteRowRequest(
-                pk=pk,
-                table=schema.Tables.Assertions,
-                fields=fields,
-                insert_only=True,
-            ))
 
 
 def main():
     with macro.macro_interface(sys.stdin, sys.stdout) as iface:
         dbms = iface.get_dbms()
         table, pk = iface.get_primary_selection()
-        if table == schema.Tables.Attributes:
-            _edit_attribute(dbms, pk)
-        elif table == schema.Tables.Relatives:
-            arg0_pk, _ = common.decode_pk(pk)
-            _edit_attribute_set(dbms, arg0_pk, iface.get_primary_column())
-        elif table in [schema.Tables.Tasks, schema.Tables.Nouns]:
-            _edit_attribute_set(dbms, f"{table} {pk}", "Note")
+        _edit_cell(dbms, table, pk, iface.get_primary_column())
+
 
 if __name__ == "__main__":
     main()
