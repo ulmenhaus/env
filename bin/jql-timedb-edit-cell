@@ -34,7 +34,7 @@ def _edit_content(content):
 def _edit_cell(dbms, table, pk, column):
     resp = dbms.GetRow(jql_pb2.GetRowRequest(table=table, pk=pk))
     cmap = {c.name: i for i, c in enumerate(resp.columns)}
-    content = resp.row.entries[cmap[column]].formatted
+    content = resp.row.entries[cmap[column]].formatted if column in cmap else ''
     new_content = _edit_content(content)
     if new_content == content:
         return
