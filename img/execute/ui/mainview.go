@@ -1224,10 +1224,29 @@ func (mv *MainView) refreshWeeklyDisplays() error {
 	}
 	if len(intentions.Rows) == 0 {
 		mv.weeklyIntention = ""
-		mv.weeklyMantra = ""
 	} else {
 		mv.weeklyIntention = intentions.Rows[0].Entries[api.IndexOfField(intentions.Columns, FieldDirect)].Formatted
-		mv.weeklyMantra = intentions.Rows[0].Entries[api.IndexOfField(intentions.Columns, FieldIndirect)].Formatted
+	}
+	mantras, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
+		Table:   TableTasks,
+		OrderBy: FieldStart,
+		Dec:     true,
+		Limit:   1,
+		Conditions: []*jqlpb.Condition{
+			{
+				Requires: []*jqlpb.Filter{
+					{
+						Column: FieldAction,
+						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: "Ritualize"}},
+					},
+				},
+			},
+		},
+	})
+	if len(mantras.Rows) == 0 {
+		mv.weeklyMantra = ""
+	} else {
+		mv.weeklyMantra = mantras.Rows[0].Entries[api.IndexOfField(mantras.Columns, FieldDirect)].Formatted
 	}
 	return nil
 }
