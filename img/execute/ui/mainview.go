@@ -95,7 +95,7 @@ type MainView struct {
 
 	// bottom display data
 	weeklyIntention string
-	weeklyMantra    string
+	weeklyTouchstone    string
 }
 
 type DayItem struct {
@@ -462,8 +462,8 @@ func (mv *MainView) listTasksLayout(g *gocui.Gui) error {
 	if mv.weeklyIntention != "" {
 		weekly.Write([]byte(fmt.Sprintf("Intention: %s\n", mv.weeklyIntention)))
 	}
-	if mv.weeklyMantra != "" {
-		weekly.Write([]byte(fmt.Sprintf("Mantra:    %s\n", mv.weeklyMantra)))
+	if mv.weeklyTouchstone != "" {
+		weekly.Write([]byte(fmt.Sprintf("Touchstone:    %s\n", mv.weeklyTouchstone)))
 	}
 	g.SetCurrentView(TasksView)
 	log, err := g.SetView(LogView, (maxX*3/4)+1, 0, maxX-1, maxY-1)
@@ -1227,7 +1227,7 @@ func (mv *MainView) refreshWeeklyDisplays() error {
 	} else {
 		mv.weeklyIntention = intentions.Rows[0].Entries[api.IndexOfField(intentions.Columns, FieldDirect)].Formatted
 	}
-	mantras, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
+	touchstones, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
 		Table:   TableTasks,
 		OrderBy: FieldStart,
 		Dec:     true,
@@ -1243,10 +1243,10 @@ func (mv *MainView) refreshWeeklyDisplays() error {
 			},
 		},
 	})
-	if len(mantras.Rows) == 0 {
-		mv.weeklyMantra = ""
+	if len(touchstones.Rows) == 0 {
+		mv.weeklyTouchstone = ""
 	} else {
-		mv.weeklyMantra = mantras.Rows[0].Entries[api.IndexOfField(mantras.Columns, FieldDirect)].Formatted
+		mv.weeklyTouchstone = touchstones.Rows[0].Entries[api.IndexOfField(touchstones.Columns, FieldDirect)].Formatted
 	}
 	return nil
 }
