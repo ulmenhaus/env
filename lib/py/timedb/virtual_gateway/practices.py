@@ -70,6 +70,8 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
         primary = common.get_primary(nouns)
         noun_pks = [row.entries[primary].formatted for row in nouns.rows]
         children = {}
+        # TODO active_actions is now available on TimingInfo so we don't have
+        # to query active_tasks separately
         active_tasks = self.client.ListRows(
             jql_pb2.ListRowsRequest(
                 table=schema.Tables.Tasks,

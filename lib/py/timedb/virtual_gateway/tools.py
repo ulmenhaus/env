@@ -79,28 +79,33 @@ class ToolsBackend(jql_pb2_grpc.JQLServicer):
             if k == "Taxonomy"
         ])
         all_subsets = self._query_subsets(taxonomies)
-        for target_pk, relation in target2relation.items():
+        tool2info = common.get_timing_info(self.client, target2relation.keys())
+        for tool, relation in target2relation.items():
             excluded_rels = [".KitDomain"]
             if all([rel in excluded_rels for rel in relation]):
                 continue
             default_actions = ["Exercise", "Ready", "Evaluate", "Review"]
             if relation == [".Resource"]:
                 default_actions = ["Consult"]
-            actions = fields.get(target_pk, {}).get("Feed.Action",
+            actions = fields.get(tool, {}).get("Feed.Action",
                                                     []) or default_actions
             subsets = ['']
-            for taxonomy in fields.get(target_pk, {}).get("Taxonomy", []):
+            for taxonomy in fields.get(tool, {}).get("Taxonomy", []):
                 subsets += all_subsets[common.strip_foreign_noun(taxonomy)]
             for action in actions:
                 for subset in subsets:
-                    exercise = f"{action} {target_pk}"
+                    # NOTE we take advantage of the fact here that the subset becomes the
+                    # indirect parameter of the task to see if the subset is currently active
+                    if tool in tool2info and (action, subset) in tool2info[tool].active_actions:
+                        continue
+                    exercise = f"{action} {tool}"
                     pk = _encode_pk(exercise, selected_parent, selected_target,
                                     subset)
                     attributes[pk] = {
                         "_pk": [pk],
                         "Relation": [relation],
                         "Action": [action],
-                        "Direct": [target_pk],
+                        "Direct": [tool],
                         "Parent": [selected_parent],
                         "-> Item":
                         [selected_target
@@ -111,6 +116,14 @@ class ToolsBackend(jql_pb2_grpc.JQLServicer):
                         "Domain": [""],
                         "Subset": [subset],
                     }
+                    if tool in tool2info:
+                        # NOTE for now days since/until is shared by all subsets, but
+                        # we could make it more granular in the future. The expectation is
+                        # that picking a broad exercise by its timing is good enough. If subsets
+                        # are important enough, they can show up in vt.habituals for periodic review.
+                        info = tool2info[tool]
+                        attributes[pk]['Days Since'] = [info.days_since]
+                        attributes[pk]['Days Until'] = [info.days_until]
         return attributes
 
     def _query_subsets(self, taxonomies):

@@ -372,11 +372,12 @@ def list_rows_meta(resp):
 
 class TimingInfo(object):
 
-    def __init__(self, days_since, days_until, cadence, cadence_pk):
+    def __init__(self, days_since, days_until, cadence, cadence_pk, active_actions):
         self.days_since = days_since
         self.days_until = days_until
         self.cadence = cadence
         self.cadence_pk = cadence_pk
+        self.active_actions = active_actions
 
 
 def get_timing_info(client, noun_pks):
@@ -392,8 +393,11 @@ def get_timing_info(client, noun_pks):
         # If a cadence is set for the noun then it is habitual and we just calculate
         # based on the cadence and the last time the task was done
         if cadence:
-            days_since = str(all_days_since[noun_pk]).zfill(
-                4) if noun_pk in all_days_since else ""
+            if noun_pk in all_days_since:
+                days_since_int, active_actions = all_days_since[noun_pk]
+                days_since = str(days_since_int).zfill(4)
+            else:
+                days_since, active_actions = "", set()
             days_until = ""
             if cadence and days_since:
                 cadence_period = int(cadence.split(" ")[0])
@@ -407,6 +411,7 @@ def get_timing_info(client, noun_pks):
                 days_until,
                 cadence,
                 assn_pks.get(noun_pk, ""),
+                active_actions,
             )
         # Otherwise the item is still active in the pipeline so we go based off
         # of its start date
@@ -421,7 +426,7 @@ def get_timing_info(client, noun_pks):
                 days_until = str(days_until_int).zfill(5)
             info[noun_pk] = TimingInfo(
                 str((datetime.now() - parsed_start).days).zfill(4), days_until,
-                "", "")
+                "", "", set())
     return info
 
 
@@ -505,8 +510,18 @@ def _days_since(client, noun_pks):
                 schema.Fields.ParamStart]].formatted
             days_since = (datetime.now() -
                           datetime.strptime(start_formatted, "%d %b %Y")).days
-            if (noun not in ret) or (ret[noun] > days_since):
-                ret[noun] = days_since
+            action = task.entries[tasks_cmap[schema.Fields.Action]].formatted
+            indirect = task.entries[tasks_cmap[schema.Fields.Indirect]].formatted
+            status = task.entries[tasks_cmap[schema.Fields.Status]].formatted
+
+            active_actions = ret[noun][1] if noun in ret else set()
+            if status in schema.active_statuses():
+                active_actions.add((action, indirect))
+            if (noun not in ret) or (ret[noun][0] > days_since):
+                final_days_since = days_since
+            else:
+                final_days_since = ret[noun][0]
+            ret[noun] = final_days_since, active_actions
     return ret
 
 

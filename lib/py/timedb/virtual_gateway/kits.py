@@ -29,10 +29,16 @@ class KitsBackend(jql_pb2_grpc.JQLServicer):
             ],
         ))
         assn_cmap = {c.name: i for i, c in enumerate(assns.columns)}
-        rows = {}
+        kits = []
         for row in assns.rows:
             table, kit = row.entries[assn_cmap[schema.Fields.Arg0]].formatted.split(" ", 1)
             if table != schema.Tables.Nouns:
+                continue
+            kits.append(kit)
+        kit2info = common.get_timing_info(self.client, kits)
+        rows = {}
+        for kit in kits:
+            if kit in kit2info and len(kit2info[kit].active_actions) > 0:
                 continue
             pk = _encode_pk(kit, selected_parent)
             rows[pk] = {
@@ -45,6 +51,10 @@ class KitsBackend(jql_pb2_grpc.JQLServicer):
                 "Domain": [row.entries[assn_cmap[schema.Fields.Arg1]].formatted],
                 "Parent": [selected_parent],
             }
+            if kit in kit2info:
+                info = kit2info[kit]
+                rows[pk]['Days Since'] = [info.days_since]
+                rows[pk]['Days Until'] = [info.days_until]
         return rows
 
 
