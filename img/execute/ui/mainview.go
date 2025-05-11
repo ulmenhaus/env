@@ -460,10 +460,10 @@ func (mv *MainView) listTasksLayout(g *gocui.Gui) error {
 	}
 	weekly.Clear()
 	if mv.weeklyIntention != "" {
-		weekly.Write([]byte(fmt.Sprintf("Intention: %s\n", mv.weeklyIntention)))
+		weekly.Write([]byte(fmt.Sprintf("Intention:  %s\n", mv.weeklyIntention)))
 	}
 	if mv.weeklyTouchstone != "" {
-		weekly.Write([]byte(fmt.Sprintf("Touchstone:    %s\n", mv.weeklyTouchstone)))
+		weekly.Write([]byte(fmt.Sprintf("Touchstone: %s\n", mv.weeklyTouchstone)))
 	}
 	g.SetCurrentView(TasksView)
 	log, err := g.SetView(LogView, (maxX*3/4)+1, 0, maxX-1, maxY-1)

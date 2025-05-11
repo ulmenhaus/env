@@ -173,7 +173,7 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
                     ps = action.entries[action_cmap[
                         schema.Fields.Indirect]].formatted
                     relation = f"w/ {schema.relation_from_parameter_schema(ps)}"
-            relative["_pk"] = [common.encode_pk(pk, assn_pks[pk])]
+            relative["_pk"] = [common.encode_pk(f"tasks {pk}", assn_pks[pk])]
             relative["Display Name"] = [f"@{{tasks {pk}}}"]
             relative["-> Item"] = [f"{schema.Tables.Nouns} {selected_item}"]
             relative["Relation"] = [relation]
