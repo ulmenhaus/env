@@ -54,7 +54,7 @@ class HabitualsBackend(jql_pb2_grpc.JQLServicer):
         }
         entries = {}
         for habitual in noun_pks:
-            info = habitual2info.get(habitual, common.TimingInfo("", "", "", ""))
+            info = habitual2info.get(habitual, common.TimingInfo("", "", "", "", None))
             pk = common.encode_pk(habitual, info.cadence_pk)
             entries[pk] = {
                 "Parent": [parents[habitual]],

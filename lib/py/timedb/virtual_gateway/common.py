@@ -390,9 +390,23 @@ def get_timing_info(client, noun_pks):
         cadence = fields[noun_pk].get("Cadence", [""])[0]
         start_date = fields[noun_pk].get("StartDate", [""])[0]
         cost = fields[noun_pk].get("Cost", [""])[0]
+        # The item is still active in the pipeline so we go based off
+        # of its start date
+        if start_date and cost:
+            parsed_start = datetime.strptime(start_date, '%Y-%m-%d')
+            expected_days = 2 * (3**(int(cost.split(" ")[0]) - 1))
+            expected_end = parsed_start + timedelta(days=expected_days)
+            days_until_int = (expected_end - datetime.now()).days
+            if days_until_int > 0:
+                days_until = "+" + str(days_until_int).zfill(4)
+            else:
+                days_until = str(days_until_int).zfill(5)
+            info[noun_pk] = TimingInfo(
+                str((datetime.now() - parsed_start).days).zfill(4), days_until,
+                "", "", set())
         # If a cadence is set for the noun then it is habitual and we just calculate
         # based on the cadence and the last time the task was done
-        if cadence:
+        else:
             if noun_pk in all_days_since:
                 days_since_int, active_actions = all_days_since[noun_pk]
                 days_since = str(days_since_int).zfill(4)
@@ -413,20 +427,6 @@ def get_timing_info(client, noun_pks):
                 assn_pks.get(noun_pk, ""),
                 active_actions,
             )
-        # Otherwise the item is still active in the pipeline so we go based off
-        # of its start date
-        elif start_date and cost:
-            parsed_start = datetime.strptime(start_date, '%Y-%m-%d')
-            expected_days = 2 * (3**(int(cost.split(" ")[0]) - 1))
-            expected_end = parsed_start + timedelta(days=expected_days)
-            days_until_int = (expected_end - datetime.now()).days
-            if days_until_int > 0:
-                days_until = "+" + str(days_until_int).zfill(4)
-            else:
-                days_until = str(days_until_int).zfill(5)
-            info[noun_pk] = TimingInfo(
-                str((datetime.now() - parsed_start).days).zfill(4), days_until,
-                "", "", set())
     return info
 
 

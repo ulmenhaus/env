@@ -56,8 +56,9 @@ class ToolsBackend(jql_pb2_grpc.JQLServicer):
                 equal_match=jql_pb2.EqualMatch(value=selected_target)),
             jql_pb2.Filter(
                 column=schema.Fields.Status,
-                in_match=jql_pb2.InMatch(
-                    values=[schema.Values.StatusSatisfied, schema.Values.StatusHabitual])),
+                in_match=jql_pb2.InMatch(values=[
+                    schema.Values.StatusSatisfied, schema.Values.StatusHabitual
+                ])),
         ]
         child_request = jql_pb2.ListRowsRequest(
             table=schema.Tables.Nouns,
@@ -81,14 +82,23 @@ class ToolsBackend(jql_pb2_grpc.JQLServicer):
         all_subsets = self._query_subsets(taxonomies)
         tool2info = common.get_timing_info(self.client, target2relation.keys())
         for tool, relation in target2relation.items():
+            # TODO we should only include .Item and .Resource in here but we can only
+            # do that once all existing relationships have been changed
             excluded_rels = [".KitDomain"]
-            if all([rel in excluded_rels for rel in relation]):
+            if relation in excluded_rels:
                 continue
-            default_actions = ["Exercise", "Ready", "Evaluate", "Review"]
-            if relation == [".Resource"]:
+            tool_attrs = fields.get(tool, {})
+            class2actions = {
+                "@{nouns Technique}": ["Exercise"],
+                "@{nouns Taxonomy}": ["Review"],
+                "@{nouns Schema}": ["Review"],
+                "@{nouns Theory}": ["Review"],
+            }
+            default_actions = ["Ready", "Evaluate"]
+            if relation == ".Resource":
                 default_actions = ["Consult"]
-            actions = fields.get(tool, {}).get("Feed.Action",
-                                                    []) or default_actions
+            tool_class = tool_attrs.get("Class", [None])[0]
+            actions = tool_attrs.get("Feed.Action", class2actions.get(tool_class, default_actions))
             subsets = ['']
             for taxonomy in fields.get(tool, {}).get("Taxonomy", []):
                 subsets += all_subsets[common.strip_foreign_noun(taxonomy)]
@@ -96,7 +106,8 @@ class ToolsBackend(jql_pb2_grpc.JQLServicer):
                 for subset in subsets:
                     # NOTE we take advantage of the fact here that the subset becomes the
                     # indirect parameter of the task to see if the subset is currently active
-                    if tool in tool2info and (action, subset) in tool2info[tool].active_actions:
+                    if tool in tool2info and (
+                            action, subset) in tool2info[tool].active_actions:
                         continue
                     exercise = f"{action} {tool}"
                     pk = _encode_pk(exercise, selected_parent, selected_target,
@@ -105,6 +116,10 @@ class ToolsBackend(jql_pb2_grpc.JQLServicer):
                         "_pk": [pk],
                         "Relation": [relation],
                         "Action": [action],
+                        "Class": tool_attrs.get("Class", []),
+                        "Class (Secondary)": tool_attrs.get("Class (Secondary)", []),
+                        "Days Since": [""],
+                        "Days Until": [""],
                         "Direct": [tool],
                         "Parent": [selected_parent],
                         "-> Item":

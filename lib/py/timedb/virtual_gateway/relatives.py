@@ -285,6 +285,8 @@ def _to_bulleted_list(entries):
 
 
 def _from_bulleted_list(blob):
+    if not blob:
+        return []
     if not blob.startswith("* "):
         return [blob]
     return blob[2:].split("\n* ")
