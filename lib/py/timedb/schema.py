@@ -62,6 +62,8 @@ class Values(object):
 
     RelationIdentity = 'w/ Identity'
 
+    TowardsSomethingRegular = "something regular"
+
 
 def active_statuses():
     return [

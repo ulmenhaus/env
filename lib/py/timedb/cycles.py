@@ -59,7 +59,10 @@ class CycleManager(object):
             task = tasks[child_pk]
             if task['Action'] != "Attend" or task['Direct'] != "":
                 continue
-            noun_ancestry = self.construct_lineage(task['Indirect'])[:-1]
+            try:
+                noun_ancestry = self.construct_lineage(task['Indirect'])[:-1]
+            except Exception as e:
+                raise Exception("Encountered error for task", task, e)
             if pk in noun_ancestry:
                 task['Primary Goal'] = new_task_pk
             else:
@@ -98,6 +101,8 @@ class CycleManager(object):
 
     def construct_lineage(self, pk):
         nouns = self.db['nouns']
+        if pk not in nouns:
+            raise ValueError("No such pk", pk)
         noun = nouns[pk]
         lineage = [pk]
         while noun['Parent'] != "":
@@ -156,6 +161,8 @@ def add_task_from_template(dbms, table, pk):
         ))
         parent_cmap = {c.name: i for i, c in enumerate(parent_resp.columns)}
         primary_ix, = [i for i, c in enumerate(parent_resp.columns) if c.primary]
+        if len(parent_resp.rows) == 0:
+            raise ValueError("Attention domain not found", domain_pk)
         parent = parent_resp.rows[0].entries[primary_ix].formatted
     fields = {
         schema.Fields.Action: resp.row.entries[cmap[schema.Fields.Action]].formatted,

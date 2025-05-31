@@ -14,10 +14,13 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
         self.client = client
 
     def ListRows(self, request, context):
-        feeds_resp = self._query_feeds()
-        actionable = self._query_actionable_children(feeds_resp)
+        actionable = self.query_practices()
         return common.list_rows('vt.practices', actionable, request)
 
+    def query_practices(self, hide_active=True):
+        feeds_resp = self._query_feeds()
+        return self._query_actionable_children(feeds_resp, hide_active)
+        
     def _query_feeds(self):
         nouns_request = jql_pb2.ListRowsRequest(
             table=schema.Tables.Nouns,
@@ -31,7 +34,7 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
         )
         return self.client.ListRows(nouns_request)
 
-    def _query_actionable_children(self, feeds_resp):
+    def _query_actionable_children(self, feeds_resp, hide_active):
         primary = common.get_primary(feeds_resp)
         feeds = {row.entries[primary].formatted for row in feeds_resp.rows}
         feed_attrs, _ = common.get_fields_for_items(self.client,
@@ -49,7 +52,7 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
             schema.Values.StatusExploring: "something new",
             schema.Values.StatusPlanning: "something new",
             schema.Values.StatusImplementing: "something new",
-            schema.Values.StatusHabitual: "something regular",
+            schema.Values.StatusHabitual: schema.Values.TowardsSomethingRegular,
             schema.Values.StatusRevisit: "something special",
             schema.Values.StatusSatisfied: "something vintage",
         }
@@ -133,7 +136,7 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
                         cmap[schema.Fields.
                              Modifier]].formatted == common.ALIAS_MODIFIER:
                 direct = row.entries[cmap[schema.Fields.Description]].formatted
-            if (action, direct) in active_pairs:
+            if (action, direct) in active_pairs and hide_active:
                 # Don't show practices that already have active tasks
                 continue
             practice = f"{action} {direct}"

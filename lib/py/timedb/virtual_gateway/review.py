@@ -3,6 +3,7 @@ import json
 
 from timedb import pks, schema
 from timedb.virtual_gateway import common
+from timedb.virtual_gateway.practices import PracticesBackend
 
 from jql import jql_pb2, jql_pb2_grpc
 
@@ -12,6 +13,7 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
     def __init__(self, client):
         super().__init__()
         self.client = client
+        self.practices_backend = PracticesBackend(client)
 
     def ListRows(self, request, context):
         # TODO support setting this via filter so I can review any cycle
@@ -46,11 +48,10 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
         for task in tasks.rows:
             parent = task.entries[cmap[schema.Fields.PrimaryGoal]].formatted
             task2children[parent].append(task)
-        domain2stats = {}
+        domain2stats = collections.defaultdict(lambda : collections.defaultdict(collections.Counter))
         for attention_cycle in attention_cycles:
-            stats = collections.defaultdict(collections.Counter)
             domain = attention_cycle.entries[cmap[schema.Fields.Indirect]].formatted
-            domain2stats[domain] = stats
+            stats = domain2stats[domain]
             pk = attention_cycle.entries[primary].formatted
             initiatives = task2children[pk]
             for initiative in initiatives:
@@ -65,7 +66,18 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
                 for field in task_fields:
                     value = initiative.entries[cmap[field]].formatted or "None"
                     stats[field][value] += count
-        # TODO populate stats with all possible values (e.g. from vt.practices)
+        all_practices = self.practices_backend.query_practices()
+        for practice in all_practices.values():
+            if practice['Towards'] != [schema.Values.TowardsSomethingRegular]:
+                continue
+            for foreign_domain in practice['Domain']:
+                if not foreign_domain:
+                    continue
+                _, domain = common.parse_foreign(foreign_domain)
+                stats = domain2stats[domain]
+                for field in captured_fields + task_fields:
+                    for value in practice.get(field, []):
+                        stats[field][value] += 0
         rows = {}
         pk = 0
         for domain, stats in domain2stats.items():
