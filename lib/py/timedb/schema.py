@@ -7,6 +7,7 @@ class Tables(object):
     Nouns = 'nouns'
     Relatives = "vt.relatives"
     Tasks = 'tasks'
+    Ratings = 'ratings'
 
 
 class Fields(object):

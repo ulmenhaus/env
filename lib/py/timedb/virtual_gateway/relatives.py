@@ -279,6 +279,38 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
                 ]
         return common.return_row('vt.relatives', mapping)
 
+    def IncrementEntry(self, request, context):
+        _, pk_map = common.decode_pk(request.pk)
+        assn_pairs = pk_map[request.column]
+        if len(assn_pairs) != 1:
+            raise ValueError("Can only increment/decrement a column with exactly one attribute")
+        assn_pk, value = assn_pairs[0]
+        if common.is_foreign(value):
+            table, pk = common.parse_foreign(value)
+            if table != schema.Tables.Ratings:
+                raise ValueError("relatives table can only increment ratings")
+            num, denom = common.parse_rating(pk)
+            num = (num + request.amount) % (denom + 1)
+            self.client.WriteRow(
+                jql_pb2.WriteRowRequest(
+                    table=schema.Tables.Assertions,
+                    pk=assn_pk,
+                    fields={
+                        schema.Fields.Arg1: f"@{{{schema.Tables.Ratings} {num} {denom}}}"
+                    },
+                    update_only=True,
+                ))
+        else:
+            self.client.WriteRow(
+                jql_pb2.WriteRowRequest(
+                    table=schema.Tables.Assertions,
+                    pk=assn_pk,
+                    fields={
+                        schema.Fields.Arg1: str(int(value) + request.amount),
+                    },
+                    update_only=True,
+                ))
+        return jql_pb2.IncrementEntryResponse()
 
 def _to_bulleted_list(entries):
     return "\n".join(f"* {entry}" for entry in entries)

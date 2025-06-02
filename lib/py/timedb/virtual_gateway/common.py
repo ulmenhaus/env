@@ -193,6 +193,9 @@ def format_attrs(attrs):
     return "\n".join(f"* {attr}" for attr in attrs)
 
 
+def parse_rating(pk):
+    return map(int, pk.split(" "))
+
 def present_attrs(attrs):
     if len(attrs) == 0:
         return ""
@@ -204,8 +207,8 @@ def present_attrs(attrs):
         if is_foreign(entry):
             try:
                 table, pk = parse_foreign(entry)
-                if table == "ratings":
-                    num, denom = map(int, pk.split(" "))
+                if table == schema.Tables.Ratings:
+                    num, denom = parse_rating(pk)
                     return "●" * num + "○" * (denom - num)
                 return pk
             except:
