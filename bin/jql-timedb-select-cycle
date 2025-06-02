@@ -72,6 +72,30 @@ def create_ideation_task(snapshot, idea_pk):
     return pk
 
 
+def _go_to_profiles(iface):
+    table = iface['current_view']['table']
+    pks = []
+    if table == 'tasks':
+        pks = ["tasks " + iface['current_view']['primary_selection']]
+    elif table == 'vt.relatives':
+        pks = [common.decode_pk(pk)[0] for pk in iface['current_view']['pks']]
+    else:
+        raise ValueError("Profiles view only supported from tasks and relatives tables")
+    iface['current_view']['table'] = 'vt.profiles'
+    query_filter = jql_pb2.Filter(column='pk',
+                                  in_match=jql_pb2.InMatch(values=pks))
+    request = jql_pb2.ListRowsRequest(
+        table='vt.profiles',
+        conditions=[
+            jql_pb2.Condition(
+                requires=[query_filter],
+            ),
+        ],
+    )
+
+    iface['current_view']['encoded_request'] = request.SerializeToString().hex()
+    json.dump(iface, sys.stdout)
+
 def main():
     iface = json.load(sys.stdin)
     field = "Primary Goal"
@@ -134,6 +158,8 @@ def main():
             formatted = common.selected_target(request)
         elif current_table.startswith('vt.'):
             formatted = selection.split("\t")[0]
+    elif "--profiles" in sys.argv:
+        return _go_to_profiles(iface)
     elif "--habituals" in sys.argv:
         table = "vt.habituals"
         field = "Habitual"

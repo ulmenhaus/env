@@ -1184,6 +1184,7 @@ func (mv *MainView) runMacro(ch rune, description string) error {
 		Conditions: mv.request.Conditions,
 		OrderBy:    mv.request.OrderBy,
 		Dec:        mv.request.Dec,
+		GroupBy:    mv.request.GroupBy,
 	}
 	response, err := mv.dbms.ListRows(ctx, requestNoLimit)
 	if err != nil {
@@ -1220,6 +1221,16 @@ func (mv *MainView) runMacro(ch rune, description string) error {
 	}
 	if !tableSwitch {
 		mv.request = request
+	}
+	if currentView.EncodedRequest != output.CurrentView.EncodedRequest {
+		requestBytes, err := hex.DecodeString(output.CurrentView.EncodedRequest)
+		if err != nil {
+			return err
+		}
+		err = proto.Unmarshal(requestBytes, &mv.request)
+		if err != nil {
+			return err
+		}
 	}
 	filterField := output.CurrentView.Filter.Field
 	if filterField != "" {

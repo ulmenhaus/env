@@ -1,4 +1,4 @@
-from timedb.virtual_gateway import attributes, habituals, ideas, kits, practices, project_initiatives, relatives, review, tools
+from timedb.virtual_gateway import attributes, habituals, ideas, kits, practices, profiles, project_initiatives, relatives, review, tools
 
 from jql import jql_pb2_grpc
 
@@ -13,6 +13,7 @@ class Gateway(jql_pb2_grpc.JQLServicer):
             "vt.ideas": ideas.IdeasBackend(client),
             "vt.kits": kits.KitsBackend(client),
             "vt.practices": practices.PracticesBackend(client),
+            "vt.profiles": profiles.ProfilesBackend(client),
             "vt.project_initiative_nouns": project_initiatives.NounsBackend(client),
             "vt.project_initiative_assertions": project_initiatives.AssertionsBackend(client),
             "vt.relatives": relatives.RelativesBackend(client),
