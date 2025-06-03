@@ -538,3 +538,57 @@ def get_row(list_resp, pk):
                 row=row,
             )
     raise ValueError("no such pk", pk)
+
+def find_matching_auxiliaries(client, task_pks, kind):
+    resp = client.ListRows(
+        jql_pb2.ListRowsRequest(
+            table=schema.Tables.Tasks,
+            conditions=[
+                jql_pb2.Condition(requires=[
+                    jql_pb2.Filter(
+                        column=schema.Fields.UDescription,
+                        in_match=jql_pb2.InMatch(values=task_pks),
+                    ),
+                ]),
+            ],
+        ),
+    )
+    primary, cmap = list_rows_meta(resp)
+    all_templates = client.ListRows(
+        jql_pb2.ListRowsRequest(
+            table=schema.Tables.Assertions,
+            conditions=[
+                jql_pb2.Condition(requires=[
+                    jql_pb2.Filter(
+                        column=schema.Fields.Relation,
+                        equal_match=jql_pb2.EqualMatch(value='.Class'),
+                    ),
+                    jql_pb2.Filter(
+                        column=schema.Fields.Arg1,
+                        equal_match=jql_pb2.EqualMatch(
+                            value='@{nouns Template}'),
+                    ),
+                ])
+            ],
+        ), )
+    assn_primary, assn_cmap = list_rows_meta(all_templates)
+    template_paths = [
+        template.entries[assn_cmap[schema.Fields.Arg0]].formatted
+        for template in all_templates.rows
+    ]
+    fields, _ = get_fields_for_items(client, "", template_paths)
+    toret = {}
+    for row in resp.rows:
+        action = row.entries[cmap[schema.Fields.Action]].formatted
+        direct = row.entries[cmap[schema.Fields.Direct]].formatted
+        pk = row.entries[primary].formatted
+        toret[pk] = []
+        for aux, aux_fields in fields.items():
+            _, aux_pk = parse_full_pk(aux)
+            action_matches = {action, "*"} & set(
+                aux_fields[f'{kind}.Action'])
+            direct_matches = {direct, "*"} & set(
+                aux_fields[f'{kind}.Direct'])
+            if action_matches and direct_matches:
+                toret[pk].append(aux)
+    return toret
