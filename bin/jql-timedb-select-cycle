@@ -82,7 +82,7 @@ def _go_to_profiles(iface):
     else:
         raise ValueError("Profiles view only supported from tasks and relatives tables")
     iface['current_view']['table'] = 'vt.profiles'
-    query_filter = jql_pb2.Filter(column='pk',
+    query_filter = jql_pb2.Filter(column='_target',
                                   in_match=jql_pb2.InMatch(values=pks))
     request = jql_pb2.ListRowsRequest(
         table='vt.profiles',

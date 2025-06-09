@@ -20,12 +20,12 @@ def _fill_template(dbms, full_pk):
     table, pk = common.parse_full_pk(full_pk)
     if table != schema.Tables.Tasks:
         raise ValueError("Table should be tasks", table)
-    templates = common.find_matching_auxiliaries(dbms, [pk], 'Template')
-    if pk not in templates:
+    templates = common.find_matching_auxiliaries(dbms, [full_pk], 'Template')
+    if full_pk not in templates:
         raise ValueError(
             "Did not find task pk in response while looking for auxiliary templates"
         )
-    matching_templates = templates[pk]
+    matching_templates = templates[full_pk]
     if len(matching_templates) != 1:
         raise ValueError(
             "Expected to find exactly 1 matching template but found: " +

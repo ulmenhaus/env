@@ -174,6 +174,8 @@ def _filter_matches(row, f):
     elif match_type == 'contains_match':
         return (f.contains_match.value.lower() in "\n".join(
             row.get(f.column, "")).lower()) ^ f.negated
+    elif match_type == 'in_match':
+        return (row.get(f.column, "") in f.in_match.values) ^ f.negated
     else:
         raise ValueError("Unknown filter type", match_type)
 
@@ -277,6 +279,13 @@ def selected_target(request):
             match_type = f.WhichOneof('match')
             if match_type == "equal_match" and f.column == '-> Item':
                 return f.equal_match.value
+
+def selected_targets(request, column='pk'):
+    for condition in request.conditions:
+        for f in condition.requires:
+            match_type = f.WhichOneof('match')
+            if match_type == "in_match" and f.column == column:
+                return f.in_match.values
 
 
 def is_foreign(entry):
@@ -539,7 +548,13 @@ def get_row(list_resp, pk):
             )
     raise ValueError("no such pk", pk)
 
-def find_matching_auxiliaries(client, task_pks, kind):
+def find_matching_auxiliaries(client, pks, kind):
+    task_pks = []
+    for fpk in pks:
+        table, pk = parse_full_pk(fpk)
+        if table != schema.Tables.Tasks:
+            raise ValueError("Only tasks are supported for finding auxiliaries")
+        task_pks.append(pk)
     resp = client.ListRows(
         jql_pb2.ListRowsRequest(
             table=schema.Tables.Tasks,
@@ -554,7 +569,7 @@ def find_matching_auxiliaries(client, task_pks, kind):
         ),
     )
     primary, cmap = list_rows_meta(resp)
-    all_templates = client.ListRows(
+    all_auxes = client.ListRows(
         jql_pb2.ListRowsRequest(
             table=schema.Tables.Assertions,
             conditions=[
@@ -566,22 +581,22 @@ def find_matching_auxiliaries(client, task_pks, kind):
                     jql_pb2.Filter(
                         column=schema.Fields.Arg1,
                         equal_match=jql_pb2.EqualMatch(
-                            value='@{nouns Template}'),
+                            value=f'@{{nouns {kind}}}'),
                     ),
                 ])
             ],
         ), )
-    assn_primary, assn_cmap = list_rows_meta(all_templates)
-    template_paths = [
-        template.entries[assn_cmap[schema.Fields.Arg0]].formatted
-        for template in all_templates.rows
+    assn_primary, assn_cmap = list_rows_meta(all_auxes)
+    aux_paths = [
+        aux.entries[assn_cmap[schema.Fields.Arg0]].formatted
+        for aux in all_auxes.rows
     ]
-    fields, _ = get_fields_for_items(client, "", template_paths)
+    fields, _ = get_fields_for_items(client, "", aux_paths)
     toret = {}
     for row in resp.rows:
         action = row.entries[cmap[schema.Fields.Action]].formatted
         direct = row.entries[cmap[schema.Fields.Direct]].formatted
-        pk = row.entries[primary].formatted
+        pk = full_pk(schema.Tables.Tasks, row.entries[primary].formatted)
         toret[pk] = []
         for aux, aux_fields in fields.items():
             _, aux_pk = parse_full_pk(aux)
