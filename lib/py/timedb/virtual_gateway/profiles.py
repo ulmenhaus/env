@@ -37,7 +37,7 @@ class ProfilesBackend(jql_pb2_grpc.JQLServicer):
                 for field, values in target_fields[target].items():
                     if field in profile_fields[profile]['Dimension']:
                         rows[pk][field] = values
-        return common.list_rows('vt.profiles', rows, request)
+        return common.list_rows('vt.profiles', rows, request, client=self.client)
 
 
 

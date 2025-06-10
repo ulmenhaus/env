@@ -691,6 +691,9 @@ func (mv *MainView) updateTableViewContents(resetCursorRow bool) error {
 	for _, i := range mv.getColumnIndices() {
 		col := mv.response.Columns[i]
 		name := col.Name
+		if col.DisplayValue != "" {
+			name = col.DisplayValue
+		}
 		if mv.request.OrderBy == name {
 			if mv.request.Dec {
 				name += " ^"

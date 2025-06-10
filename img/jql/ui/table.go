@@ -90,6 +90,12 @@ func stringMult(s string, n int) string {
 	return s + stringMult(s, n-1)
 }
 
+// stringSlice hacks off the prefix of length n in a string while
+// treating each unicode character as a single character
+func stringSlice(s string, chars int) string {
+	return string([]rune(s)[chars:])
+}
+
 // WriteContents writes the contents of the table to a gocui view
 func (tv *TableView) WriteContents(v io.Writer) error {
 	// TODO paginate horizantally and vertically
@@ -108,7 +114,7 @@ func (tv *TableView) WriteContents(v io.Writer) error {
 		header += "   " + val + stringMult(" ", 5)
 	}
 	header += "\n"
-	content := header[tv.XOffset:]
+	content := stringSlice(header, tv.XOffset)
 	for i, row := range tv.Values {
 		rowString := ""
 		for j, rawVal := range row {
@@ -127,7 +133,7 @@ func (tv *TableView) WriteContents(v io.Writer) error {
 			level := tv.selectionLevel(Coordinate{Row: i, Column: j})
 			rowString += fmt.Sprintf("%s%s%s%s", stringMult(">", level), stringMult(" ", 3-level), string(val), stringMult(" ", 5))
 		}
-		content += rowString[tv.XOffset:]
+		content += stringSlice(rowString, tv.XOffset)
 		content += "\n"
 	}
 	_, err := fmt.Fprintf(v, content)

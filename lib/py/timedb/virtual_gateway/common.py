@@ -159,7 +159,7 @@ def apply_grouping(rows, request):
 
 def gather_max_lens(rows, base_cols=()):
     all_keys = set(base_cols).union(*(row.keys() for row in rows))
-    max_lens = {k: len(k) for k in all_keys}
+    max_lens = {k: 0 for k in all_keys}
     for row in rows:
         for k, v in row.items():
             max_lens[k] = max(max_lens[k], len(present_attrs(v)))
@@ -197,6 +197,7 @@ def format_attrs(attrs):
 
 def parse_rating(pk):
     return map(int, pk.split(" "))
+
 
 def present_attrs(attrs):
     if len(attrs) == 0:
@@ -280,6 +281,7 @@ def selected_target(request):
             if match_type == "equal_match" and f.column == '-> Item':
                 return f.equal_match.value
 
+
 def selected_targets(request, column='pk'):
     for condition in request.conditions:
         for f in condition.requires:
@@ -326,23 +328,63 @@ def _mapping_to_row(mapping, fields):
     ])
 
 
-def _fields_to_columns(fields, type_of=None, values=None, max_lens=None):
+def _fields_to_columns(fields,
+                       type_of=None,
+                       values=None,
+                       max_lens=None,
+                       client=None):
     type_of = type_of or {}
     values = values or {}
     max_lens = max_lens or {}
+    display_values = collections.defaultdict(str)
+    foreign_ref_columns = {
+        parse_foreign(field)[1]: field
+        for field in fields if is_foreign(field)
+        and parse_foreign(field)[0] == schema.Tables.Nouns
+    }
+    if client is not None and foreign_ref_columns:
+        nouns_request = jql_pb2.ListRowsRequest(
+            table=schema.Tables.Nouns,
+            conditions=[
+                jql_pb2.Condition(requires=[
+                    jql_pb2.Filter(
+                        column=schema.Fields.Identifier,
+                        in_match=jql_pb2.InMatch(
+                            values=list(foreign_ref_columns.keys())),
+                    ),
+                ], )
+            ],
+        )
+        nouns_response = client.ListRows(nouns_request)
+        primary, cmap = list_rows_meta(nouns_response)
+        for row in nouns_response.rows:
+            row_primary = row.entries[primary].formatted
+            row_short = row.entries[cmap[schema.Fields.Description]].formatted
+            display_values[foreign_ref_columns[row_primary]] = row_short
+    local_max_lens = dict(max_lens)
+    for field in fields:
+        display_value = display_values[field] or field
+        if len(display_value) > local_max_lens.get(field, 10):
+            local_max_lens[field] = len(display_value)
     return [
         jql_pb2.Column(
             name=field,
             type=type_of.get(field, jql_pb2.EntryType.STRING),
             values=values.get(field, []),
-            max_length=max_lens.get(field, 10),
+            max_length=local_max_lens.get(field, 10),
+            display_value=display_values[field],
             # TODO we probably don't need each caller to provide a _pk field
             # and instead can use the key in the provieded dict as _pk
             primary=field == '_pk') for field in fields
     ]
 
 
-def list_rows(table_name, rows, request, values=None, allow_foreign=True):
+def list_rows(table_name,
+              rows,
+              request,
+              values=None,
+              allow_foreign=True,
+              client=None):
     values = values if values else {}
     type_of = {k: jql_pb2.EntryType.ENUM for k in values}
     filtered = apply_request_parameters(rows.values(), request)
@@ -352,7 +394,11 @@ def list_rows(table_name, rows, request, values=None, allow_foreign=True):
     fields = sorted(set().union(*(final)) - {"-> Item"}) or ["None"]
     return jql_pb2.ListRowsResponse(
         table=table_name,
-        columns=_fields_to_columns(fields, type_of, values, max_lens),
+        columns=_fields_to_columns(fields,
+                                   type_of,
+                                   values,
+                                   max_lens,
+                                   client=client),
         rows=[_mapping_to_row(relative, fields) for relative in final],
         all=len(rows),
         total=len(grouped),
@@ -384,7 +430,8 @@ def list_rows_meta(resp):
 
 class TimingInfo(object):
 
-    def __init__(self, days_since, days_until, cadence, cadence_pk, active_actions):
+    def __init__(self, days_since, days_until, cadence, cadence_pk,
+                 active_actions):
         self.days_since = days_since
         self.days_until = days_until
         self.cadence = cadence
@@ -523,7 +570,8 @@ def _days_since(client, noun_pks):
             days_since = (datetime.now() -
                           datetime.strptime(start_formatted, "%d %b %Y")).days
             action = task.entries[tasks_cmap[schema.Fields.Action]].formatted
-            indirect = task.entries[tasks_cmap[schema.Fields.Indirect]].formatted
+            indirect = task.entries[tasks_cmap[
+                schema.Fields.Indirect]].formatted
             status = task.entries[tasks_cmap[schema.Fields.Status]].formatted
 
             active_actions = ret[noun][1] if noun in ret else set()
@@ -548,12 +596,14 @@ def get_row(list_resp, pk):
             )
     raise ValueError("no such pk", pk)
 
+
 def find_matching_auxiliaries(client, pks, kind):
     task_pks = []
     for fpk in pks:
         table, pk = parse_full_pk(fpk)
         if table != schema.Tables.Tasks:
-            raise ValueError("Only tasks are supported for finding auxiliaries")
+            raise ValueError(
+                "Only tasks are supported for finding auxiliaries")
         task_pks.append(pk)
     resp = client.ListRows(
         jql_pb2.ListRowsRequest(
@@ -566,8 +616,7 @@ def find_matching_auxiliaries(client, pks, kind):
                     ),
                 ]),
             ],
-        ),
-    )
+        ), )
     primary, cmap = list_rows_meta(resp)
     all_auxes = client.ListRows(
         jql_pb2.ListRowsRequest(
@@ -600,10 +649,8 @@ def find_matching_auxiliaries(client, pks, kind):
         toret[pk] = []
         for aux, aux_fields in fields.items():
             _, aux_pk = parse_full_pk(aux)
-            action_matches = {action, "*"} & set(
-                aux_fields[f'{kind}.Action'])
-            direct_matches = {direct, "*"} & set(
-                aux_fields[f'{kind}.Direct'])
+            action_matches = {action, "*"} & set(aux_fields[f'{kind}.Action'])
+            direct_matches = {direct, "*"} & set(aux_fields[f'{kind}.Direct'])
             if action_matches and direct_matches:
                 toret[pk].append(aux)
     return toret

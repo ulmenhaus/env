@@ -85,7 +85,7 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
             for extra_col in self.extra_columns:
                 if extra_col not in fields:
                     fields[extra_col] = [""]
-        return common.list_rows('vt.relatives', relatives, request)
+        return common.list_rows('vt.relatives', relatives, request, client=self.client)
 
     def _query_explicit_relatives(self, selected_item):
         arg1 = f"@{{nouns {selected_item}}}"

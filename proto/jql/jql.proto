@@ -104,6 +104,8 @@ message Column {
 	// Type-specific fields
 	string foreign_table = 5;
 	repeated string values = 6;
+
+	string display_value = 7;
 }
 
 message Entry {
