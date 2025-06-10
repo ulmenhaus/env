@@ -248,6 +248,11 @@ class PKSetter(object):
             f"{schema.Tables.Nouns} {new}",
         )
         self._update_all(schema.Tables.Assertions,
+                         schema.Fields.Relation,
+                         f"@{{nouns {old}}}",
+                         f"@{{nouns {new}}}",
+                         exact=False)
+        self._update_all(schema.Tables.Assertions,
                          schema.Fields.Arg1,
                          f"@{{nouns {old}}}",
                          f"@{{nouns {new}}}",
@@ -296,6 +301,16 @@ class PKSetter(object):
             f"[-] {old}",
             f"[-] {new}",
         )
+        self._update_all(schema.Tables.Assertions,
+                         schema.Fields.Relation,
+                         f"@{{tasks {old}}}",
+                         f"@{{tasks {new}}}",
+                         exact=False)
+        self._update_all(schema.Tables.Assertions,
+                         schema.Fields.Arg1,
+                         f"@{{tasks {old}}}",
+                         f"@{{tasks {new}}}",
+                         exact=False)
         # TODO update the log table
         return new
 
