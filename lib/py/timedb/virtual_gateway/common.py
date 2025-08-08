@@ -90,7 +90,7 @@ def _implicit_task_attributes_from_params(client, full_pks):
         full_pk = f"tasks {task_pk}"
         pk2attributes[full_pk] = {
             schema.Fields.Action: action_primary,
-            "Date": date,
+            "A Date": date,
         }
         if action_primary in actions_by_primary:
             action = actions_by_primary[action_primary]
@@ -140,10 +140,24 @@ def apply_request_limits(rows, request):
 def apply_grouping(rows, request):
     if not (request.group_by and request.group_by.groupings):
         return rows, []
-    groupings = []
+    # Select a default value for each grouping if none is provided
+    field_to_selected = {}
     for requested in request.group_by.groupings:
         field = requested.field
         selected = requested.selected
+        if selected:
+            field_to_selected[field] = selected
+            continue
+        for row in rows:
+            if row[field]:
+                field_to_selected[field] = row[field][0]
+                break
+
+    # Break up rows by groupings
+    groupings = []
+    for requested in request.group_by.groupings:
+        field = requested.field
+        selected = field_to_selected[field]
         grouping = jql_pb2.Grouping(
             field=field,
             selected=selected,
@@ -339,8 +353,8 @@ def _fields_to_columns(fields,
     display_values = collections.defaultdict(str)
     foreign_ref_columns = {
         parse_foreign(field)[1]: field
-        for field in fields if is_foreign(field)
-        and parse_foreign(field)[0] == schema.Tables.Nouns
+        for field in fields
+        if is_foreign(field) and parse_foreign(field)[0] == schema.Tables.Nouns
     }
     if client is not None and foreign_ref_columns:
         nouns_request = jql_pb2.ListRowsRequest(
@@ -379,18 +393,26 @@ def _fields_to_columns(fields,
     ]
 
 
-def list_rows(table_name,
-              rows,
-              request,
-              values=None,
-              allow_foreign=True,
-              client=None):
+def list_rows(
+    table_name,
+    rows,
+    request,
+    values=None,
+    allow_foreign=True,
+    client=None,
+    hide_grouping_fields=False,
+):
     values = values if values else {}
     type_of = {k: jql_pb2.EntryType.ENUM for k in values}
     filtered = apply_request_parameters(rows.values(), request)
     grouped, groupings = apply_grouping(filtered, request)
     max_lens = gather_max_lens(grouped, [])
     final = apply_request_limits(grouped, request)
+    if hide_grouping_fields:
+        for row in final:
+            for grouping in groupings:
+                if grouping.field in row:
+                    del row[grouping.field]
     fields = sorted(set().union(*(final)) - {"-> Item"}) or ["None"]
     return jql_pb2.ListRowsResponse(
         table=table_name,

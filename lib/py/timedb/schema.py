@@ -37,6 +37,7 @@ class Fields(object):
     Parameters = "Parameters"
     Parent = "Parent"
     PrimaryGoal = "Primary Goal"
+    Profile = "Profile"
     Relation = "A Relation"
     RelativeRelation = "Relation"
     Source = "Source"

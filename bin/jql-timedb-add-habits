@@ -94,7 +94,7 @@ def main():
     pk = current_view["primary_selection"]
     cm = CycleManager(snapshot)
     if selected_table != "nouns":
-        raise ValueError("must select noun to add an attention cycle")
+        raise ValueError(f"Must select noun as source of habits. Cannot use {selected_table}")
     group2members = collections.defaultdict(list)
     for assn in snapshot['assertions'].values():
         if assn['A Relation'] == '.Member' and assn['Arg0'].startswith(

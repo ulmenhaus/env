@@ -1090,6 +1090,9 @@ func (mv *MainView) pasteValue() error {
 
 func (mv *MainView) addGrouping() error {
 	row, col := mv.SelectedEntry()
+	if mv.request.GroupBy == nil {
+		mv.request.GroupBy = &jqlpb.GroupBy{}
+	}
 	mv.request.GroupBy.Groupings = append(mv.request.GroupBy.Groupings, &jqlpb.RequestedGrouping{
 		Field:    mv.response.Columns[col].Name,
 		Selected: mv.response.Rows[row].Entries[col].Formatted,

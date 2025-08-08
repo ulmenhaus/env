@@ -80,21 +80,25 @@ def _go_to_profiles(iface):
     elif table == 'vt.relatives':
         pks = [common.decode_pk(pk)[0] for pk in iface['current_view']['pks']]
     else:
-        raise ValueError("Profiles view only supported from tasks and relatives tables")
+        raise ValueError(
+            "Profiles view only supported from tasks and relatives tables")
     iface['current_view']['table'] = 'vt.profiles'
     query_filter = jql_pb2.Filter(column='_target',
                                   in_match=jql_pb2.InMatch(values=pks))
     request = jql_pb2.ListRowsRequest(
         table='vt.profiles',
         conditions=[
-            jql_pb2.Condition(
-                requires=[query_filter],
-            ),
+            jql_pb2.Condition(requires=[query_filter], ),
         ],
+        group_by=jql_pb2.GroupBy(groupings=[
+            jql_pb2.RequestedGrouping(field=schema.Fields.Profile, ),
+        ], ),
     )
 
-    iface['current_view']['encoded_request'] = request.SerializeToString().hex()
+    iface['current_view']['encoded_request'] = request.SerializeToString().hex(
+    )
     json.dump(iface, sys.stdout)
+
 
 def main():
     iface = json.load(sys.stdin)
@@ -103,8 +107,7 @@ def main():
     changed = False
     order_by = ""
     order_dec = False
-    proto_bytes = bytes.fromhex(
-        iface['current_view']['encoded_request'])
+    proto_bytes = bytes.fromhex(iface['current_view']['encoded_request'])
     # TODO move this into the standard macro interface
     request = jql_pb2.ListRowsRequest()
     request.ParseFromString(proto_bytes)
@@ -136,7 +139,8 @@ def main():
             field = schema.primary_for_table(table)
         elif current_table == schema.Tables.Relatives:
             formatted = common.selected_target(request)
-            iface['current_view']['group_by_selected'] = f".{iface['current_view']['primary_column']}"
+            iface['current_view'][
+                'group_by_selected'] = f".{iface['current_view']['primary_column']}"
         else:
             selection = iface['current_view']['primary_selection']
             formatted = f"{current_table} {selection}"
@@ -146,7 +150,8 @@ def main():
         current_table = iface['current_view']['table']
         selection = iface['current_view']['primary_selection']
         iface['current_view']['group_by'] = schema.Fields.RelativeRelation
-        iface['current_view']['group_by_selected'] = schema.Values.RelationIdentity
+        iface['current_view'][
+            'group_by_selected'] = schema.Values.RelationIdentity
         if current_table in ['nouns', 'tasks']:
             formatted = f"{current_table} {selection}"
         elif current_table == schema.Tables.Relatives:
