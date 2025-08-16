@@ -97,7 +97,10 @@ class HabitModes(object):
             assn_pk = str((".Implements", f"tasks {new_pk}", implements, 0))
             self.data["assertions"][assn_pk] = new_assertion
 
-    def regularity(self, freq=1, span='Day', sched=None, indirect=''):
+    def regularity(self, freq=1, span='Day', sched=None, indirect='', selection=False):
+        if selection:
+            # Entries are manually selected for this habit
+            return
         today = datetime.date.today()
         if sched is not None and span == 'Day' and today.strftime(
                 "%a") not in sched:

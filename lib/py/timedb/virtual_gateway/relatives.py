@@ -3,6 +3,7 @@ import json
 
 from timedb import schema, pks
 from timedb.virtual_gateway import common
+from timedb.virtual_gateway import relative_utils
 
 from jql import jql_pb2, jql_pb2_grpc
 
@@ -226,28 +227,7 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
             self.extra_columns.add(request.pk)
             return jql_pb2.WriteRowResponse()
         pk, pk_map = common.decode_pk(request.pk)
-        for field, value in request.fields.items():
-            new_entries = _from_bulleted_list(value)
-            for assn_pk, _attr_value in pk_map.get(field, []):
-                self.client.DeleteRow(
-                    jql_pb2.DeleteRowRequest(
-                        table=schema.Tables.Assertions,
-                        pk=assn_pk,
-                    ))
-            for i, new_entry in enumerate(new_entries):
-                fields = {
-                    schema.Fields.Relation: f".{field}",
-                    schema.Fields.Arg0: pk,
-                    schema.Fields.Arg1: new_entry,
-                    schema.Fields.Order: str(i),
-                }
-                self.client.WriteRow(
-                    jql_pb2.WriteRowRequest(
-                        table=schema.Tables.Assertions,
-                        pk=pks.pk_for_assertion(fields),
-                        fields=fields,
-                        insert_only=True,
-                    ))
+        relative_utils.update_attrs(self.client, pk, pk_map, request.fields)
         return jql_pb2.WriteRowResponse()
 
     def DeleteRow(self, request, context):
@@ -263,20 +243,7 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
 
     def GetRow(self, request, context):
         pk, pk_map = common.decode_pk(request.pk)
-        mapping = {
-            "_pk": [request.pk],
-        }
-        for attr_name, attr_pairs in pk_map.items():
-            if len(attr_pairs) == 0:
-                mapping[attr_name] = [""]
-            elif len(attr_pairs) == 1:
-                mapping[attr_name] = [attr_pairs[0][1]]
-            else:
-                # Convert multiple attributes to a bulleted list so that
-                # they can be edited as one text blob
-                mapping[attr_name] = [
-                    _to_bulleted_list(value for _pk, value in attr_pairs)
-                ]
+        mapping = relative_utils.get_mapping_of_attrs(pk, pk_map)
         return common.return_row('vt.relatives', mapping)
 
     def IncrementEntry(self, request, context):
@@ -311,18 +278,6 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
                     update_only=True,
                 ))
         return jql_pb2.IncrementEntryResponse()
-
-def _to_bulleted_list(entries):
-    return "\n".join(f"* {entry}" for entry in entries)
-
-
-def _from_bulleted_list(blob):
-    if not blob:
-        return []
-    if not blob.startswith("* "):
-        return [blob]
-    return blob[2:].split("\n* ")
-
 
 def is_verb(attribute):
     return attribute.endswith("es")

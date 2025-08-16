@@ -621,25 +621,26 @@ def get_row(list_resp, pk):
 
 def find_matching_auxiliaries(client, pks, kind):
     task_pks = []
+    noun_pks = []
     for fpk in pks:
         table, pk = parse_full_pk(fpk)
-        if table != schema.Tables.Tasks:
+        if table == schema.Tables.Tasks:
+            task_pks.append(pk)
+        elif table == schema.Tables.Nouns:
+            noun_pks.append(pk)
+        else: 
             raise ValueError(
-                "Only tasks are supported for finding auxiliaries")
-        task_pks.append(pk)
-    resp = client.ListRows(
-        jql_pb2.ListRowsRequest(
-            table=schema.Tables.Tasks,
-            conditions=[
-                jql_pb2.Condition(requires=[
-                    jql_pb2.Filter(
-                        column=schema.Fields.UDescription,
-                        in_match=jql_pb2.InMatch(values=task_pks),
-                    ),
-                ]),
-            ],
-        ), )
-    primary, cmap = list_rows_meta(resp)
+                "Only tasks and nouns are supported for finding auxiliaries")
+    if task_pks and noun_pks:
+        raise ValueError(
+            "Cannot mix tasks and nouns when finding auxiliaries")
+    if task_pks:
+        return _find_matching_auxiliaries_for_tasks(client, task_pks, kind)
+    return _find_matching_auxiliaries_for_nouns(client, noun_pks, kind)
+    
+
+
+def _all_auxes(client, kind):
     all_auxes = client.ListRows(
         jql_pb2.ListRowsRequest(
             table=schema.Tables.Assertions,
@@ -663,7 +664,52 @@ def find_matching_auxiliaries(client, pks, kind):
         for aux in all_auxes.rows
     ]
     fields, _ = get_fields_for_items(client, "", aux_paths)
+    return fields
+
+
+def _find_matching_auxiliaries_for_nouns(client, noun_pks, kind):
+    resp = client.ListRows(
+        jql_pb2.ListRowsRequest(
+            table=schema.Tables.Nouns,
+            conditions=[
+                jql_pb2.Condition(requires=[
+                    jql_pb2.Filter(
+                        column=schema.Fields.Identifier,
+                        in_match=jql_pb2.InMatch(values=noun_pks),
+                    ),
+                ]),
+            ],
+        ), )
+    primary, cmap = list_rows_meta(resp)
     toret = {}
+    fields = _all_auxes(client, kind)
+    for row in resp.rows:
+        parent = row.entries[cmap[schema.Fields.Parent]].formatted
+        pk = full_pk(schema.Tables.Nouns, row.entries[primary].formatted)
+        toret[pk] = []
+        for aux, aux_fields in fields.items():
+            _, aux_pk = parse_full_pk(aux)
+            parent_matches = {f"@{{nouns {parent}}}", "*"} & set(aux_fields[f'{kind}.Parent'])
+            if parent_matches:
+                toret[pk].append(aux)
+    return toret
+
+def _find_matching_auxiliaries_for_tasks(client, task_pks, kind):
+    resp = client.ListRows(
+        jql_pb2.ListRowsRequest(
+            table=schema.Tables.Tasks,
+            conditions=[
+                jql_pb2.Condition(requires=[
+                    jql_pb2.Filter(
+                        column=schema.Fields.UDescription,
+                        in_match=jql_pb2.InMatch(values=task_pks),
+                    ),
+                ]),
+            ],
+        ), )
+    primary, cmap = list_rows_meta(resp)
+    toret = {}
+    fields = _all_auxes(client, kind)
     for row in resp.rows:
         action = row.entries[cmap[schema.Fields.Action]].formatted
         direct = row.entries[cmap[schema.Fields.Direct]].formatted
@@ -672,7 +718,7 @@ def find_matching_auxiliaries(client, pks, kind):
         for aux, aux_fields in fields.items():
             _, aux_pk = parse_full_pk(aux)
             action_matches = {action, "*"} & set(aux_fields[f'{kind}.Action'])
-            direct_matches = {direct, "*"} & set(aux_fields[f'{kind}.Direct'])
+            direct_matches = {f"@{{nouns {direct}}}", "*"} & set(aux_fields[f'{kind}.Direct'])
             if action_matches and direct_matches:
                 toret[pk].append(aux)
     return toret

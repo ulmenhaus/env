@@ -3,6 +3,7 @@ import json
 
 from timedb import pks, schema
 from timedb.virtual_gateway import common
+from timedb.virtual_gateway import relative_utils
 
 from jql import jql_pb2, jql_pb2_grpc
 
@@ -30,18 +31,26 @@ class ProfilesBackend(jql_pb2_grpc.JQLServicer):
         rows = {}
         schema_values = self._get_values_for_schemas(profile_fields)
         invariant_attrs = ["A Date"]
+        all_fields = set().union(*(target_fields.values()))
+        all_profile_fields = set().union(*(fields['Dimension'] for fields in profile_fields.values()))
+        all_unprofiled_fields = all_fields - all_profile_fields
+        profile_to_dimensions = {profile: fields['Dimension'] for profile, fields in profile_fields.items()}
+        profile_to_dimensions["unprofiled"] = list(all_unprofiled_fields)
         for target, matching_profiles in profiles.items():
-            for profile in matching_profiles:
+            if set(target_fields[target].keys()) & all_unprofiled_fields:
+                matching_profiles = matching_profiles + ["unprofiled"]
+            for profile, dimensions in profile_to_dimensions.items():
+                if profile not in matching_profiles:
+                    continue
                 attrs = {
                     "_target": target,
                     "pk": [f"@{{{target}}}"],
                     "Profile": [profile],
                 }
-                for field in profile_fields[profile]['Dimension']:
+                for field in dimensions:
                     attrs[field] = []
                 for field, values in target_fields[target].items():
-                    if field in profile_fields[profile][
-                            'Dimension'] or field in invariant_attrs:
+                    if field in dimensions or field in invariant_attrs:
                         attrs[field] = values
                 row_id = _encode_row_id(target, profile)
                 pk = common.encode_pk(row_id, target_assn_pks[target])
@@ -110,38 +119,18 @@ class ProfilesBackend(jql_pb2_grpc.JQLServicer):
                 f"@{{{schema.Tables.Nouns} {noun_pk}}}" for noun_pk in noun_pks
             ]
 
+    def GetRow(self, request, context):
+        row_id, assn_pks = common.decode_pk(request.pk)
+        target, profile = _decode_row_id(row_id)
+        pk, pk_map = common.decode_pk(request.pk)
+        mapping = relative_utils.get_mapping_of_attrs(target, assn_pks)
+        return common.return_row('vt.profiles', mapping)
+
     def WriteRow(self, request, context):
         row_id, pk_map = common.decode_pk(request.pk)
         target, _ = _decode_row_id(row_id)
-        for field, value in request.fields.items():
-            assn_pks = pk_map.get(field, [])
-            if len(assn_pks) == 0:
-                fields = {
-                    schema.Fields.Relation: f".{field}",
-                    schema.Fields.Arg0: target,
-                    schema.Fields.Arg1: value,
-                    schema.Fields.Order: "0",
-                }
-                self.client.WriteRow(
-                    jql_pb2.WriteRowRequest(
-                        table=schema.Tables.Assertions,
-                        pk=pks.pk_for_assertion(fields),
-                        fields=fields,
-                        insert_only=True,
-                    ))
-            elif len(assn_pks) == 1:
-                pk_pair, = assn_pks
-                assn_pk, _ = pk_pair
-                self.client.WriteRow(
-                    jql_pb2.WriteRowRequest(
-                        table=schema.Tables.Assertions,
-                        pk=assn_pk,
-                        fields={schema.Fields.Arg1: value},
-                        update_only=True,
-                    ))
-            else:
-                raise ValueError(
-                    "Can only modify one attribute from the profiles table")
+        relative_utils.update_attrs(self.client, target, pk_map,
+                                    request.fields)
         return jql_pb2.WriteRowResponse()
 
 

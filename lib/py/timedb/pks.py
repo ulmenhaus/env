@@ -1,4 +1,5 @@
 import datetime
+import secrets
 
 from jql import jql_pb2, macro
 from timedb import schema
@@ -61,7 +62,21 @@ def pk_for_task(task, actions):
     return sanitize_pk("".join(pk_terms_for_task(task, actions)))
 
 
+def _is_anonymous_identifier_or_duplicate(identifier):
+    return identifier.startswith("anonymous noun ")
+ 
+def _is_anonymous_identifier(identifier):
+    if not identifier.startswith("anonymous noun "):
+        return False
+    hexid = identifier[len("anonymous noun "):]
+    return len(hexid) == 16
+    
 def pk_for_noun(noun):
+    if noun['Description'] == '':
+        # Anonymous noun
+        if _is_anonymous_identifier(noun['_Identifier']):
+            return noun['_Identifier']
+        return "anonymous noun " + secrets.token_hex(8)
     modifier, description, disambiguator = noun['A Modifier'], noun[
         'Description'], noun['Disambiguator']
     idn = description
@@ -105,7 +120,7 @@ class TimeDB(object):
     def update_noun(self, old):
         noun = self.db['nouns'][old]
         noun['Context'] = self.noun_to_context.get(noun['Parent'], "")
-        if not noun['Description']:
+        if not noun['Description'] and not _is_anonymous_identifier_or_duplicate(noun['_Identifier']):
             noun['Description'] = old
         new = pk_for_noun(noun)
         if old == new:
@@ -222,7 +237,7 @@ class PKSetter(object):
         noun = macro.proto_to_dict(response.columns, response.row)
         noun[schema.Fields.Context] = self.parent_to_context.get(
             noun[schema.Fields.Parent], "")
-        if not noun[schema.Fields.Description]:
+        if not noun[schema.Fields.Description] and not _is_anonymous_identifier_or_duplicate(noun[schema.Fields.Identifier]):
             noun[schema.Fields.Description] = old
         new = pk_for_noun(noun)
         noun[schema.Fields.Identifier] = new
