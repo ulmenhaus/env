@@ -10,7 +10,9 @@ from timedb import schema
 ALIAS_MODIFIER = 'alias of'
 
 
-def get_fields_for_items(client, table, pks, fields=()):
+def get_fields_for_items(client, table, pks, fields=(), include_children=False):
+    if include_children:
+        raise NotImplementedError("including direct children in query for fields is not yet implemented")
     prefix = f"{table} " if table else ""
     ret = {pk: collections.defaultdict(list) for pk in pks}
     full_pks = [f"{prefix}{pk}" for pk in pks]

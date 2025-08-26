@@ -44,7 +44,6 @@ class ProfilesBackend(jql_pb2_grpc.JQLServicer):
                     continue
                 attrs = {
                     "_target": target,
-                    "pk": [f"@{{{target}}}"],
                     "Profile": [profile],
                 }
                 for field in dimensions:
@@ -97,8 +96,6 @@ class ProfilesBackend(jql_pb2_grpc.JQLServicer):
         if table == "ints":
             return []
         if table == schema.Tables.Nouns:
-            # NOTE For now we only get direct children. We can revisit this decision
-            # as we home in on what exactly a taxonomy looks like.
             nouns_request = jql_pb2.ListRowsRequest(
                 table=schema.Tables.Nouns,
                 conditions=[
@@ -115,9 +112,20 @@ class ProfilesBackend(jql_pb2_grpc.JQLServicer):
             noun_pks = [
                 noun.entries[primary].formatted for noun in nouns_response.rows
             ]
-            return [
+            noun_references = [
                 f"@{{{schema.Tables.Nouns} {noun_pk}}}" for noun_pk in noun_pks
             ]
+            # Merge the results with the members of the noun
+            #
+            # NOTE once we implement include_children=True for common.get_fields_for_items
+            # we won't need to do this merging manually. To do this though we may need
+            # to audit direct children to ensure they have a parent relation set.
+            profile_fields, _ = common.get_fields_for_items(self.client,
+                                                            schema.Tables.Nouns,
+                                                            [pk],
+                                                            fields=['Member'])
+            noun_references.extend(profile_fields[pk]['Member'])
+            return noun_references
 
     def GetRow(self, request, context):
         row_id, assn_pks = common.decode_pk(request.pk)
