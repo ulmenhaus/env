@@ -39,6 +39,13 @@ class MacroInterface(object):
             self.attrs["snapshot"] = json.dumps(self.snapshot)
         json.dump(self.attrs, f)
 
+    def get_request(self):
+        proto_bytes = bytes.fromhex(self.attrs['current_view']['encoded_request'])
+        request = jql_pb2.ListRowsRequest()
+        request.ParseFromString(proto_bytes)
+        return request
+        
+
 
 @contextlib.contextmanager
 def macro_interface(i, o):

@@ -108,7 +108,6 @@ def main():
     order_by = ""
     order_dec = False
     proto_bytes = bytes.fromhex(iface['current_view']['encoded_request'])
-    # TODO move this into the standard macro interface
     request = jql_pb2.ListRowsRequest()
     request.ParseFromString(proto_bytes)
     if "--pending" in sys.argv:

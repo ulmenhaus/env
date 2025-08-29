@@ -22,6 +22,7 @@ class Fields(object):
     Description = "Description"
     Direct = "Direct"
     Disambiguator = "Disambiguator"
+    DisplayName = "Display Name"
     Domain = "Domain"
     Feed = "Feed"
     Genre = "Genre"
@@ -45,6 +46,7 @@ class Fields(object):
     Subset = 'Subset'
     Towards = "Towards"
     UDescription = "_Description"
+    UPK = "_pk"
 
 
 class Values(object):

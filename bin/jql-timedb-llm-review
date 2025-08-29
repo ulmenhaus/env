@@ -1,0 +1,59 @@
+#! /usr/local/bin/python3
+"""
+For jql concept management schema
+
+Review the contents of a framework with the help of an llm
+"""
+
+import os
+import subprocess
+import sys
+import tempfile
+
+from jql import jql_pb2, macro
+from timedb import cycles, pks, schema, llm_utils
+
+from timedb.virtual_gateway import common
+
+
+def _generate_prompt_for_claimset(iface, arg0_pk):
+    dbms = iface.get_dbms()
+    response = dbms.ListRows(iface.get_request())
+    full_selected_target = common.selected_target(iface.get_request())
+    _, selected_target = common.parse_full_pk(full_selected_target)
+    primary, cmap = common.list_rows_meta(response)
+    excluded_headers = [
+        schema.Fields.AttributeRelation, schema.Fields.UPK,
+        schema.Fields.DisplayName
+    ]
+    table_fields = [
+        col_head for col_head in cmap if col_head not in excluded_headers
+    ]
+    table_display_values = {
+        col.name: col.display_value or col.name
+        for col in response.columns
+    }
+    # TODO factor this out to make a general purpose markdown renderer for
+    # table responses
+    header_fields = [table_display_values[field] for field in table_fields]
+    table = "| " + " | ".join(header_fields) + " |"
+    table += "\n" + "|:" + ":|:".join("-" * len(c) for c in header_fields) + ":|"
+    for row in response.rows:
+        table += "\n" + "| " + " | ".join(row.entries[cmap[field]].display_value for field in table_fields) + " |"
+    prompt = f"""The following is a table on {selected_target}. Using research backed methods for accelerated learning I'd like you to test me on the claims from it. Feel free to use your knowledge or logical rules to test me beyond a simple look up of the entries themselves. Ask me questions one at a time and when I'm done I'll ask for a final score. The goal is still recall so don't give too much information in each prompt.\n\n{table}"""
+    llm_utils.open_session(prompt, "chatgpt", "4o")
+
+
+def main():
+    with macro.macro_interface(sys.stdin, sys.stdout) as iface:
+        dbms = iface.get_dbms()
+        table, pk = iface.get_primary_selection()
+        if table in [schema.Tables.Relatives]:
+            arg0_pk, _ = common.decode_pk(pk)
+            prompt = _generate_prompt_for_claimset(iface, arg0_pk)
+        else:
+            raise ValueError(f"Support for table {table} not implemented")
+
+
+if __name__ == "__main__":
+    main()
