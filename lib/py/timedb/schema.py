@@ -26,6 +26,7 @@ class Fields(object):
     Domain = "Domain"
     Feed = "Feed"
     Genre = "Genre"
+    Habitual = "Habitual"
     Identifier = "_Identifier"
     Indirect = "Indirect"
     Item = "-> Item"

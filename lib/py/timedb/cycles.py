@@ -2,7 +2,7 @@ import collections
 
 from jql import jql_pb2
 from timedb import pks, schema
-
+from timedb.virtual_gateway import common
 
 class CycleManager(object):
     def __init__(self, db):
@@ -140,7 +140,49 @@ class CycleManager(object):
             ])
         return d
 
+def _add_plan_for_task(dbms, table, pk):
+    resp = dbms.GetRow(jql_pb2.GetRowRequest(table=table, pk=pk))
+    _, habituals_cmap = common.list_rows_meta(resp)
+    habituals_cmap = {c.name: i for i, c in enumerate(resp.columns)}
+    parent_resp = dbms.ListRows(jql_pb2.ListRowsRequest(
+        table=schema.Tables.Tasks,
+        conditions=[
+            jql_pb2.Condition(requires=[
+                jql_pb2.Filter(column=schema.Fields.Action, equal_match=jql_pb2.EqualMatch(value="Attend")),
+                # NOTE for now placing the task under my wellness attention cycle but in the future we'll put it elsewhere
+                # to produce less noise once I reorganize these tasks
+                jql_pb2.Filter(column=schema.Fields.Indirect, equal_match=jql_pb2.EqualMatch(value="my wellness")),
+                jql_pb2.Filter(column=schema.Fields.Status, equal_match=jql_pb2.EqualMatch(value=schema.Values.StatusHabitual)),
+            ]),
+        ],
+    ))
+    tasks_primary, _ = common.list_rows_meta(parent_resp)
+    if len(parent_resp.rows) != 1:
+        raise ValueError("Expected there to be an attention cycle for wellness")
+    parent = parent_resp.rows[0].entries[tasks_primary].formatted
+    _, habitual = common.parse_foreign(resp.row.entries[habituals_cmap[schema.Fields.Habitual]].formatted)
+    fields = {
+        schema.Fields.Action: "Plan",
+        schema.Fields.Direct: habitual,
+        schema.Fields.PrimaryGoal: parent,
+        schema.Fields.ParamStart: "",
+        schema.Fields.Status: schema.Values.StatusActive,
+    }
+    # HACK rather than set the task pk a priori we use a temp value and overwrite
+    # Not the best and would not be safe to do in parallel with other operations
+    pk = "temporary planning task"
+    dbms.WriteRow(jql_pb2.WriteRowRequest(
+        table=schema.Tables.Tasks,
+        pk=pk,
+        fields=fields,
+        insert_only=True,
+    ))
+    setter = pks.PKSetter(dbms)
+    new_pk = setter.update_task(pk)
+
 def add_task_from_template(dbms, table, pk):
+    if table == 'vt.habituals':
+        return _add_plan_for_task(dbms, table, pk)
     resp = dbms.GetRow(jql_pb2.GetRowRequest(table=table, pk=pk))
     cmap = {c.name: i for i, c in enumerate(resp.columns)}
     parent = ""

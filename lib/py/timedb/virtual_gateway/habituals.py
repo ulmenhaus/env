@@ -137,3 +137,15 @@ class HabitualsBackend(jql_pb2_grpc.JQLServicer):
             else:
                 raise ValueError("Unknown column", request.column)
         return jql_pb2.WriteRowResponse()
+
+    def GetRow(self, request, context):
+        resp = self.ListRows(jql_pb2.ListRowsRequest(), context)
+        primary, _ = common.list_rows_meta(resp)
+        for row in resp.rows:
+            if row.entries[primary].formatted == request.pk:
+                return jql_pb2.GetRowResponse(
+                    table='vt.habituals',
+                    columns=resp.columns,
+                    row=row,
+                )
+        raise ValueError(request.pk)
