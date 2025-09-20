@@ -89,9 +89,10 @@ class ToolsBackend(jql_pb2_grpc.JQLServicer):
                 continue
             tool_attrs = fields.get(tool, {})
             class2actions = {
-                "@{nouns Technique}": ["Exercise"],
-                "@{nouns Taxonomy}": ["Review"],
+                "@{nouns Claimset}": ["Review"],
                 "@{nouns Schema}": ["Review"],
+                "@{nouns Taxonomy}": ["Review"],
+                "@{nouns Technique}": ["Exercise"],
                 "@{nouns Theory}": ["Review"],
             }
             default_actions = ["Ready", "Evaluate"]

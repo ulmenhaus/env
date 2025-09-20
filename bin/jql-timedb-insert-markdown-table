@@ -1,0 +1,72 @@
+#! /usr/local/bin/python3
+"""
+For jql concept management schema
+
+Review the contents of a framework with the help of an llm
+"""
+
+import os
+import subprocess
+import sys
+import tempfile
+
+from jql import jql_pb2, macro
+from timedb import cycles, pks, schema, llm_utils
+
+from timedb.virtual_gateway import common
+
+
+def _parse_markdown_table(table):
+    rows = []
+    for i, row in enumerate(table.split("\n")):
+        if i == 1:
+            continue
+        if not row.startswith("|") or not row.endswith("|"):
+            continue
+        # NOTE this doesn't support escaled pipes (e.g. inside quotes) but fine for our purposes
+        rows.append([col.strip() for col in row[1:-1].split("|")])
+    return rows
+
+def _insert_table(dbms, parent, table):
+    parent_table, parent_pk = common.parse_full_pk(parent)
+    if parent_table != schema.Tables.Nouns:
+        raise ValueError("Inserting table only supported for nouns table")
+    header, *rows = table
+    for row in rows:
+        identifier = pks.new_anonymous_identifier()
+        dbms.WriteRow(
+            jql_pb2.WriteRowRequest(
+                pk=identifier,
+                table=schema.Tables.Nouns,
+                fields = {
+                    schema.Fields.Parent: parent_pk,
+                    schema.Fields.Status: schema.Values.StatusSatisfied,
+                },
+                insert_only=True,
+            ))
+        for col_label, col_value in zip(header, row):
+            fields = {
+                schema.Fields.Arg0: f"{schema.Tables.Nouns} {identifier}",
+                schema.Fields.Arg1: col_value,
+                schema.Fields.Relation: f".{col_label}",
+                schema.Fields.Order: str(0),
+            }
+            pk = pks.pk_for_assertion(fields)
+            dbms.WriteRow(
+                jql_pb2.WriteRowRequest(
+                    pk=pk,
+                    table=schema.Tables.Assertions,
+                    fields=fields,
+                    insert_only=True,
+                ))
+
+def main():
+    with macro.macro_interface(sys.stdin, sys.stdout) as iface:
+        dbms = iface.get_dbms()
+        selected_target = common.selected_target(iface.get_request())
+        table = _parse_markdown_table(subprocess.check_output("txtpaste").decode("utf-8"))
+        _insert_table(dbms, selected_target, table)
+
+
+if __name__ == "__main__":
+    main()

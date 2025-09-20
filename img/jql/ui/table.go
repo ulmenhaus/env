@@ -133,7 +133,7 @@ func (tv *TableView) WriteContents(v io.Writer) error {
 			level := tv.selectionLevel(Coordinate{Row: i, Column: j})
 			rowString += fmt.Sprintf("%s%s%s%s", stringMult(">", level), stringMult(" ", 3-level), string(val), stringMult(" ", 5))
 		}
-		content += stringSlice(rowString, tv.XOffset)
+		content += stringSlice(strings.ReplaceAll(rowString, "%", "%%"), tv.XOffset)
 		content += "\n"
 	}
 	_, err := fmt.Fprintf(v, content)

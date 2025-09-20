@@ -70,13 +70,16 @@ def _is_anonymous_identifier(identifier):
         return False
     hexid = identifier[len("anonymous noun "):]
     return len(hexid) == 16
+
+def new_anonymous_identifier():
+    return "anonymous noun " + secrets.token_hex(8)
     
 def pk_for_noun(noun):
     if noun['Description'] == '':
         # Anonymous noun
         if _is_anonymous_identifier(noun['_Identifier']):
             return noun['_Identifier']
-        return "anonymous noun " + secrets.token_hex(8)
+        return new_anonymous_identifier()
     modifier, description, disambiguator = noun['A Modifier'], noun[
         'Description'], noun['Disambiguator']
     idn = description

@@ -16,7 +16,7 @@ from timedb import cycles, pks, schema, llm_utils
 from timedb.virtual_gateway import common
 
 
-def _generate_prompt_for_claimset(iface):
+def _generate_prompt_for_claimset(iface, learn=False):
     dbms = iface.get_dbms()
     request = iface.get_request()
     request.limit = 0
@@ -40,15 +40,17 @@ def _generate_prompt_for_claimset(iface):
     table += "\n" + "|:" + ":|:".join("-" * len(c) for c in header_fields) + ":|"
     for row in response.rows:
         table += "\n" + "| " + " | ".join(row.entries[cmap[field]].display_value for field in table_fields) + " |"
-    # prompt = f"""I want you to ask me challenging but simple questions that will help me make mental connections and reinforce the data in this table. Using research backed methods for accelerated learning I'd like you to test me on the claims from it. Feel free to use your knowledge or logical rules to test me beyond a simple look up of the entries themselves. Ask me questions one at a time and when I'm done I'll ask for a final score. The goal is still recall so don't give too much information in each prompt.\n\n{table}"""
-    prompt = f"""Using research backed methods for accelerated learning I'd like you to help me memorize this table. Do so by incrementally introducing me to short bursts of knowledge from it as well as facts to help me understand and semantically encode it in memory so I can retain and apply it long term.\n\n{table}"""
+    prompt = f"""I want you to ask me challenging but simple questions that will help me make mental connections and reinforce the data in this table. Using research backed methods for accelerated learning I'd like you to test me on the claims from it. Feel free to use your knowledge or logical rules to test me beyond a simple look up of the entries themselves. Ask me questions one at a time and when I'm done I'll ask for a final score. The goal is still recall so don't give too much information in each prompt.\n\n{table}"""
+    if learn:
+        prompt = f"""Using research backed methods for accelerated learning I'd like you to help me memorize this table. Do so by incrementally introducing me to short bursts of knowledge from it as well as facts to help me understand and semantically encode it in memory so I can retain and apply it long term.\n\n{table}"""
     llm_utils.open_session(prompt, "chatgpt", "4o")
 
 
 def main():
+    learn = "--learn" in sys.argv
     with macro.macro_interface(sys.stdin, sys.stdout) as iface:
         dbms = iface.get_dbms()
-        _generate_prompt_for_claimset(iface)
+        _generate_prompt_for_claimset(iface, learn)
 
 if __name__ == "__main__":
     main()
