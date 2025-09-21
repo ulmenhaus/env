@@ -1089,13 +1089,24 @@ func (mv *MainView) statsContents(g *gocui.Gui) ([]byte, error) {
 	}
 	domainCounts := mv.domainCounts()
 	allCounts := mv.allCounts()
+	totalSum := 0
+	relevantStatuses := []string{
+		StatusFresh,
+		StatusIdea,
+		StatusExploring,
+		StatusPlanning,
+		StatusImplementing,
+	}
+	for _, status := range relevantStatuses {
+		totalSum += allCounts[status]
+	}
 	stats := fmt.Sprintf(`      U    I    E    P    M
 
 C     %s%s%s%s%s
 
 D     %s%s%s%s%s
 
-A     %s%s%s%s%s
+A     %s%s%s%s%s%s
 `,
 		// Channel
 		fmt.Sprintf("%-*d", colW, len(channel.status2items[StatusFresh])),
@@ -1117,6 +1128,7 @@ A     %s%s%s%s%s
 		fmt.Sprintf("%-*d", colW, allCounts[StatusExploring]),
 		fmt.Sprintf("%-*d", colW, allCounts[StatusPlanning]),
 		fmt.Sprintf("%-*d", colW, allCounts[StatusImplementing]),
+		fmt.Sprintf("%-*d", colW, totalSum),
 	)
 	return []byte(stats), nil
 }
