@@ -45,6 +45,9 @@ def _insert_table(dbms, parent, table):
                 insert_only=True,
             ))
         for col_label, col_value in zip(header, row):
+            if col_value.startswith("**") and col_value.endswith("**"):
+                # strip any bolding since in jql it's noisy
+                col_value = col_value[2:-2]
             fields = {
                 schema.Fields.Arg0: f"{schema.Tables.Nouns} {identifier}",
                 schema.Fields.Arg1: col_value,
