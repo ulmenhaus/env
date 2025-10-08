@@ -42,6 +42,7 @@ class Fields(object):
     Profile = "Profile"
     Relation = "A Relation"
     RelativeRelation = "Relation"
+    Skillset = "Skillset"
     Source = "Source"
     Status = 'Status'
     Subset = 'Subset'

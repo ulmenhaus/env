@@ -123,10 +123,12 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
             action = local_action_map[row.entries[cmap[
                 schema.Fields.Status]].formatted]
             domain = feed_attrs[parent].get("Domain", [''])[0]
+            skillset = feed_attrs[parent].get("Feed.Skillset", [''])[0]
             if domain == "" and parent in pk2row:
                 parent_row = pk2row[parent]
                 grandparent = parent_row.entries[cmap[schema.Fields.Parent]].formatted
                 domain = feed_attrs[grandparent].get("Domain", [''])[0]
+                skillset = feed_attrs[grandparent].get("Feed.Skillset", [''])[0]
             source = f"@{{nouns {parent}}}"
             genre = feed_attrs[parent].get("Feed.Genre", [''])[0]
             motivation = feed_attrs[parent].get("Feed.Motivation", [''])[0]
@@ -146,6 +148,7 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
                 "Direct": [direct],
                 "Source": [source],
                 "Domain": [domain],
+                "Skillset": [skillset],
                 "Genre": [genre],
                 "Motivation": [motivation],
                 "Towards": [towards],
@@ -157,6 +160,7 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
             direct = feed.entries[primary].formatted
             parent = feed.entries[cmap[schema.Fields.Parent]].formatted
             domain = feed_attrs[direct].get("Domain", [''])[0]
+            skillset = feed_attrs[direct].get("Feed.Skillset", [''])[0]
             genre = feed_attrs[direct].get("Feed.Genre", [''])[0]
             for action in actions:
                 if (action, direct) in active_pairs:
@@ -168,6 +172,7 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
                     "Direct": [direct],
                     "Source": [f"@{{nouns {parent}}}"],
                     "Domain": [domain],
+                    "Skillset": [skillset],
                     "Motivation": ['Investment'],
                     "Genre": [genre],
                     "Towards": ['something regular'],

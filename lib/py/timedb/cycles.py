@@ -231,6 +231,7 @@ def add_task_from_template(dbms, table, pk):
         schema.Fields.Motivation: resp.row.entries[cmap[schema.Fields.Motivation]].formatted,
         schema.Fields.Source: resp.row.entries[cmap[schema.Fields.Source]].formatted,
         schema.Fields.Towards: resp.row.entries[cmap[schema.Fields.Towards]].formatted,
+        schema.Fields.Skillset: resp.row.entries[cmap[schema.Fields.Skillset]].formatted,
     }
 
     if schema.Fields.Genre in cmap:
