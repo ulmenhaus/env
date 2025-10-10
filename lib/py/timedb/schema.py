@@ -70,6 +70,9 @@ class Values(object):
 
     TowardsSomethingRegular = "something regular"
 
+    ActionTrack = "Track"
+    DirectLifeEvents = "life events & practices"
+
 
 def active_statuses():
     return [

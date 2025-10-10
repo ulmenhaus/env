@@ -184,28 +184,23 @@ def add_task_from_template(dbms, table, pk):
     if table == 'vt.habituals':
         return _add_plan_for_task(dbms, table, pk)
     resp = dbms.GetRow(jql_pb2.GetRowRequest(table=table, pk=pk))
+    parent_resp = dbms.ListRows(jql_pb2.ListRowsRequest(
+        table=schema.Tables.Tasks,
+        conditions=[
+            jql_pb2.Condition(requires=[
+                jql_pb2.Filter(column=schema.Fields.Action, equal_match=jql_pb2.EqualMatch(value=schema.Values.ActionTrack)),
+                jql_pb2.Filter(column=schema.Fields.Direct, equal_match=jql_pb2.EqualMatch(value=schema.Values.DirectLifeEvents)),
+                jql_pb2.Filter(column=schema.Fields.Indirect, equal_match=jql_pb2.EqualMatch(value="")),
+                jql_pb2.Filter(column=schema.Fields.Status, equal_match=jql_pb2.EqualMatch(value=schema.Values.StatusHabitual)),
+            ]),
+        ],
+    ))
+    if len(parent_resp.rows) != 1:
+        raise ValueError(f"There needs to be exactly 1 active tracking parent task but found {len(parent_resp.rows)}")
+    parent_task = parent_resp.rows[0]
+    primary_ix, = [i for i, c in enumerate(parent_resp.columns) if c.primary]
+    parent = parent_task.entries[primary_ix].formatted
     cmap = {c.name: i for i, c in enumerate(resp.columns)}
-    parent = ""
-    if schema.Fields.Parent in cmap:
-        parent = resp.row.entries[cmap[schema.Fields.Parent]].formatted
-    if not parent:
-        # Domain references an attention cycle
-        domain_pk = resp.row.entries[cmap[schema.Fields.Domain]].display_value
-        parent_resp = dbms.ListRows(jql_pb2.ListRowsRequest(
-            table=schema.Tables.Tasks,
-            conditions=[
-                jql_pb2.Condition(requires=[
-                    jql_pb2.Filter(column=schema.Fields.Action, equal_match=jql_pb2.EqualMatch(value="Attend")),
-                    jql_pb2.Filter(column=schema.Fields.Indirect, equal_match=jql_pb2.EqualMatch(value=domain_pk)),
-                    jql_pb2.Filter(column=schema.Fields.Status, equal_match=jql_pb2.EqualMatch(value=schema.Values.StatusHabitual)),
-                ]),
-            ],
-        ))
-        parent_cmap = {c.name: i for i, c in enumerate(parent_resp.columns)}
-        primary_ix, = [i for i, c in enumerate(parent_resp.columns) if c.primary]
-        if len(parent_resp.rows) == 0:
-            raise ValueError("Attention domain not found", domain_pk)
-        parent = parent_resp.rows[0].entries[primary_ix].formatted
     fields = {
         schema.Fields.Action: resp.row.entries[cmap[schema.Fields.Action]].formatted,
         schema.Fields.Direct: resp.row.entries[cmap[schema.Fields.Direct]].formatted,
@@ -228,6 +223,7 @@ def add_task_from_template(dbms, table, pk):
     
     # finally add the attributes
     attrs = {
+        schema.Fields.Domain: resp.row.entries[cmap[schema.Fields.Domain]].formatted,
         schema.Fields.Motivation: resp.row.entries[cmap[schema.Fields.Motivation]].formatted,
         schema.Fields.Source: resp.row.entries[cmap[schema.Fields.Source]].formatted,
         schema.Fields.Towards: resp.row.entries[cmap[schema.Fields.Towards]].formatted,

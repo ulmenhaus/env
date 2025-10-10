@@ -94,8 +94,8 @@ type MainView struct {
 	injectMatchingTasks bool
 
 	// bottom display data
-	weeklyIntention string
-	weeklyTouchstone    string
+	weeklyIntention  string
+	weeklyTouchstone string
 }
 
 type DayItem struct {
@@ -518,7 +518,7 @@ func (mv *MainView) tabulatedTasks(g *gocui.Gui, v *gocui.View) ([]string, error
 				}
 			}
 			if mv.injectMatchingTasks {
-				_, err = mv.InjectTaskWithAllMatching(g, v)
+				_, err = mv.InjectTaskWithAllMatching(g, v, false)
 				if err != nil {
 					return nil, err
 				}
@@ -2022,7 +2022,7 @@ func (mv *MainView) GetCurrentDomain(g *gocui.Gui, v *gocui.View) (CurrentDomain
 	}, nil
 }
 
-func (mv *MainView) InjectTaskWithAllMatching(g *gocui.Gui, v *gocui.View) (int, error) {
+func (mv *MainView) InjectTaskWithAllMatching(g *gocui.Gui, v *gocui.View, matchAttentionCycle bool) (int, error) {
 	// Return the count of added items so that a higher level caller can decide to redirect
 	// the user to populate new items or not
 	tasksTable := mv.tables[TableTasks]
@@ -2030,32 +2030,36 @@ func (mv *MainView) InjectTaskWithAllMatching(g *gocui.Gui, v *gocui.View) (int,
 	if err != nil {
 		return 0, err
 	}
-	resp, err := mv.dbms.GetRow(ctx, &jqlpb.GetRowRequest{
-		Table: TableTasks,
-		Pk:    taskPk,
-	})
-	if err != nil {
-		return 0, err
+	filters := []*jqlpb.Filter{
+		{
+			Column: FieldStatus,
+			Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: StatusActive}},
+		},
 	}
-	cycle, err := mv.retrieveAttentionCycle(tasksTable, resp.Row)
-	if err != nil {
-		return 0, err
+	if matchAttentionCycle {
+		resp, err := mv.dbms.GetRow(ctx, &jqlpb.GetRowRequest{
+			Table: TableTasks,
+			Pk:    taskPk,
+		})
+		if err != nil {
+			return 0, err
+		}
+		cycle, err := mv.retrieveAttentionCycle(tasksTable, resp.Row)
+		if err != nil {
+			return 0, err
+		}
+		cycleName := cycle.Entries[api.GetPrimary(mv.tables[TableTasks].Columns)].Formatted
+		filters = append(filters, &jqlpb.Filter{
+			Column: FieldPrimaryGoal,
+			Match:  &jqlpb.Filter_PathToMatch{&jqlpb.PathToMatch{Value: cycleName}},
+		})
 	}
-	cycleName := cycle.Entries[api.GetPrimary(mv.tables[TableTasks].Columns)].Formatted
+
 	activeDescendants, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
 		Table: TableTasks,
 		Conditions: []*jqlpb.Condition{
 			{
-				Requires: []*jqlpb.Filter{
-					{
-						Column: FieldPrimaryGoal,
-						Match:  &jqlpb.Filter_PathToMatch{&jqlpb.PathToMatch{Value: cycleName}},
-					},
-					{
-						Column: FieldStatus,
-						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: StatusActive}},
-					},
-				},
+				Requires: filters,
 			},
 		},
 	})
@@ -2064,6 +2068,12 @@ func (mv *MainView) InjectTaskWithAllMatching(g *gocui.Gui, v *gocui.View) (int,
 	}
 	descPKs := []string{}
 	for _, row := range activeDescendants.Rows {
+		action := row.Entries[api.IndexOfField(mv.tables[TableTasks].Columns, FieldAction)].Formatted
+		direct := row.Entries[api.IndexOfField(mv.tables[TableTasks].Columns, FieldDirect)].Formatted
+		indirect := row.Entries[api.IndexOfField(mv.tables[TableTasks].Columns, FieldIndirect)].Formatted
+		if action == "Plan" && direct == "today" && indirect == "" {
+			continue
+		}
 		pk := row.Entries[api.GetPrimary(mv.tables[TableTasks].Columns)].Formatted
 		descPKs = append(descPKs, pk)
 	}
