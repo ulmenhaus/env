@@ -55,6 +55,8 @@ class KitsBackend(jql_pb2_grpc.JQLServicer):
                 "Towards": [""],
                 "Domain":
                 [row.entries[assn_cmap[schema.Fields.Arg1]].formatted],
+                "Skillset":
+                [row.entries[assn_cmap[schema.Fields.Arg1]].formatted],
                 "Parent": [selected_parent],
             }
             if kit in kit2info:

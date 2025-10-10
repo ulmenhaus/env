@@ -130,6 +130,7 @@ class ToolsBackend(jql_pb2_grpc.JQLServicer):
                         "Source": [""],
                         "Towards": [""],
                         "Domain": [""],
+                        "Skillset": [""],
                         "Subset": [subset],
                     }
                     if tool in tool2info:
