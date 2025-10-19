@@ -169,8 +169,8 @@ func runExecute() error {
 		} else {
 			cfg.Table = ui.TablePractices
 			return cfg.SwitchTool("jql", "", cli.Filter{
-				Key:   ui.FieldDomain,
-				Value: fmt.Sprintf("@{nouns %s}", info.Domain),
+				Key:   ui.FieldSkillset,
+				Value: fmt.Sprintf("@{nouns %s}", info.Skillset),
 			})
 		}
 		return nil

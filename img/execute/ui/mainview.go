@@ -1984,7 +1984,7 @@ func (mv *MainView) deleteDayPlan(g *gocui.Gui, v *gocui.View) error {
 }
 
 type CurrentDomainInfo struct {
-	Domain     string
+	Skillset   string
 	Direct     string
 	TaskPK     string
 	IsPrepTask bool
@@ -2004,19 +2004,23 @@ func (mv *MainView) GetCurrentDomain(g *gocui.Gui, v *gocui.View) (CurrentDomain
 	if err != nil {
 		return CurrentDomainInfo{}, err
 	}
+	action := resp.Row.Entries[api.IndexOfField(tasksTable.Columns, FieldAction)].Formatted
 	direct := resp.Row.Entries[api.IndexOfField(tasksTable.Columns, FieldDirect)].Formatted
 	indirect := resp.Row.Entries[api.IndexOfField(tasksTable.Columns, FieldIndirect)].Formatted
 	isPrepareTask := (direct == "" && indirect == "")
 	isWarmup := resp.Row.Entries[api.IndexOfField(tasksTable.Columns, FieldAction)].Formatted == "Warm-up"
-	cycle, err := mv.retrieveAttentionCycle(tasksTable, resp.Row)
-	if err != nil {
-		return CurrentDomainInfo{}, err
+	skillset := direct
+	if action != "Practice" {
+		cycle, err := mv.retrieveAttentionCycle(tasksTable, resp.Row)
+		if err != nil {
+			return CurrentDomainInfo{}, err
+		}
+		skillset = cycle.Entries[api.IndexOfField(tasksTable.Columns, FieldIndirect)].Formatted
 	}
-	domain := cycle.Entries[api.IndexOfField(tasksTable.Columns, FieldIndirect)].Formatted
 	return CurrentDomainInfo{
 		IsPrepTask: isPrepareTask,
 		Direct:     direct,
-		Domain:     domain,
+		Skillset:   skillset,
 		TaskPK:     taskPk,
 		IsWarmup:   isWarmup,
 	}, nil

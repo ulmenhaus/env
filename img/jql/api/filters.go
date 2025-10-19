@@ -30,9 +30,9 @@ func (f *filterShim) init() {
 func (f *filterShim) Applies(e []types.Entry) bool {
 	switch match := f.filter.Match.(type) {
 	case *jqlpb.Filter_EqualMatch:
-		return xor(e[f.colix].Format("") == match.EqualMatch.Value, f.filter.Negated)
+		return xor(e[f.colix].Format("user-input") == match.EqualMatch.Value, f.filter.Negated)
 	case *jqlpb.Filter_InMatch:
-		return f.asMap[e[f.colix].Format("")]
+		return f.asMap[e[f.colix].Format("user-input")]
 	case *jqlpb.Filter_ContainsMatch:
 		cm := match.ContainsMatch
 		// NOTE exact match + col < 0 not implemented and will cause a panic

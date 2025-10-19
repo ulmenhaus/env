@@ -39,6 +39,7 @@ const (
 	FieldLink           string = "Link"
 	FieldLogDescription string = "A_Description"
 	FieldPrimaryGoal    string = "Primary Goal"
+	FieldSkillset       string = "Skillset"
 	FieldSpan           string = "Param~Span"
 	FieldStart          string = "Param~Start"
 	FieldStatus         string = "Status"

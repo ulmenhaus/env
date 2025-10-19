@@ -204,12 +204,26 @@ def add_task_from_template(dbms, table, pk):
     fields = {
         schema.Fields.Action: resp.row.entries[cmap[schema.Fields.Action]].formatted,
         schema.Fields.Direct: resp.row.entries[cmap[schema.Fields.Direct]].formatted,
+        schema.Fields.Indirect: "",
         schema.Fields.PrimaryGoal: parent,
+        schema.Fields.Parameters: "",
         schema.Fields.ParamStart: "",
-        schema.Fields.Status: schema.Values.StatusActive,
     }
     if schema.Fields.Subset in cmap:
         fields[schema.Fields.Indirect] = resp.row.entries[cmap[schema.Fields.Subset]].formatted
+    for i in range(10):
+        if i != 0:
+            fields[schema.Fields.Parameters] = str(i + 1)
+        filters = [jql_pb2.Filter(column=column, equal_match=jql_pb2.EqualMatch(value=value)) for column, value in fields.items()]
+        existing_tasks = dbms.ListRows(jql_pb2.ListRowsRequest(
+            table=schema.Tables.Tasks,
+            conditions=[jql_pb2.Condition(requires=filters)],
+        ))
+        if len(existing_tasks.rows) == 0:
+            break
+    else:
+        raise ValueError("10 instances of this task exist already. Not making another one")
+    fields[schema.Fields.Status] = schema.Values.StatusActive
     dbms.WriteRow(jql_pb2.WriteRowRequest(
         table=schema.Tables.Tasks,
         pk=pk, # temporarily set the pk to match the pk from the original table

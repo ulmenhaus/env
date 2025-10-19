@@ -18,7 +18,7 @@ var (
 // NewDate returns a new date from the encoded data
 func NewDate(i interface{}, features map[string]interface{}) (Entry, error) {
 	if i == nil {
-		return Date(0), nil
+		return Date(0).Reverse("", "")
 	}
 	n, ok := i.(float64)
 	if !ok {
@@ -32,6 +32,12 @@ func (d Date) Format(ft string) string {
 	t := epoch.Add(time.Hour * 24 * time.Duration(d))
 	if ft == "" {
 		ft = "02 Jan 2006"
+	}
+	if ft == "user-input" {
+		today := dateFromTime(time.Now().UTC())
+		if today == d {
+			return ""
+		}
 	}
 	return t.In(time.UTC).Format(ft)
 }
@@ -52,7 +58,11 @@ func (d Date) Reverse(ft, input string) (Entry, error) {
 		t = time.Date(noLoc.Year(), noLoc.Month(), noLoc.Day(), noLoc.Hour(), noLoc.Minute(),
 			noLoc.Second(), noLoc.Nanosecond(), time.UTC)
 	}
-	return Date(t.Sub(epoch) / (time.Hour * 24)), nil
+	return dateFromTime(t), nil
+}
+
+func dateFromTime(t time.Time) Date {
+	return Date(t.Sub(epoch) / (time.Hour * 24))
 }
 
 // Compare returns true iff the given object is a Date and comes
