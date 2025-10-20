@@ -39,28 +39,30 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
             "Motivation", "Source", "Towards", "Area", "Genre", "Attendee"
         ]
         task_fields = [schema.Fields.Action, schema.Fields.Direct]
-        attention_cycles = [
+        track_tasks = [
             task for task in tasks.rows
-            if task.entries[cmap[schema.Fields.Action]].formatted == 'Attend'
-            and task.entries[cmap[schema.Fields.Direct]].formatted == ''
+            if task.entries[cmap[schema.Fields.Action]].formatted == 'Track'
+            and task.entries[cmap[schema.Fields.Direct]].formatted == 'life events & practices'
+            and task.entries[cmap[schema.Fields.Indirect]].formatted == ''
         ]
+        if len(track_tasks) != 1:
+            raise ValueError(f"expected exactly one track task in this cycle but had {len(track_tasks)}")
+        track_task, = track_tasks
         task2children = collections.defaultdict(list)
         for task in tasks.rows:
             parent = task.entries[cmap[schema.Fields.PrimaryGoal]].formatted
             task2children[parent].append(task)
-        domain2stats = collections.defaultdict(lambda : collections.defaultdict(collections.Counter))
-        for attention_cycle in attention_cycles:
-            domain = attention_cycle.entries[cmap[schema.Fields.Indirect]].formatted
-            stats = domain2stats[domain]
-            pk = attention_cycle.entries[primary].formatted
-            initiatives = task2children[pk]
-            for initiative in initiatives:
-                initiative_pk = initiative.entries[primary].formatted
-                count = len(task2children[initiative_pk]) or 1
-                if self._exclude_initiative_from_stats(initiative, fields[initiative_pk], cmap):
-                    continue
+        skillset2stats = collections.defaultdict(lambda : collections.defaultdict(collections.Counter))
+        for initiative in task2children[track_task.entries[primary].formatted]:
+            initiative_pk = initiative.entries[primary].formatted
+            attrs = fields[initiative_pk]
+            for skillset in attrs["Skillset"]:
+                if common.is_foreign(skillset):
+                    skillset = common.parse_foreign(skillset)[1]
+                stats = skillset2stats[skillset]
+                count = 1
                 for field in captured_fields:
-                    values = fields[initiative_pk][field] or ["None"]
+                    values = attrs[field] or ["None"]
                     for value in values:
                         stats[field][value] += count
                 for field in task_fields:
@@ -70,17 +72,17 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
         for practice in all_practices.values():
             if practice['Towards'] != [schema.Values.TowardsSomethingRegular]:
                 continue
-            for foreign_domain in practice['Domain']:
-                if not foreign_domain:
+            for foreign_skillset in practice['Skillset']:
+                if not foreign_skillset:
                     continue
-                _, domain = common.parse_foreign(foreign_domain)
-                stats = domain2stats[domain]
+                _, skillset = common.parse_foreign(foreign_skillset)
+                stats = skillset2stats[skillset]
                 for field in captured_fields + task_fields:
                     for value in practice.get(field, []):
                         stats[field][value] += 0
         rows = {}
         pk = 0
-        for domain, stats in domain2stats.items():
+        for skillset, stats in skillset2stats.items():
             for by, values in stats.items():
                 total = sum(values.values())
                 for value, count in values.items():
@@ -88,7 +90,7 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
                     pk += 1
                     rows[str(pk)] = {
                         "_pk": [str(pk)],
-                        "A Domain": [domain],
+                        "A Skillset": [skillset],
                         "A Class": ["Stat"],
                         "By": [by],
                         "Description": [value],
@@ -99,17 +101,6 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
                         ],
                     }
         return rows
-
-    def _exclude_initiative_from_stats(self, task, task_fields, cmap):
-        for cls in task_fields["Class"]:
-            # Goals don't by themselves map to any time spent on work so are excluded
-            # in calculating stats on time
-            if cls == "Goal":
-                return True
-        if task.entries[cmap[schema.Fields.Indirect]].formatted == "regularity":
-            # Habits are counted in habit entries so they aren't useful here
-            return True
-        return False
 
     def _habit_entries(self, tasks):
         primary, cmap = common.list_rows_meta(tasks)
