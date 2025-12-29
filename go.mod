@@ -1,15 +1,13 @@
 module github.com/ulmenhaus/env
 
-go 1.21
-
-toolchain go1.23.6
+go 1.24.0
 
 require (
 	github.com/jroimartin/gocui v0.5.0
 	github.com/mmcdole/gofeed v1.1.3
 	github.com/stretchr/testify v1.3.0
-	golang.org/x/sync v0.8.0
-	golang.org/x/tools v0.24.0
+	golang.org/x/sync v0.18.0
+	golang.org/x/tools v0.39.0
 )
 
 require (
@@ -30,10 +28,10 @@ require (
 	github.com/rogpeppe/godef v1.1.2 // indirect
 	github.com/spf13/cobra v1.6.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
-	golang.org/x/mod v0.20.0 // indirect
-	golang.org/x/net v0.28.0 // indirect
-	golang.org/x/sys v0.23.0 // indirect
-	golang.org/x/text v0.17.0 // indirect
+	golang.org/x/mod v0.30.0 // indirect
+	golang.org/x/net v0.47.0 // indirect
+	golang.org/x/sys v0.38.0 // indirect
+	golang.org/x/text v0.31.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240604185151-ef581f913117 // indirect
 	google.golang.org/grpc v1.65.0 // indirect
 	google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.5.1 // indirect

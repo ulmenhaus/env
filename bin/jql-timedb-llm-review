@@ -10,13 +10,15 @@ import subprocess
 import sys
 import tempfile
 
+import click
+
 from jql import jql_pb2, macro
 from timedb import cycles, pks, schema, llm_utils
 
 from timedb.virtual_gateway import common
 
 
-def _generate_prompt_for_claimset(iface, learn=False):
+def _generate_prompt_for_claimset(iface, learn=False, site=""):
     dbms = iface.get_dbms()
     request = iface.get_request()
     request.limit = 0
@@ -43,14 +45,31 @@ def _generate_prompt_for_claimset(iface, learn=False):
     prompt = f"""I want you to ask me challenging but simple questions that will help me make mental connections and reinforce the data in this table. Using research backed methods for accelerated learning I'd like you to test me on the claims from it. Feel free to use your knowledge or logical rules to test me beyond a simple look up of the entries themselves. Ask me questions one at a time and when I'm done I'll ask for a final score. The goal is still recall so don't give too much information in each prompt.\n\n{table}"""
     if learn:
         prompt = f"""Using research backed methods for accelerated learning I'd like you to help me memorize this table. Do so by incrementally introducing me to short bursts of knowledge from it as well as facts to help me understand and semantically encode it in memory so I can retain and apply it long term.\n\n{table}"""
-    llm_utils.open_session(prompt, "chatgpt", "4o")
+    if site:
+        subprocess.run(
+            ["txtcopy"],
+            input=prompt.encode("utf-8"),
+        )
+        subprocess.check_call(
+            ["txtopen", site],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    else:
+        llm_utils.open_session(prompt, "chatgpt", "4o")
 
 
-def main():
-    learn = "--learn" in sys.argv
+@click.command()
+@click.option('--site', type=click.STRING, default="")
+@click.option('--learn/--no-learn', type=click.BOOL, default=False)
+@click.option('--review/--no-review', type=click.BOOL, default=False)
+def run(site, learn, review):
     with macro.macro_interface(sys.stdin, sys.stdout) as iface:
         dbms = iface.get_dbms()
-        _generate_prompt_for_claimset(iface, learn)
+        _generate_prompt_for_claimset(iface, learn, site=site)
+
+def main():
+    run()
 
 if __name__ == "__main__":
     main()
