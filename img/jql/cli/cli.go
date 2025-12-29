@@ -19,7 +19,7 @@ const (
 	ModeClient     = "client"
 	ModeStandalone = "standalone"
 
-	MaxPayloadSize = 50000000 // 50 Mb
+	MaxPayloadSize = 100000000 // 100 Mb
 )
 
 type Filter struct {

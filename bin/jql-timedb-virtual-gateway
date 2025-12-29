@@ -22,7 +22,10 @@ def main():
     @click.option('--listen-addr', type=click.STRING, default="localhost:9998")
     def run(jql_target, listen_addr):
         logging.basicConfig(level=logging.DEBUG)
-        channel = grpc.insecure_channel(jql_target)
+        options = [
+            ('grpc.max_receive_message_length', 100 * 1024 * 1024), # 100Mb
+        ]
+        channel = grpc.insecure_channel(jql_target, options=options)
         client = jql_pb2_grpc.JQLStub(channel)
         gateway = Gateway(client)
         server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))

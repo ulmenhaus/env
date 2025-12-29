@@ -1,8 +1,10 @@
 import hashlib
 import os
+import schemdraw
 import subprocess
 import time
 
+import schemdraw.elements as elm
 
 def watch_for_update(filepath, poll_interval=2):
     update_time = None
@@ -23,19 +25,33 @@ def render_pic(src):
     wd = os.getcwd()
     target = "{}.svg".format(src[:-3])
     if not os.path.exists(target):
-        subprocess.check_call([
-            "docker",
-            "run",
-            "-i",
-            "--rm",
-            "--entrypoint=pp",
-            "-w",
-            wd,
-            "-v",
-            "{}:{}".format(os.getenv("JQL_HOST_MOUNT_PREFIX") + wd, wd),
-            "ulmenhaus/env",
-            src,
-        ])
+        if src.endswith(".schem.py"):
+            # Use path-based svg rendering of text to support math expressions
+            schemdraw.svgconfig.text = 'path'
+            # TODO if there's an exception then remove the svg file
+            with schemdraw.Drawing(file=target, show=False, lw=.8) as d:
+                global draw
+                meta_path = src + ".meta"
+                if os.path.exists(meta_path):
+                    with open(meta_path) as f:
+                        meta = f.read()
+                with open(src) as f:
+                    exec(f.read(), globals())
+                draw(d, elm, meta)
+        else:
+            subprocess.check_call([
+                "docker",
+                "run",
+                "-i",
+                "--rm",
+                "--entrypoint=pp",
+                "-w",
+                wd,
+                "-v",
+                "{}:{}".format(os.getenv("JQL_HOST_MOUNT_PREFIX") + wd, wd),
+                "ulmenhaus/env",
+                src,
+            ])
     img = '<div style="text-align:center; padding-bottom: 25px;"><img src="{}" /></div>\n'.format(
         target)
     return img
@@ -44,7 +60,7 @@ def render_pic(src):
 def render_pics(grouped, meta):
     for i, group in enumerate(grouped):
         lines = group.split("\n")
-        if lines[0] not in ["```pic.py", "```m4", "```plt.py"]:
+        if lines[0] not in ["```pic.py", "```m4", "```plt.py", "```schem.py"]:
             yield group
             continue
         group_meta = meta.get(i, "").encode("utf-8")
@@ -68,6 +84,7 @@ def render_pics(grouped, meta):
 def inject_externals(default_project, markdown):
     suffix_to_language = {
         "py": "python",
+        "v": "verilog",
     }
     lines = markdown.split("\n")
     grouped = []
@@ -119,6 +136,7 @@ def inject_externals(default_project, markdown):
     final = render_pics(final, meta)
     return resolve_jql_links("\n".join(final))
 
+
 def resolve_jql_links(base_markdown):
     inputs = base_markdown.split("@{nouns ")
     parts = []
@@ -134,5 +152,3 @@ def resolve_jql_links(base_markdown):
         parts.append(_render_link(ref, "/nouns " + ref))
         parts.append(rest)
     return "".join(parts)
-
-
