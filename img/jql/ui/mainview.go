@@ -155,10 +155,12 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 			return err
 		}
 	}
-	_, err := g.SetView("header", 0, 0, maxX-2, 3)
+	header, err := g.SetView("header", 0, 0, maxX-2, 3)
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	}
+	header.Clear()
+	header.Write(mv.headerContents())
 	mv.TableView.TotalWidth = maxX - 2
 	v, err := g.SetView("table", 0, 3+groupingsOffset, maxX-2, maxY+groupingsOffset-5)
 	if err != nil {
@@ -254,12 +256,6 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 			return err
 		}
 	case MainViewModeTable:
-		header, err := g.SetCurrentView("header")
-		if err != nil {
-			return err
-		}
-		header.Clear()
-		header.Write(mv.headerContents())
 		if _, err = g.SetCurrentView("table"); err != nil {
 			return err
 		}
@@ -1240,9 +1236,6 @@ func (mv *MainView) runMacro(ch rune, description string) error {
 	}
 	filterField := output.CurrentView.Filter.Field
 	if filterField != "" {
-		// The macro is updating our table query with a basic filter
-		// For now this only supports a single equal filter
-		// TODO figure out why the Query in the header doesn't update until after another button push
 		mv.request.Conditions = []*jqlpb.Condition{
 			{
 				Requires: []*jqlpb.Filter{

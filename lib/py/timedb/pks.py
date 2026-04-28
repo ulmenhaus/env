@@ -257,7 +257,7 @@ class PKSetter(object):
         )
         self.dbms.WriteRow(update_request)
         if old == new or old == "":
-            return
+            return new
         self._update_all(schema.Tables.Nouns, schema.Fields.Parent, old, new)
         self._update_all(
             schema.Tables.Assertions,
@@ -277,6 +277,7 @@ class PKSetter(object):
                          exact=False)
         self._update_all(schema.Tables.Tasks, schema.Fields.Direct, old, new)
         self._update_all(schema.Tables.Tasks, schema.Fields.Indirect, old, new)
+        return new
 
     def update_task(self, old):
         self._populate_actions()
@@ -344,17 +345,18 @@ class PKSetter(object):
             update_only=True,
         )
         self.dbms.WriteRow(update_request)
+        return new
 
     def update(self, table, old):
         # TODO this first pass implementation needs full parity with the old implementation
         # 1. Support for contexts
         # 3. Updates in day planner
         if table == schema.Tables.Nouns:
-            self.update_noun(old)
+            return self.update_noun(old)
         elif table == schema.Tables.Tasks:
-            self.update_task(old)
+            return self.update_task(old)
         elif table == schema.Tables.Assertions:
-            self.update_assertion(old)
+            return self.update_assertion(old)
         else:
             raise ValueError("Setting PK not supported for table", table)
 

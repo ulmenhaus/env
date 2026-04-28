@@ -9,7 +9,7 @@ For jql time management schema
 import json
 import sys
 
-from jql import macro
+from jql import jql_pb2, macro
 from timedb import cycles, pks
 
 
@@ -17,6 +17,26 @@ def pk_for_file(f):
     if f['A Type'] == "blob":
         return "/".join([f['A Type'] + "s", f['Xtended Name']])
     return "/".join([f['A Type'] + "s", f['Project'], f['Xtended Name']])
+
+
+def _maybe_redirect_to_pk(iface, dbms, table, new_pk):
+    try:
+        request = iface.get_request()
+    except Exception:
+        return
+    if len(request.conditions) != 1:
+        return
+    requires = request.conditions[0].requires
+    if len(requires) != 1:
+        return
+    f = requires[0]
+    if f.WhichOneof('match') != 'equal_match' or f.negated:
+        return
+    col_resp = dbms.GetRow(jql_pb2.GetRowRequest(table=table, pk=new_pk))
+    pk_col = next((col.name for col in col_resp.columns if col.primary), None)
+    if pk_col is None or f.column != pk_col:
+        return
+    iface.attrs['current_view']['filter'] = {'field': pk_col, 'formatted': new_pk}
 
 
 def main_v2():
@@ -27,7 +47,9 @@ def main_v2():
             cycles.add_task_from_template(iface.get_dbms(), table, pk)
         else:
             setter = pks.PKSetter(dbms)
-            setter.update(table, pk)
+            new_pk = setter.update(table, pk)
+            if new_pk is not None and new_pk != pk:
+                _maybe_redirect_to_pk(iface, dbms, table, new_pk)
 
 def main():
     if "--v2" in sys.argv:
