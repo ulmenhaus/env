@@ -3,3 +3,4 @@
 .DS_STORE
 .project.json
 *.log
+.claude
