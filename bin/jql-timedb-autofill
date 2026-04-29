@@ -4,7 +4,15 @@ import datetime
 import json
 import sys
 
-from timedb.pks import pk_for_task
+from jql import jql_pb2, macro
+from timedb import schema
+from timedb.pks import pk_for_assertion, pk_for_task
+from timedb.virtual_gateway.common import list_rows_meta
+
+
+def _days_to_date_str(days):
+    return (datetime.datetime(1970, 1, 1) +
+            datetime.timedelta(days=int(days))).strftime("%d %b %Y")
 
 
 class HabitModes(object):
@@ -265,7 +273,305 @@ class HabitModes(object):
         }
 
 
+class HabitModesV2(object):
+
+    def __init__(self, dbms):
+        self.dbms = dbms
+        self._actions = None
+        self.task_pk = None
+        self.task_data = None
+
+    def _get_actions(self):
+        if self._actions is None:
+            resp = self.dbms.ListRows(
+                jql_pb2.ListRowsRequest(table=schema.Tables.Actions))
+            self._actions = macro.protos_to_dict(resp.columns, resp.rows)
+        return self._actions
+
+    def _write_task(self, task):
+        actions = self._get_actions()
+        pk = pk_for_task(task, actions)
+        write_fields = dict(task)
+        if isinstance(write_fields.get('Param~Start'), (int, float)):
+            write_fields['Param~Start'] = _days_to_date_str(write_fields['Param~Start'])
+        self.dbms.WriteRow(jql_pb2.WriteRowRequest(
+            table=schema.Tables.Tasks,
+            pk=pk,
+            fields=write_fields,
+            insert_only=True,
+        ))
+        return pk
+
+    def _write_assertion(self, relation, arg0, arg1):
+        fields = {
+            schema.Fields.Relation: f".{relation}",
+            schema.Fields.Arg0: arg0,
+            schema.Fields.Arg1: arg1,
+            schema.Fields.Order: "0",
+        }
+        self.dbms.WriteRow(jql_pb2.WriteRowRequest(
+            table=schema.Tables.Assertions,
+            pk=pk_for_assertion(fields),
+            fields=fields,
+            insert_only=True,
+        ))
+
+    def breakdown(self,
+                  level=1,
+                  depth=1,
+                  cap=None,
+                  order='lexical',
+                  implements='',
+                  cls=''):
+        if level > 1:
+            raise ValueError(
+                "starting level greater than one not yet supported")
+        if depth > 1:
+            raise ValueError("depth greater than one not yet supported")
+        if order != 'lexical':
+            raise ValueError("ordering other than lexical not yet supported")
+        action = self.task_data['Action']
+        direct = self.task_data['Direct']
+        sources = [direct]
+        if cls != '':
+            assn_resp = self.dbms.ListRows(jql_pb2.ListRowsRequest(
+                table=schema.Tables.Assertions,
+                conditions=[jql_pb2.Condition(requires=[
+                    jql_pb2.Filter(column=schema.Fields.Relation, equal_match=jql_pb2.EqualMatch(value='.Class')),
+                    jql_pb2.Filter(column=schema.Fields.Arg1, equal_match=jql_pb2.EqualMatch(value=f"@{{nouns {cls}}}")),
+                ])],
+            ))
+            _, assn_cmap = list_rows_meta(assn_resp)
+            sources = [
+                row.entries[assn_cmap[schema.Fields.Arg0]].formatted[len(f"{schema.Tables.Nouns} "):]
+                for row in assn_resp.rows
+            ]
+        nouns_resp = self.dbms.ListRows(jql_pb2.ListRowsRequest(
+            table=schema.Tables.Nouns,
+            conditions=[jql_pb2.Condition(requires=[
+                jql_pb2.Filter(column=schema.Fields.Parent, in_match=jql_pb2.InMatch(values=sources)),
+            ])],
+        ))
+        nouns_primary, nouns_cmap = list_rows_meta(nouns_resp)
+        parts = sorted([
+            row.entries[nouns_primary].formatted
+            for row in nouns_resp.rows
+            if row.entries[nouns_cmap[schema.Fields.NounRelation]].formatted != 'Feature'
+            and (row.entries[nouns_cmap[schema.Fields.Status]].formatted == schema.Values.StatusImplementing or cls == '')
+        ])
+        if cls != '':
+            for part in parts:
+                self.dbms.WriteRow(jql_pb2.WriteRowRequest(
+                    table=schema.Tables.Nouns,
+                    pk=part,
+                    fields={schema.Fields.Status: 'Revisit'},
+                    update_only=True,
+                ))
+        done_resp = self.dbms.ListRows(jql_pb2.ListRowsRequest(
+            table=schema.Tables.Tasks,
+            conditions=[jql_pb2.Condition(requires=[
+                jql_pb2.Filter(column=schema.Fields.PrimaryGoal, equal_match=jql_pb2.EqualMatch(value=self.task_pk)),
+                jql_pb2.Filter(column=schema.Fields.Status, equal_match=jql_pb2.EqualMatch(value=schema.Values.StatusSatisfied)),
+                jql_pb2.Filter(column=schema.Fields.Action, equal_match=jql_pb2.EqualMatch(value=action)),
+            ])],
+        ))
+        _, done_cmap = list_rows_meta(done_resp)
+        already_done = [row.entries[done_cmap[schema.Fields.Direct]].formatted for row in done_resp.rows]
+        start_point = 0
+        for pk in already_done:
+            if pk in parts:
+                start_point = max(start_point, already_done.index(pk) + 1)
+        cap = cap or len(parts)
+        to_add = parts[start_point:start_point + cap]
+        added_resp = self.dbms.ListRows(jql_pb2.ListRowsRequest(
+            table=schema.Tables.Tasks,
+            conditions=[jql_pb2.Condition(requires=[
+                jql_pb2.Filter(column=schema.Fields.PrimaryGoal, equal_match=jql_pb2.EqualMatch(value=self.task_pk)),
+                jql_pb2.Filter(column=schema.Fields.Action, equal_match=jql_pb2.EqualMatch(value=action)),
+                jql_pb2.Filter(column=schema.Fields.Status, in_match=jql_pb2.InMatch(values=[
+                    schema.Values.StatusPending, schema.Values.StatusPlanned, schema.Values.StatusActive,
+                ])),
+            ])],
+        ))
+        _, added_cmap = list_rows_meta(added_resp)
+        already_added = [row.entries[added_cmap[schema.Fields.Direct]].formatted for row in added_resp.rows]
+        for direct in set(to_add) - set(already_added):
+            new_task = self._new_task(
+                action=action,
+                direct=direct,
+                param_date=self.task_data['Param~Start'],
+                param_time=self.task_data['Param~Span'],
+                primary_goal=self.task_pk,
+                status=schema.Values.StatusPending if implements else schema.Values.StatusActive,
+            )
+            new_pk = self._write_task(new_task)
+            if implements:
+                self._write_assertion('Implements', f"{schema.Tables.Tasks} {new_pk}", implements)
+
+    def regularity(self, freq=1, span='Day', sched=None, indirect='', selection=False):
+        if selection:
+            return
+        today = datetime.date.today()
+        if sched is not None and span == 'Day' and today.strftime('%a') not in sched:
+            return
+        action = self.task_data['Action']
+        direct = self.task_data['Direct']
+        datep = datetime.date.today()
+        if span == 'Week':
+            datep = datep - datetime.timedelta(days=int(datep.strftime('%w')))
+        if span == 'Month':
+            if sched is not None:
+                datep = datep + datetime.timedelta(days=int(sched) - datep.day)
+            else:
+                datep = datep - datetime.timedelta(days=datep.day - 1)
+        for i in range(freq):
+            params = '{} of {}'.format(i + 1, freq)
+            if freq == 1:
+                params = ''
+            self._write_task(self._new_task(
+                action=action,
+                direct=direct,
+                indirect=indirect,
+                param_date=(datep - datetime.date(1970, 1, 1)).days,
+                param_time=span,
+                params=params,
+                primary_goal=self.task_pk,
+                status=schema.Values.StatusActive if span == 'Day' else schema.Values.StatusPlanned,
+            ))
+
+    def continuity(self, implements='', indirect=''):
+        action = self.task_data['Action']
+        direct = self.task_data['Direct']
+        new_pk = self._write_task(self._new_task(
+            action=action,
+            direct=direct,
+            indirect=indirect,
+            param_date=self.task_data['Param~Start'],
+            param_time=self.task_data['Param~Span'],
+            primary_goal=self.task_pk,
+            status=schema.Values.StatusPending,
+        ))
+        if implements:
+            self._write_assertion('Implements', f"{schema.Tables.Tasks} {new_pk}", implements)
+
+    def incrementality(self,
+                       start=0,
+                       end=0,
+                       delta=1,
+                       success=1,
+                       fmt='{cur}',
+                       fail=None,
+                       sched=None):
+        today = datetime.date.today()
+        if sched is not None and today.strftime('%a') not in sched:
+            return
+        param_date = (datetime.date.today() - datetime.date(1970, 1, 1)).days
+        prev_resp = self.dbms.ListRows(jql_pb2.ListRowsRequest(
+            table=schema.Tables.Tasks,
+            conditions=[jql_pb2.Condition(requires=[
+                jql_pb2.Filter(column=schema.Fields.PrimaryGoal, equal_match=jql_pb2.EqualMatch(value=self.task_pk)),
+            ])],
+        ))
+        # protos_to_dict converts DATE columns to integers, needed for the sort below
+        prev_tasks = macro.protos_to_dict(prev_resp.columns, prev_resp.rows)
+        ordered = sorted(prev_tasks.items(), key=lambda t: -t[1]['Param~Start'])
+        param = start
+        curr_index = fmt.split(' ').index('{cur}')
+        get_param = lambda td: int(td['Parameters'].split(' ')[curr_index])
+        if ordered:
+            current = get_param(ordered[0][1])
+            param = current
+            successes = 0
+            failures = 0
+            for _, td in ordered:
+                if get_param(td) != current:
+                    break
+                if td['Status'] == schema.Values.StatusSatisfied:
+                    successes += 1
+                if td['Status'] == 'Failed' and successes == 0:
+                    failures += 1
+            if successes >= success:
+                param = current + delta
+            if fail and failures >= fail:
+                param = current - delta
+        if ((param > end) and (delta > 0)) or ((param < end) and (delta < 0)):
+            return
+        self._write_task(self._new_task(
+            action=self.task_data['Action'],
+            direct=self.task_data['Direct'],
+            param_date=param_date,
+            param_time='Day',
+            params=fmt.format(start=start, cur=param, end=end),
+            primary_goal=self.task_pk,
+        ))
+
+    def _new_task(self,
+                  action='',
+                  direct='',
+                  indirect='',
+                  param_date=0,
+                  param_time='',
+                  params='',
+                  primary_goal='',
+                  status='Active'):
+        return {
+            'Action': action,
+            'Direct': direct,
+            'Indirect': indirect,
+            'Param~Start': param_date,
+            'Param~Span': param_time,
+            'Parameters': params,
+            'Primary Goal': primary_goal,
+            'Status': status,
+        }
+
+    def locals(self):
+        return {
+            'breakdown': self.breakdown,
+            'regularity': self.regularity,
+            'incrementality': self.incrementality,
+            'continuity': self.continuity,
+        }
+
+    def globals(self):
+        return {
+            'lexical': 'lexical',
+            'day': 'Day',
+            'week': 'Week',
+            'month': 'Month',
+        }
+
+
+def main_v2():
+    with macro.macro_interface(sys.stdin, sys.stdout) as iface:
+        dbms = iface.get_dbms()
+        modes = HabitModesV2(dbms)
+        habit_mode_values = list(modes.locals().keys())
+        resp = dbms.ListRows(jql_pb2.ListRowsRequest(
+            table=schema.Tables.Tasks,
+            conditions=[jql_pb2.Condition(requires=[
+                jql_pb2.Filter(
+                    column=schema.Fields.Status,
+                    in_match=jql_pb2.InMatch(values=[schema.Values.StatusActive, schema.Values.StatusHabitual]),
+                ),
+                jql_pb2.Filter(
+                    column=schema.Fields.Indirect,
+                    in_match=jql_pb2.InMatch(values=habit_mode_values),
+                ),
+            ])],
+        ))
+        tasks = macro.protos_to_dict(resp.columns, resp.rows)
+        locs = modes.locals()
+        globs = modes.globals()
+        for task_pk, task_data in tasks.items():
+            modes.task_pk = task_pk
+            modes.task_data = task_data
+            eval('{}({})'.format(task_data['Indirect'], task_data['Parameters']), locs, globs)
+
+
 def main():
+    if '--v2' in sys.argv:
+        return main_v2()
     iface = json.load(sys.stdin)
     snapshot = json.loads(iface["snapshot"])
 

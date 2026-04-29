@@ -1799,7 +1799,7 @@ func (mv *MainView) insertNewTasks() error {
 func (mv *MainView) refreshTasks(g *gocui.Gui, v *gocui.View) error {
 	// TODO(rabrams) this whole sequence is pretty inefficient. It involves multiple redundant
 	// O(n) operations plus loading and re-loading the data.
-	_, err := api.RunMacro(ctx, mv.dbms, "jql-timedb-autofill", api.MacroCurrentView{}, false)
+	_, err := api.RunMacro(ctx, mv.dbms, "jql-timedb-autofill --v2", api.MacroCurrentView{}, true)
 	if err != nil {
 		return err
 	}
