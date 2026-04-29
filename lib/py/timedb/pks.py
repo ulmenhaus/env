@@ -46,9 +46,12 @@ def pk_terms_for_task(task, actions):
                                           "Sustain") else ","
         mandate.append("{} {}".format(marker, task['Parameters']))
     planned_start, planned_span = task["Param~Start"], task["Param~Span"]
-    distinguisher = (
-        datetime.datetime(1970, 1, 1) +
-        datetime.timedelta(days=int(planned_start))).strftime("%d %b %Y")
+    if isinstance(planned_start, str):
+        distinguisher = planned_start
+    else:
+        distinguisher = (
+            datetime.datetime(1970, 1, 1) +
+            datetime.timedelta(days=int(planned_start))).strftime("%d %b %Y")
     if task["Param~Span"] and task["Param~Span"] != "Day":
         distinguisher = "{} of {}".format(task["Param~Span"], distinguisher)
     mandate.append(" ({})".format(distinguisher))

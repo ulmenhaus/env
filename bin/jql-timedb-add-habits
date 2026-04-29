@@ -14,8 +14,11 @@ import collections
 import json
 import sys
 
+from jql import jql_pb2, macro
+from timedb import schema
 from timedb.cycles import CycleManager
 from timedb.pks import pk_for_task
+from timedb.virtual_gateway import common
 
 
 def _parse_table(raw):
@@ -86,7 +89,129 @@ def _add_habit(snapshot, habit, cm, group2members, habit_mode):
         snapshot['tasks'][pk] = new_task
 
 
+def _get_actions(dbms):
+    resp = dbms.ListRows(jql_pb2.ListRowsRequest(table=schema.Tables.Actions))
+    return macro.protos_to_dict(resp.columns, resp.rows)
+
+
+def _find_root_task(dbms):
+    for status in [schema.Values.StatusPending, schema.Values.StatusHabitual]:
+        resp = dbms.ListRows(jql_pb2.ListRowsRequest(
+            table=schema.Tables.Tasks,
+            conditions=[jql_pb2.Condition(requires=[
+                jql_pb2.Filter(column=schema.Fields.Action, equal_match=jql_pb2.EqualMatch(value='Accomplish')),
+                jql_pb2.Filter(column=schema.Fields.Direct, equal_match=jql_pb2.EqualMatch(value='set goals')),
+                jql_pb2.Filter(column=schema.Fields.Indirect, equal_match=jql_pb2.EqualMatch(value='')),
+                jql_pb2.Filter(column=schema.Fields.Status, equal_match=jql_pb2.EqualMatch(value=status)),
+            ])],
+        ))
+        if resp.rows:
+            primary, cmap = common.list_rows_meta(resp)
+            row = resp.rows[0]
+            return (
+                row.entries[primary].formatted,
+                row.entries[cmap['Param~Span']].formatted,
+                row.entries[cmap[schema.Fields.ParamStart]].formatted,
+            )
+    raise ValueError("Root goal task not found")
+
+
+def _find_or_create_attention_cycle(dbms, root_pk, param_span, param_start, parent_noun_pk, actions):
+    resp = dbms.ListRows(jql_pb2.ListRowsRequest(
+        table=schema.Tables.Tasks,
+        conditions=[jql_pb2.Condition(requires=[
+            jql_pb2.Filter(column=schema.Fields.Action, equal_match=jql_pb2.EqualMatch(value='Attend')),
+            jql_pb2.Filter(column=schema.Fields.Direct, equal_match=jql_pb2.EqualMatch(value='')),
+            jql_pb2.Filter(column=schema.Fields.Indirect, equal_match=jql_pb2.EqualMatch(value=parent_noun_pk)),
+            jql_pb2.Filter(column=schema.Fields.Status, equal_match=jql_pb2.EqualMatch(value=schema.Values.StatusHabitual)),
+            jql_pb2.Filter(column='Param~Span', equal_match=jql_pb2.EqualMatch(value=param_span)),
+        ])],
+    ))
+    if resp.rows:
+        primary, cmap = common.list_rows_meta(resp)
+        row = resp.rows[0]
+        return (
+            row.entries[primary].formatted,
+            row.entries[cmap['Param~Span']].formatted,
+            row.entries[cmap[schema.Fields.ParamStart]].formatted,
+        )
+    new_task = {
+        schema.Fields.Action: 'Attend',
+        schema.Fields.Direct: '',
+        schema.Fields.Indirect: parent_noun_pk,
+        schema.Fields.Parameters: '',
+        'Param~Span': param_span,
+        schema.Fields.ParamStart: param_start,
+        schema.Fields.PrimaryGoal: root_pk,
+        schema.Fields.Status: schema.Values.StatusHabitual,
+    }
+    new_pk = pk_for_task(new_task, actions)
+    dbms.WriteRow(jql_pb2.WriteRowRequest(
+        table=schema.Tables.Tasks,
+        pk=new_pk,
+        fields=new_task,
+        insert_only=True,
+    ))
+    return new_pk, param_span, param_start
+
+
+def main_v2():
+    with macro.macro_interface(sys.stdin, sys.stdout) as iface:
+        dbms = iface.get_dbms()
+        table, noun_pk = iface.get_primary_selection()
+        if table != schema.Tables.Nouns:
+            raise ValueError(f"Must select noun as source of habits. Cannot use {table}")
+
+        children_resp = dbms.ListRows(jql_pb2.ListRowsRequest(
+            table=schema.Tables.Nouns,
+            conditions=[jql_pb2.Condition(requires=[
+                jql_pb2.Filter(column=schema.Fields.Parent, equal_match=jql_pb2.EqualMatch(value=noun_pk)),
+            ])],
+        ))
+        children_primary, _ = common.list_rows_meta(children_resp)
+        child_pks = [row.entries[children_primary].formatted for row in children_resp.rows]
+        if not child_pks:
+            return
+
+        fields, _ = common.get_fields_for_items(dbms, schema.Tables.Nouns, child_pks)
+
+        actions = _get_actions(dbms)
+        root_pk, root_span, root_start = _find_root_task(dbms)
+
+        for child_pk, child_fields in fields.items():
+            if (child_fields.get('HabitStatus') or [''])[0] != 'Active':
+                continue
+            action = (child_fields.get('HabitAction') or [''])[0]
+            direct = _parse_possible_timedb_ref((child_fields.get('HabitDirect') or [''])[0])
+            parameters = (child_fields.get('HabitParameters') or [''])[0]
+            parent_noun = _parse_possible_timedb_ref((child_fields.get('HabitParent') or [''])[0])
+            indirect = "regularity"
+            if not action or not parent_noun:
+                continue
+            cycle_pk, cycle_span, cycle_start = _find_or_create_attention_cycle(
+                dbms, root_pk, root_span, root_start, parent_noun, actions)
+            new_task = {
+                schema.Fields.Action: action,
+                schema.Fields.Direct: direct,
+                schema.Fields.Indirect: indirect,
+                schema.Fields.Parameters: parameters,
+                'Param~Span': cycle_span,
+                schema.Fields.ParamStart: cycle_start,
+                schema.Fields.PrimaryGoal: cycle_pk,
+                schema.Fields.Status: schema.Values.StatusHabitual,
+            }
+            new_pk = pk_for_task(new_task, actions)
+            dbms.WriteRow(jql_pb2.WriteRowRequest(
+                table=schema.Tables.Tasks,
+                pk=new_pk,
+                fields=new_task,
+                insert_only=True,
+            ))
+
+
 def main():
+    if "--v2" in sys.argv:
+        return main_v2()
     iface = json.load(sys.stdin)
     snapshot = json.loads(iface["snapshot"])
     current_view = iface["current_view"]
