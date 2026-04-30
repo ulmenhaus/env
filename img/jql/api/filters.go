@@ -133,6 +133,12 @@ func Description(f *jqlpb.Filter) string {
 		return fmt.Sprintf("%s in (%s)", f.Column, strings.Join(match.InMatch.Values, ", "))
 	case *jqlpb.Filter_ContainsMatch:
 		return fmt.Sprintf("%s contains \"%s\"", f.Column, strings.Replace(match.ContainsMatch.Value, "\"", "\\\"", -1))
+	case *jqlpb.Filter_PathToMatch:
+		direction := "descendants"
+		if match.PathToMatch.Reverse {
+			direction = "ancestors"
+		}
+		return fmt.Sprintf("%s %s of \"%s\"", f.Column, direction, strings.Replace(match.PathToMatch.Value, "\"", "\\\"", -1))
 	}
 	return ""
 }

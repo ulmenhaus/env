@@ -492,7 +492,7 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		}
 		tables := map[string]*jqlpb.TableMeta{}
 		for _, table := range resp.Tables {
-			// 'g' includes all foreign keys where as 'u' includes just this table
+			// 'g' includes all foreign keys whereas 'u' includes just this table
 			// and goes in reverse order. This allows a more elegant UX when there
 			// are two columns that map to this same table because each gets a unique
 			// key
@@ -518,6 +518,8 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 			}
 		}
 		err = mv.goFromSelectedValue(tables, ch == 'U')
+	case '>', '<':
+		err = mv.goFromSelectedValuePath(ch == '<')
 	case 'f', 'F':
 		row, col := mv.SelectedEntry()
 		filterTarget := mv.response.Rows[row].Entries[col].Formatted
@@ -935,6 +937,30 @@ func (mv *MainView) goFromSelectedValue(tables []*jqlpb.TableMeta, reverse bool)
 		return mv.updateTableViewContents(true)
 	}
 	return fmt.Errorf("no tables found with corresponding foreign key: %s", selected)
+}
+
+func (mv *MainView) goFromSelectedValuePath(reverse bool) error {
+	row, _ := mv.SelectedEntry()
+	selected := mv.response.Rows[row].Entries[api.GetPrimary(mv.response.Columns)]
+	cols := api.GetForeign(mv.response.Columns, mv.request.Table)
+	if len(cols) == 0 {
+		return fmt.Errorf("no self-referential foreign key column found in %s", mv.request.Table)
+	}
+	mv.request.Conditions = []*jqlpb.Condition{
+		{
+			Requires: []*jqlpb.Filter{
+				{
+					Column: mv.response.Columns[cols[0]].Name,
+					Match: &jqlpb.Filter_PathToMatch{PathToMatch: &jqlpb.PathToMatch{
+						Value:   selected.Formatted,
+						Reverse: reverse,
+					}},
+				},
+			},
+		},
+	}
+	mv.request.OrderBy = ""
+	return mv.updateTableViewContents(true)
 }
 
 func (mv *MainView) incrementSelected(amt int) error {
