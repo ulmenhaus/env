@@ -1,0 +1,182 @@
+#!/usr/bin/env python3
+"""
+Archive a shared ChatGPT conversation URL to a local markdown file.
+
+Usage:
+    chatgpt-export-to-md <share-url> [output-file]
+
+The share URL should look like: https://chatgpt.com/share/...
+If output-file is omitted, the filename is derived from the conversation title.
+"""
+
+import json
+import re
+import sys
+from datetime import datetime
+
+try:
+    import requests
+except ImportError:
+    print("error: 'requests' package is required. Install with: pip install requests", file=sys.stderr)
+    sys.exit(1)
+
+
+def fetch_page(url):
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+    }
+    resp = requests.get(url, headers=headers, timeout=30)
+    resp.raise_for_status()
+    return resp.text
+
+
+def extract_stream_array(html):
+    """Extract the React Router turbo-stream data array from the page."""
+    matches = re.findall(r'streamController\.enqueue\("((?:[^"\\]|\\.)*)"\)', html)
+    for raw in matches:
+        data_str = json.loads('"' + raw + '"')
+        if data_str.strip().startswith('['):
+            return json.loads(data_str)
+    return None
+
+
+def decode_turbo_stream(arr):
+    """
+    Decode a React Router turbo-stream reference array.
+    Objects encoded as {"_N": M, ...} where N indexes the key and M indexes the value.
+    Arrays encoded as [idx, idx, ...] where each element is an index.
+    """
+    RESOLVING = object()
+    cache = {}
+
+    def resolve(idx):
+        if not isinstance(idx, int) or idx < 0 or idx >= len(arr):
+            return None
+        if idx in cache:
+            v = cache[idx]
+            return None if v is RESOLVING else v
+        cache[idx] = RESOLVING
+        raw = arr[idx]
+        if isinstance(raw, dict) and all(k.startswith('_') and k[1:].isdigit() for k in raw):
+            obj = {}
+            for k, v in raw.items():
+                key_idx = int(k[1:])
+                if 0 <= key_idx < len(arr) and isinstance(arr[key_idx], str):
+                    obj[arr[key_idx]] = resolve(v)
+            result = obj
+        elif isinstance(raw, list):
+            result = [resolve(i) for i in raw]
+        else:
+            result = raw
+        cache[idx] = result
+        return result
+
+    return resolve(0)
+
+
+def find_conversation(decoded):
+    """Navigate decoded turbo-stream to find conversation data."""
+    try:
+        loader = decoded.get("loaderData") or {}
+        for val in loader.values():
+            if not isinstance(val, dict):
+                continue
+            sr = val.get("serverResponse")
+            if isinstance(sr, dict) and sr.get("type") == "data":
+                data = sr.get("data")
+                if isinstance(data, dict) and "linear_conversation" in data:
+                    return data
+    except (AttributeError, TypeError):
+        pass
+    return None
+
+
+def extract_messages(convo):
+    messages = []
+    for node in convo.get("linear_conversation") or []:
+        if not isinstance(node, dict):
+            continue
+        msg = node.get("message")
+        if not msg or not isinstance(msg, dict):
+            continue
+        role = (msg.get("author") or {}).get("role", "")
+        if role not in ("user", "assistant"):
+            continue
+        parts = (msg.get("content") or {}).get("parts") or []
+        text = "\n".join(p for p in parts if isinstance(p, str)).strip()
+        if text:
+            messages.append({"role": role, "text": text})
+    return messages
+
+
+def messages_to_markdown(title, url, messages):
+    lines = [
+        f"# {title}",
+        "",
+        f"Source: {url}",
+        f"Archived: {datetime.now().strftime('%Y-%m-%d')}",
+        "",
+    ]
+    for msg in messages:
+        role_label = "**User**" if msg["role"] == "user" else "**Assistant**"
+        lines.append(f"## {role_label}")
+        lines.append("")
+        lines.append(msg["text"])
+        lines.append("")
+    return "\n".join(lines)
+
+
+def slugify(title):
+    slug = re.sub(r"[^\w\s-]", "", title.lower())
+    slug = re.sub(r"[\s_-]+", "-", slug).strip("-")
+    return (slug[:80] if slug else "chatgpt-conversation") + ".md"
+
+
+def main():
+    if len(sys.argv) < 2:
+        print(__doc__, file=sys.stderr)
+        sys.exit(1)
+
+    url = sys.argv[1]
+    output_path = sys.argv[2] if len(sys.argv) > 2 else None
+
+    print(f"Fetching {url} ...", file=sys.stderr)
+    html = fetch_page(url)
+
+    arr = extract_stream_array(html)
+    if arr is None:
+        print("error: could not find stream data in page — is this a valid ChatGPT share URL?", file=sys.stderr)
+        sys.exit(1)
+
+    decoded = decode_turbo_stream(arr)
+    convo = find_conversation(decoded)
+
+    if not convo:
+        print("error: could not locate conversation data in page.", file=sys.stderr)
+        sys.exit(1)
+
+    title = convo.get("title") or "ChatGPT Conversation"
+    messages = extract_messages(convo)
+
+    if not messages:
+        print("warning: no messages found in conversation.", file=sys.stderr)
+
+    markdown = messages_to_markdown(title, url, messages)
+
+    if not output_path:
+        output_path = slugify(title)
+
+    with open(output_path, "w") as f:
+        f.write(markdown)
+
+    print(f"Archived {len(messages)} messages to {output_path}", file=sys.stderr)
+    print(output_path)
+
+
+if __name__ == "__main__":
+    main()
