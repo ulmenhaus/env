@@ -1,4 +1,4 @@
 #! /bin/bash
 
 # Change to the current directory inside a container
-docker run -it --rm -w $PWD -v $PWD:$PWD $@
+docker run -it --rm --network=bridge --security-opt=no-new-privileges --cap-drop=ALL --user $(id -u):$(id -g) -w $PWD -v $PWD:$PWD $@
