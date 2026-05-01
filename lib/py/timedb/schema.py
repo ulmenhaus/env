@@ -71,7 +71,7 @@ class Values(object):
     TowardsSomethingRegular = "something regular"
 
     ActionTrack = "Track"
-    DirectLifeEvents = "life events & practices"
+    DirectLifeEvents = "my life events & practices"
 
 
 def active_statuses():

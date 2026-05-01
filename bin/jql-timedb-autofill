@@ -5,7 +5,7 @@ import json
 import sys
 
 from jql import jql_pb2, macro
-from timedb import schema
+from timedb import cycles, schema
 from timedb.pks import pk_for_assertion, pk_for_task
 from timedb.virtual_gateway.common import list_rows_meta
 
@@ -280,6 +280,7 @@ class HabitModesV2(object):
         self._actions = None
         self.task_pk = None
         self.task_data = None
+        self.track_life_events_pk = None
 
     def _get_actions(self):
         if self._actions is None:
@@ -408,7 +409,9 @@ class HabitModesV2(object):
             if implements:
                 self._write_assertion('Implements', f"{schema.Tables.Tasks} {new_pk}", implements)
 
-    def regularity(self, freq=1, span='Day', sched=None, indirect='', selection=False):
+    def regularity(self, freq=1, span='Day', sched=None, indirect='', selection=False, adhoc=False):
+        track_with_life_events = adhoc  # when adhoc is true it implies this variable is true
+        consume_practice = adhoc  # when adhoc is true it implies this variable is true
         if selection:
             return
         today = datetime.date.today()
@@ -416,6 +419,21 @@ class HabitModesV2(object):
             return
         action = self.task_data['Action']
         direct = self.task_data['Direct']
+        primary_goal = self.track_life_events_pk if track_with_life_events else self.task_pk
+        practice_cmap = None
+        practice_entries = None
+        if consume_practice:
+            practice_resp = self.dbms.ListRows(jql_pb2.ListRowsRequest(
+                table='vt.practices',
+                conditions=[jql_pb2.Condition(requires=[
+                    jql_pb2.Filter(column=schema.Fields.Action, equal_match=jql_pb2.EqualMatch(value=action)),
+                    jql_pb2.Filter(column=schema.Fields.Direct, equal_match=jql_pb2.EqualMatch(value=direct)),
+                ])],
+            ))
+            if len(practice_resp.rows) != 1:
+                raise ValueError(f"Expected exactly 1 practice for {action}/{direct}, found {len(practice_resp.rows)}")
+            practice_cmap = {c.name: i for i, c in enumerate(practice_resp.columns)}
+            practice_entries = practice_resp.rows[0].entries
         datep = datetime.date.today()
         if span == 'Week':
             datep = datep - datetime.timedelta(days=int(datep.strftime('%w')))
@@ -428,16 +446,18 @@ class HabitModesV2(object):
             params = '{} of {}'.format(i + 1, freq)
             if freq == 1:
                 params = ''
-            self._write_task(self._new_task(
+            new_pk = self._write_task(self._new_task(
                 action=action,
                 direct=direct,
                 indirect=indirect,
                 param_date=(datep - datetime.date(1970, 1, 1)).days,
                 param_time=span,
                 params=params,
-                primary_goal=self.task_pk,
+                primary_goal=primary_goal,
                 status=schema.Values.StatusActive if span == 'Day' else schema.Values.StatusPlanned,
             ))
+            if consume_practice:
+                cycles.copy_attrs_to_task(self.dbms, practice_entries, practice_cmap, new_pk)
 
     def continuity(self, implements='', indirect=''):
         action = self.task_data['Action']
@@ -546,6 +566,19 @@ def main_v2():
     with macro.macro_interface(sys.stdin, sys.stdout) as iface:
         dbms = iface.get_dbms()
         modes = HabitModesV2(dbms)
+        track_resp = dbms.ListRows(jql_pb2.ListRowsRequest(
+            table=schema.Tables.Tasks,
+            conditions=[jql_pb2.Condition(requires=[
+                jql_pb2.Filter(column=schema.Fields.Action, equal_match=jql_pb2.EqualMatch(value=schema.Values.ActionTrack)),
+                jql_pb2.Filter(column=schema.Fields.Direct, equal_match=jql_pb2.EqualMatch(value=schema.Values.DirectLifeEvents)),
+                jql_pb2.Filter(column=schema.Fields.Indirect, equal_match=jql_pb2.EqualMatch(value='')),
+                jql_pb2.Filter(column=schema.Fields.Status, equal_match=jql_pb2.EqualMatch(value=schema.Values.StatusHabitual)),
+            ])],
+        ))
+        if len(track_resp.rows) != 1:
+            raise ValueError(f"Expected exactly 1 Track life events task but found {len(track_resp.rows)}")
+        track_primary, _ = list_rows_meta(track_resp)
+        modes.track_life_events_pk = track_resp.rows[0].entries[track_primary].formatted
         habit_mode_values = list(modes.locals().keys())
         resp = dbms.ListRows(jql_pb2.ListRowsRequest(
             table=schema.Tables.Tasks,

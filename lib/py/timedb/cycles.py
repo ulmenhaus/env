@@ -180,6 +180,31 @@ def _add_plan_for_task(dbms, table, pk):
     setter = pks.PKSetter(dbms)
     new_pk = setter.update_task(pk)
 
+def copy_attrs_to_task(dbms, row_entries, cmap, task_pk):
+    attrs = {
+        schema.Fields.Domain: row_entries[cmap[schema.Fields.Domain]].formatted,
+        schema.Fields.Motivation: row_entries[cmap[schema.Fields.Motivation]].formatted,
+        schema.Fields.Source: row_entries[cmap[schema.Fields.Source]].formatted,
+        schema.Fields.Towards: row_entries[cmap[schema.Fields.Towards]].formatted,
+        schema.Fields.Skillset: row_entries[cmap[schema.Fields.Skillset]].formatted,
+    }
+    if schema.Fields.Genre in cmap:
+        attrs[schema.Fields.Genre] = row_entries[cmap[schema.Fields.Genre]].formatted
+    for key, value in attrs.items():
+        fields = {
+            schema.Fields.Relation: f".{key}",
+            schema.Fields.Arg0: f"{schema.Tables.Tasks} {task_pk}",
+            schema.Fields.Arg1: value,
+            schema.Fields.Order: "0",
+        }
+        assn_pk = pks.pk_for_assertion(fields)
+        dbms.WriteRow(jql_pb2.WriteRowRequest(
+            table=schema.Tables.Assertions,
+            pk=assn_pk,
+            fields=fields,
+        ))
+
+
 def add_task_from_template(dbms, table, pk):
     if table == 'vt.habituals':
         return _add_plan_for_task(dbms, table, pk)
@@ -235,28 +260,4 @@ def add_task_from_template(dbms, table, pk):
     setter = pks.PKSetter(dbms)
     new_pk = setter.update_task(pk)
     
-    # finally add the attributes
-    attrs = {
-        schema.Fields.Domain: resp.row.entries[cmap[schema.Fields.Domain]].formatted,
-        schema.Fields.Motivation: resp.row.entries[cmap[schema.Fields.Motivation]].formatted,
-        schema.Fields.Source: resp.row.entries[cmap[schema.Fields.Source]].formatted,
-        schema.Fields.Towards: resp.row.entries[cmap[schema.Fields.Towards]].formatted,
-        schema.Fields.Skillset: resp.row.entries[cmap[schema.Fields.Skillset]].formatted,
-    }
-
-    if schema.Fields.Genre in cmap:
-        attrs[schema.Fields.Genre] = resp.row.entries[cmap[schema.Fields.Genre]].formatted
-
-    for key, value in attrs.items():
-        fields = {
-            schema.Fields.Relation: f".{key}",
-            schema.Fields.Arg0: f"{schema.Tables.Tasks} {new_pk}",
-            schema.Fields.Arg1: value,
-            schema.Fields.Order: "0",
-        }
-        assn_pk = pks.pk_for_assertion(fields)
-        dbms.WriteRow(jql_pb2.WriteRowRequest(
-            table=schema.Tables.Assertions,
-            pk=assn_pk,
-            fields=fields,
-        ))
+    copy_attrs_to_task(dbms, resp.row.entries, cmap, new_pk)
