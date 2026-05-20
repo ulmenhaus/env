@@ -62,10 +62,18 @@ func runDaemon(cfg *cli.JQLConfig, dbms api.JQL_DBMS) error {
 	if err != nil {
 		return fmt.Errorf("failed to listen: %v", err)
 	}
-	s := grpc.NewServer(
+	serverOpts := []grpc.ServerOption{
 		grpc.MaxSendMsgSize(cli.MaxPayloadSize),
 		grpc.MaxRecvMsgSize(cli.MaxPayloadSize),
-	)
+	}
+	tlsOpt, err := cfg.ServerCredentials()
+	if err != nil {
+		return err
+	}
+	if tlsOpt != nil {
+		serverOpts = append(serverOpts, tlsOpt)
+	}
+	s := grpc.NewServer(serverOpts...)
 	var backend jqlpb.JQLServer
 	backend = api.NewDBMSShim(dbms)
 	if cfg.VirtualGateway != "" {

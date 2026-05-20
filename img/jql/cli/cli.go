@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,6 +14,7 @@ import (
 	"github.com/ulmenhaus/env/img/jql/osm"
 	"github.com/ulmenhaus/env/proto/jql/jqlpb"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 )
 
 const (
@@ -36,6 +39,10 @@ type JQLConfig struct {
 	VirtualGateway string
 
 	PK string
+
+	TLSCert string
+	TLSKey  string
+	TLSCA   string
 
 	filters []string
 }
@@ -83,6 +90,9 @@ func (c *JQLConfig) Register(f *flag.FlagSet) {
 	f.StringVarP(&c.PK, "pk", "", "", "The primary key to initially select")
 	f.StringVarP(&c.VirtualGateway, "virtual-gateway", "", "", "The address where the virtual gateway runs")
 	f.StringArrayVarP(&c.filters, "filter", "", []string{}, "Add initial filters to the table")
+	f.StringVarP(&c.TLSCert, "tls-cert", "", "", "Path to TLS certificate file")
+	f.StringVarP(&c.TLSKey, "tls-key", "", "", "Path to TLS key file")
+	f.StringVarP(&c.TLSCA, "tls-ca", "", "", "Path to TLS CA certificate file")
 }
 
 func (c *JQLConfig) SwitchTool(tool, pk string, filters ...Filter) error {
@@ -92,6 +102,15 @@ func (c *JQLConfig) SwitchTool(tool, pk string, filters ...Filter) error {
 	}
 
 	args := []string{tool, "--mode", c.Mode, "--addr", c.Addr, "--path", c.Path, "--table", c.Table, "--pk", pk}
+	if c.TLSCert != "" {
+		args = append(args, "--tls-cert", c.TLSCert)
+	}
+	if c.TLSKey != "" {
+		args = append(args, "--tls-key", c.TLSKey)
+	}
+	if c.TLSCA != "" {
+		args = append(args, "--tls-ca", c.TLSCA)
+	}
 	for _, filter := range filters {
 		args = append(args, "--filter", fmt.Sprintf("%s=%s", filter.Key, filter.Value))
 	}
@@ -139,12 +158,20 @@ func (c *JQLConfig) InitDBMS() (api.JQL_DBMS, error) {
 		}
 		return dbms, err
 	case ModeClient:
-		conn, err := grpc.Dial(
-			c.Addr,
-			grpc.WithInsecure(),
+		dialOpts := []grpc.DialOption{
 			grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(MaxPayloadSize)),
 			grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(MaxPayloadSize)),
-		)
+		}
+		if c.TLSCert != "" {
+			creds, err := c.clientCredentials()
+			if err != nil {
+				return nil, err
+			}
+			dialOpts = append(dialOpts, grpc.WithTransportCredentials(creds))
+		} else {
+			dialOpts = append(dialOpts, grpc.WithInsecure())
+		}
+		conn, err := grpc.Dial(c.Addr, dialOpts...)
 		if err != nil {
 			return nil, err
 		}
@@ -152,6 +179,53 @@ func (c *JQLConfig) InitDBMS() (api.JQL_DBMS, error) {
 		return api.NewRemoteDBMS(c.Addr, jqlpb.NewJQLClient(conn)), nil
 	}
 	return nil, fmt.Errorf("Unknown mode")
+}
+
+// ServerCredentials returns a gRPC server option enforcing mTLS when TLS fields
+// are set: clients must present a certificate signed by the configured CA.
+// Returns nil, nil when TLS is not configured.
+func (c *JQLConfig) ServerCredentials() (grpc.ServerOption, error) {
+	if c.TLSCert == "" {
+		return nil, nil
+	}
+	cert, err := tls.LoadX509KeyPair(c.TLSCert, c.TLSKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load server cert/key: %w", err)
+	}
+	caCert, err := os.ReadFile(c.TLSCA)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read CA cert: %w", err)
+	}
+	caPool := x509.NewCertPool()
+	if !caPool.AppendCertsFromPEM(caCert) {
+		return nil, fmt.Errorf("failed to parse CA certificate")
+	}
+	tlsCfg := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		ClientAuth:   tls.RequireAndVerifyClientCert,
+		ClientCAs:    caPool,
+	}
+	return grpc.Creds(credentials.NewTLS(tlsCfg)), nil
+}
+
+func (c *JQLConfig) clientCredentials() (credentials.TransportCredentials, error) {
+	cert, err := tls.LoadX509KeyPair(c.TLSCert, c.TLSKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load client cert/key: %w", err)
+	}
+	caCert, err := os.ReadFile(c.TLSCA)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read CA cert: %w", err)
+	}
+	caPool := x509.NewCertPool()
+	if !caPool.AppendCertsFromPEM(caCert) {
+		return nil, fmt.Errorf("failed to parse CA certificate")
+	}
+	tlsCfg := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		RootCAs:      caPool,
+	}
+	return credentials.NewTLS(tlsCfg), nil
 }
 
 func (c *JQLConfig) GetFilters() []Filter {
