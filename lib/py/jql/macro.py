@@ -19,6 +19,20 @@ class MacroInterface(object):
             raise ValueError(
                 "Macro interface cannot have both snapshot and address set")
         if self.attrs["address"]:
+            tls_cert = self.attrs.get("tls_cert", "")
+            if tls_cert:
+                tls_key = self.attrs["tls_key"]
+                tls_ca = self.attrs["tls_ca"]
+                with open(tls_cert, 'rb') as f:
+                    cert = f.read()
+                with open(tls_key, 'rb') as f:
+                    key = f.read()
+                with open(tls_ca, 'rb') as f:
+                    ca = f.read()
+                creds = grpc.ssl_channel_credentials(
+                    root_certificates=ca, private_key=key, certificate_chain=cert)
+                return jql_pb2_grpc.JQLStub(
+                    grpc.secure_channel(self.attrs["address"], creds))
             return jql_pb2_grpc.JQLStub(
                 grpc.insecure_channel(self.attrs["address"]))
         elif self.attrs["snapshot"]:

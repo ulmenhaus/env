@@ -36,6 +36,9 @@ type MacroCurrentView struct {
 type MacroInterface struct {
 	Snapshot    string           `json:"snapshot"`
 	Address     string           `json:"address"`
+	TLSCert     string           `json:"tls_cert"`
+	TLSKey      string           `json:"tls_key"`
+	TLSCA       string           `json:"tls_ca"`
 	CurrentView MacroCurrentView `json:"current_view"`
 }
 
@@ -54,6 +57,9 @@ func RunMacro(ctx context.Context, dbms JQL_DBMS, command string, currentView Ma
 			input.Snapshot = string(snapResp.Snapshot)
 		case *RemoteDBMS:
 			input.Address = typed.Address
+			input.TLSCert = typed.TLSCert
+			input.TLSKey = typed.TLSKey
+			input.TLSCA = typed.TLSCA
 		default:
 			return nil, fmt.Errorf("Unknown dbms type for v2 macro: %T", dbms)
 		}

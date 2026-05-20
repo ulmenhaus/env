@@ -535,6 +535,9 @@ func GetDisplayValue(entry *jqlpb.Entry) string {
 type RemoteDBMS struct {
 	jqlpb.JQLClient
 	Address string
+	TLSCert string
+	TLSKey  string
+	TLSCA   string
 }
 
 func NewRemoteDBMS(addr string, client jqlpb.JQLClient) *RemoteDBMS {
