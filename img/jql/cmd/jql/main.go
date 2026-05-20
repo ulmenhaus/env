@@ -62,18 +62,18 @@ func runDaemon(cfg *cli.JQLConfig, dbms api.JQL_DBMS) error {
 	if err != nil {
 		return fmt.Errorf("failed to listen: %v", err)
 	}
-	serverOpts := []grpc.ServerOption{
+	sizeOpts := []grpc.ServerOption{
 		grpc.MaxSendMsgSize(cli.MaxPayloadSize),
 		grpc.MaxRecvMsgSize(cli.MaxPayloadSize),
 	}
+	tcpOpts := append([]grpc.ServerOption{}, sizeOpts...)
 	tlsOpt, err := cfg.ServerCredentials()
 	if err != nil {
 		return err
 	}
 	if tlsOpt != nil {
-		serverOpts = append(serverOpts, tlsOpt)
+		tcpOpts = append(tcpOpts, tlsOpt)
 	}
-	s := grpc.NewServer(serverOpts...)
 	var backend jqlpb.JQLServer
 	backend = api.NewDBMSShim(dbms)
 	if cfg.VirtualGateway != "" {
@@ -83,6 +83,18 @@ func runDaemon(cfg *cli.JQLConfig, dbms api.JQL_DBMS) error {
 		}
 		backend = api.NewRouter(backend, api.NewDBMSShim(gateway))
 	}
+	if cfg.ListenUnix != "" {
+		os.Remove(cfg.ListenUnix)
+		unixLis, err := net.Listen("unix", cfg.ListenUnix)
+		if err != nil {
+			return fmt.Errorf("failed to listen on unix socket: %v", err)
+		}
+		unixServer := grpc.NewServer(sizeOpts...)
+		jqlpb.RegisterJQLServer(unixServer, backend)
+		log.Printf("server additionally listening at unix://%v", cfg.ListenUnix)
+		go unixServer.Serve(unixLis)
+	}
+	s := grpc.NewServer(tcpOpts...)
 	jqlpb.RegisterJQLServer(s, backend)
 	log.Printf("server listening at %v", lis.Addr())
 	if err := s.Serve(lis); err != nil {

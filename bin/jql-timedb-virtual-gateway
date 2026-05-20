@@ -18,7 +18,7 @@ def cli():
 
 
 def main():
-    @click.option('--jql-target', type=click.STRING, default="localhost:9999")
+    @click.option('--jql-target', type=click.STRING, default="unix:///tmp/jql.sock")
     @click.option('--listen-addr', type=click.STRING, default="localhost:9998")
     def run(jql_target, listen_addr):
         logging.basicConfig(level=logging.DEBUG)
