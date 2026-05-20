@@ -82,6 +82,15 @@ class HabitualsBackend(jql_pb2_grpc.JQLServicer):
             return jql_pb2.IncrementEntryResponse()
         elif request.column in pk_map:
             assn_pk, current = pk_map[request.column][0]
+            if common.is_date_foreign(current):
+                new_value = common.increment_date_foreign(current, request.amount)
+                self.client.WriteRow(jql_pb2.WriteRowRequest(
+                    table=schema.Tables.Assertions,
+                    pk=assn_pk,
+                    fields={schema.Fields.Arg1: new_value},
+                    update_only=True,
+                ))
+                return jql_pb2.IncrementEntryResponse()
             values = VALUES[request.column]
             current_index = values.index(current) if current in values else 0
             next_value = values[(current_index + request.amount) % len(values)]

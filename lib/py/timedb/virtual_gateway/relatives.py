@@ -254,19 +254,29 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
         assn_pk, value = assn_pairs[0]
         if common.is_foreign(value):
             table, pk = common.parse_foreign(value)
-            if table != schema.Tables.Ratings:
-                raise ValueError("relatives table can only increment ratings")
-            num, denom = common.parse_rating(pk)
-            num = (num + request.amount) % (denom + 1)
-            self.client.WriteRow(
-                jql_pb2.WriteRowRequest(
-                    table=schema.Tables.Assertions,
-                    pk=assn_pk,
-                    fields={
-                        schema.Fields.Arg1: f"@{{{schema.Tables.Ratings} {num} {denom}}}"
-                    },
-                    update_only=True,
-                ))
+            if table == schema.Tables.Ratings:
+                num, denom = common.parse_rating(pk)
+                num = (num + request.amount) % (denom + 1)
+                self.client.WriteRow(
+                    jql_pb2.WriteRowRequest(
+                        table=schema.Tables.Assertions,
+                        pk=assn_pk,
+                        fields={
+                            schema.Fields.Arg1: f"@{{{schema.Tables.Ratings} {num} {denom}}}"
+                        },
+                        update_only=True,
+                    ))
+            elif table == schema.Tables.Dates:
+                new_value = common.increment_date_foreign(value, request.amount)
+                self.client.WriteRow(
+                    jql_pb2.WriteRowRequest(
+                        table=schema.Tables.Assertions,
+                        pk=assn_pk,
+                        fields={schema.Fields.Arg1: new_value},
+                        update_only=True,
+                    ))
+            else:
+                raise ValueError(f"relatives table cannot increment foreign key of type '{table}'")
         else:
             self.client.WriteRow(
                 jql_pb2.WriteRowRequest(

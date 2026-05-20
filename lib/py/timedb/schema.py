@@ -3,6 +3,7 @@ class Tables(object):
     Assertions = 'assertions'
     Attributes = "vt.attributes"
     Contexts = "contexts"
+    Dates = 'dates'
     Files = 'files'
     Nouns = 'nouns'
     Relatives = "vt.relatives"

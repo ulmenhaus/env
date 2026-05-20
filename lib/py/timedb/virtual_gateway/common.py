@@ -215,6 +215,23 @@ def parse_rating(pk):
     return map(int, pk.split(" "))
 
 
+_DATE_FORMAT = "%Y-%m-%d"
+
+
+def is_date_foreign(entry):
+    if not is_foreign(entry):
+        return False
+    table, _ = parse_foreign(entry)
+    return table == schema.Tables.Dates
+
+
+def increment_date_foreign(value, amount):
+    _, date_str = parse_foreign(value)
+    date = datetime.strptime(date_str, _DATE_FORMAT)
+    new_date = date + timedelta(days=amount)
+    return f"@{{{schema.Tables.Dates} {new_date.strftime(_DATE_FORMAT)}}}"
+
+
 def present_attrs(attrs):
     if len(attrs) == 0:
         return ""
