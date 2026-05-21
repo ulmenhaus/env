@@ -100,9 +100,9 @@ class RemindersBackend(jql_pb2_grpc.JQLServicer):
             if next_value == "Today":
                 self.client.WriteRow(jql_pb2.WriteRowRequest(
                     table=schema.Tables.Assertions,
-                    pk=str((".Entries", f"tasks {plan_pk}", arg0)),
+                    pk=str((".Entry", f"tasks {plan_pk}", arg0)),
                     fields={
-                        schema.Fields.Relation: ".Entries",
+                        schema.Fields.Relation: ".Entry",
                         schema.Fields.Arg0: f"tasks {plan_pk}",
                         schema.Fields.Arg1: f"@{{vt.reminders {arg0}}}",
                     },

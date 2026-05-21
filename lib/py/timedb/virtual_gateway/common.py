@@ -246,7 +246,7 @@ def get_day_plan_entry_refs(client, plan_pk):
             ),
             jql_pb2.Filter(
                 column=schema.Fields.Relation,
-                equal_match=jql_pb2.EqualMatch(value=".Entries"),
+                equal_match=jql_pb2.EqualMatch(value=".Entry"),
             ),
         ])],
     ))
