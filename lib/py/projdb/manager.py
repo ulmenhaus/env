@@ -30,7 +30,7 @@ class ProjectManager(object):
         ] for name, project in self._cache["projects"].items()]
         print(tabulate.tabulate(table))
 
-    def open_runner(self, timedb_path, bin_path):
+    def open_runner(self, timedb_path, bin_path, tls_cert="", tls_key="", tls_ca=""):
         """
         Opens the jql timedb runner with the project's desired
         """
@@ -41,6 +41,12 @@ class ProjectManager(object):
         ]
         if proj and proj["Default Resource Filter"]:
             args.extend(["--init-resource", proj["Default Resource Filter"]])
+        if tls_cert:
+            args.extend(["--tls-cert", tls_cert])
+        if tls_key:
+            args.extend(["--tls-key", tls_key])
+        if tls_ca:
+            args.extend(["--tls-ca", tls_ca])
         os.execvp("/usr/local/bin/runner", args)
 
     def _prompt_for_description(self):

@@ -215,6 +215,53 @@ def parse_rating(pk):
     return map(int, pk.split(" "))
 
 
+STATUS_VALUES = ["Awaiting", "Ready", "Done", "Elided", "Failed"]
+
+_STATUS_COLORS = {
+    "Awaiting": "\033[33m",
+    "Ready":    "\033[34m",
+    "Done":     "\033[32m",
+    "Elided":   "\033[31m",
+    "Failed":   "\033[31m",
+}
+_ANSI_RESET = "\033[0m"
+
+
+def colorize_status(status):
+    color = _STATUS_COLORS.get(status, "")
+    return f"{color}{status}{_ANSI_RESET}" if color else status
+
+
+def get_day_plan_entry_refs(client, plan_pk):
+    """Returns a dict mapping reminder arg0 -> entries assn_pk for all
+    reminders currently referenced in today's day plan."""
+    if plan_pk is None:
+        return {}
+    response = client.ListRows(jql_pb2.ListRowsRequest(
+        table=schema.Tables.Assertions,
+        conditions=[jql_pb2.Condition(requires=[
+            jql_pb2.Filter(
+                column=schema.Fields.Arg0,
+                equal_match=jql_pb2.EqualMatch(value=f"tasks {plan_pk}"),
+            ),
+            jql_pb2.Filter(
+                column=schema.Fields.Relation,
+                equal_match=jql_pb2.EqualMatch(value=".Entries"),
+            ),
+        ])],
+    ))
+    cmap = {c.name: i for i, c in enumerate(response.columns)}
+    primary = next(i for i, c in enumerate(response.columns) if c.primary)
+    entry_refs = {}
+    for row in response.rows:
+        value = row.entries[cmap[schema.Fields.Arg1]].formatted
+        if is_foreign(value):
+            tbl, fk_pk = parse_foreign(value)
+            if tbl == "vt.reminders":
+                entry_refs[fk_pk] = row.entries[primary].formatted
+    return entry_refs
+
+
 _DATE_FORMAT = "%Y-%m-%d"
 
 
@@ -467,6 +514,38 @@ def list_rows_meta(resp):
     primary, = [i for i, c in enumerate(resp.columns) if c.primary]
     cmap = {c.name: i for i, c in enumerate(resp.columns)}
     return primary, cmap
+
+
+def get_todays_day_plan(client):
+    """Returns the task PK of today's active day plan, or None if not found.
+
+    A day plan is a task with Action=Plan, Direct=today, Indirect='', Status=Active.
+    """
+    response = client.ListRows(jql_pb2.ListRowsRequest(
+        table=schema.Tables.Tasks,
+        conditions=[jql_pb2.Condition(requires=[
+            jql_pb2.Filter(
+                column=schema.Fields.Action,
+                equal_match=jql_pb2.EqualMatch(value="Plan"),
+            ),
+            jql_pb2.Filter(
+                column=schema.Fields.Direct,
+                equal_match=jql_pb2.EqualMatch(value="today"),
+            ),
+            jql_pb2.Filter(
+                column=schema.Fields.Indirect,
+                equal_match=jql_pb2.EqualMatch(value=""),
+            ),
+            jql_pb2.Filter(
+                column=schema.Fields.Status,
+                equal_match=jql_pb2.EqualMatch(value=schema.Values.StatusActive),
+            ),
+        ])],
+    ))
+    if not response.rows:
+        return None
+    primary, _ = list_rows_meta(response)
+    return response.rows[0].entries[primary].formatted
 
 
 class TimingInfo(object):

@@ -41,9 +41,12 @@ def main():
 
     @click.argument('timedb_path', type=click.STRING)
     @click.argument('bin_path', type=click.STRING)
-    def runner(timedb_path, bin_path):
+    @click.option('--tls-cert', type=click.STRING, default="")
+    @click.option('--tls-key', type=click.STRING, default="")
+    @click.option('--tls-ca', type=click.STRING, default="")
+    def runner(timedb_path, bin_path, tls_cert, tls_key, tls_ca):
         pm = ProjectManager(project=os.environ["TMUX_WINDOW_NAME"])
-        return pm.open_runner(timedb_path, bin_path)
+        return pm.open_runner(timedb_path, bin_path, tls_cert=tls_cert, tls_key=tls_key, tls_ca=tls_ca)
 
     project_group.command()(new)
     project_group.command()(ls)
