@@ -233,7 +233,7 @@ def colorize_status(status):
 
 
 def get_day_plan_entry_refs(client, plan_pk):
-    """Returns a dict mapping reminder arg0 -> entries assn_pk for all
+    """Returns a dict mapping reminder arg0 -> (assn_pk, order) for all
     reminders currently referenced in today's day plan."""
     if plan_pk is None:
         return {}
@@ -258,7 +258,9 @@ def get_day_plan_entry_refs(client, plan_pk):
         if is_foreign(value):
             tbl, fk_pk = parse_foreign(value)
             if tbl == "vt.reminders":
-                entry_refs[fk_pk] = row.entries[primary].formatted
+                assn_pk = row.entries[primary].formatted
+                order = row.entries[cmap[schema.Fields.Order]].formatted
+                entry_refs[fk_pk] = (assn_pk, order)
     return entry_refs
 
 

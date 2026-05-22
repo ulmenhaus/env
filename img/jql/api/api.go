@@ -515,6 +515,24 @@ func ParsePolyforeign(entry *jqlpb.Entry) (string, []string) {
 	return parts[0], []string{parts[1]}
 }
 
+// ParsePolyForeignStr parses a raw "table pk" string (without a wrapping Entry proto).
+func ParsePolyForeignStr(s string) (string, string) {
+	parts := strings.SplitN(s, " ", 2)
+	if len(parts) < 2 {
+		return "", ""
+	}
+	return parts[0], parts[1]
+}
+
+// ParseForeignKey extracts the table and PK from a timedb-style foreign key of the form @{table pk}.
+// Returns empty strings if s is not a valid foreign key.
+func ParseForeignKey(s string) (string, string) {
+	if !strings.HasPrefix(s, "@{") || !strings.HasSuffix(s, "}") {
+		return "", ""
+	}
+	return ParsePolyForeignStr(s[2 : len(s)-1])
+}
+
 func ParseLink(entry *jqlpb.Entry) (string, []string) {
 	formatted := entry.Link
 

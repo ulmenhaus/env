@@ -32,7 +32,7 @@ class ActiveRemindersBackend(jql_pb2_grpc.JQLServicer):
 
         # Query 3: get all reminder attributes
         attr_map, raw_assn_pks = common.get_fields_for_items(
-            self.client, "", reminder_arg0s)
+            self.client, "vt.reminders", reminder_arg0s)
 
         # Collect task PKs so we can batch-query their notes
         task_pks = []
@@ -56,6 +56,10 @@ class ActiveRemindersBackend(jql_pb2_grpc.JQLServicer):
             # Remap assertion relation names to display column names
             if "NextStep" in field_assn_pks:
                 field_assn_pks["Next Step"] = field_assn_pks.pop("NextStep")
+
+            # Encode entry assertion PK and order for Order column updates
+            entry_assn_pk, entry_order = entry_refs.get(arg0, ("", "0"))
+            field_assn_pks["A Order"] = [[entry_assn_pk, entry_order]]
 
             task_val = fields.get("Task", [""])[0]
             check_val = fields.get("Check", [""])[0]
@@ -90,6 +94,7 @@ class ActiveRemindersBackend(jql_pb2_grpc.JQLServicer):
                 "Next Step": fields.get("NextStep", []),
                 "Link": fields.get("Link", []),
                 "Parent Notes": parent_notes_display,
+                "A Order": [entry_order],
             }
 
         return common.list_rows("vt.active_reminders", entries, request, VALUES)
@@ -119,6 +124,19 @@ class ActiveRemindersBackend(jql_pb2_grpc.JQLServicer):
                         schema.Fields.Arg1: common.STATUS_VALUES[0],
                     },
                     insert_only=True,
+                ))
+        elif request.column == "A Order":
+            if "A Order" in pk_map:
+                assn_pk, current = pk_map["A Order"][0]
+                try:
+                    new_order = int(current) + request.amount
+                except (ValueError, TypeError):
+                    new_order = request.amount
+                self.client.WriteRow(jql_pb2.WriteRowRequest(
+                    table=schema.Tables.Assertions,
+                    pk=assn_pk,
+                    fields={schema.Fields.Order: str(new_order)},
+                    update_only=True,
                 ))
         else:
             raise ValueError("Cannot increment column", request.column)
@@ -178,6 +196,15 @@ class ActiveRemindersBackend(jql_pb2_grpc.JQLServicer):
                             schema.Fields.Arg1: value,
                         },
                         insert_only=True,
+                    ))
+            elif field == "A Order":
+                if "A Order" in pk_map:
+                    assn_pk, _ = pk_map["A Order"][0]
+                    self.client.WriteRow(jql_pb2.WriteRowRequest(
+                        table=schema.Tables.Assertions,
+                        pk=assn_pk,
+                        fields={schema.Fields.Order: value},
+                        update_only=True,
                     ))
             else:
                 raise ValueError("Cannot write column", field)

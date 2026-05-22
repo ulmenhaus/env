@@ -592,6 +592,10 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		err = mv.incrementSelected(1)
 	case 'I':
 		err = mv.incrementSelected(-1)
+	case 'J':
+		err = mv.moveRow(1)
+	case 'K':
+		err = mv.moveRow(-1)
 	case 's':
 		err = mv.saveContents()
 	case 'n':
@@ -975,6 +979,61 @@ func (mv *MainView) incrementSelected(amt int) error {
 		return err
 	}
 	return mv.updateTableViewContents(false)
+}
+
+func (mv *MainView) moveRow(delta int) error {
+	row, _ := mv.SelectedEntry()
+	neighbor := row + delta
+	if neighbor < 0 || neighbor >= len(mv.response.Rows) {
+		return nil
+	}
+	if mv.request.OrderBy == "" {
+		return fmt.Errorf("no sort column selected")
+	}
+	orderColIdx := api.IndexOfField(mv.response.Columns, mv.request.OrderBy)
+	if orderColIdx < 0 {
+		return fmt.Errorf("sort column %q not found", mv.request.OrderBy)
+	}
+	primaryIdx := api.GetPrimary(mv.response.Columns)
+	currentPK := mv.response.Rows[row].Entries[primaryIdx].Formatted
+	neighborPK := mv.response.Rows[neighbor].Entries[primaryIdx].Formatted
+	currentVal := mv.response.Rows[row].Entries[orderColIdx].Formatted
+	neighborVal := mv.response.Rows[neighbor].Entries[orderColIdx].Formatted
+
+	if _, err := strconv.Atoi(currentVal); err != nil {
+		return fmt.Errorf("sort column value %q is not an integer: %w", currentVal, err)
+	}
+	if _, err := strconv.Atoi(neighborVal); err != nil {
+		return fmt.Errorf("sort column value %q is not an integer: %w", neighborVal, err)
+	}
+
+	_, err := mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
+		Table:      mv.request.Table,
+		Pk:         currentPK,
+		Fields:     map[string]string{mv.request.OrderBy: neighborVal},
+		UpdateOnly: true,
+	})
+	if err != nil {
+		return err
+	}
+	_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
+		Table:      mv.request.Table,
+		Pk:         neighborPK,
+		Fields:     map[string]string{mv.request.OrderBy: currentVal},
+		UpdateOnly: true,
+	})
+	if err != nil {
+		return err
+	}
+	if err := mv.updateTableViewContents(false); err != nil {
+		return err
+	}
+	if delta > 0 {
+		mv.TableView.Move(DirectionDown)
+	} else {
+		mv.TableView.Move(DirectionUp)
+	}
+	return nil
 }
 
 func (mv *MainView) openCellInWindow() error {

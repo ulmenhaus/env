@@ -64,8 +64,9 @@ type MainView struct {
 	// today
 	cachedTodayTasks []string
 	today            []DayItem
-	today2item       map[string]DayItemMeta
+	today2item       map[string]DayItemMeta // keyed by reminderArg0
 	ix2item          map[int]DayItem
+	reminderCache    map[string]*reminderInfo // reminderArg0 → info
 
 	// state used for searching tasks
 	topicQ          string
@@ -73,9 +74,10 @@ type MainView struct {
 	filteredTasks   []string
 	queryCallback   func(taskPK string) error
 
-	// state used for querying for a new plan
-	newPlanTaskPK      string
-	newPlanDescription string
+	// state used for querying for a new plan / reminder
+	newPlanTaskPK              string
+	newPlanDescription         string
+	newReminderInsertAfterPK   string // .Entry assn PK of the item under cursor when 'i' was pressed
 
 	// state used for querying for a subset of plans
 	planSelections   []PlanSelectionItem
@@ -99,14 +101,25 @@ type MainView struct {
 }
 
 type DayItem struct {
-	Break       string
-	Description string
-	PK          string
+	Break        string
+	Description  string
+	PK           string
+	ReminderArg0 string // non-empty for reminder FK entries
 }
 
 type DayItemMeta struct {
 	TaskPK      string
 	AssertionPK string
+}
+
+// reminderInfo holds cached data for a reminder entity in the current day plan.
+type reminderInfo struct {
+	taskPK       string
+	taskArg0     string
+	checkText    string // empty for task-level reminders
+	description  string // checkText if set, else taskPK
+	status       string // raw status: Awaiting, Ready, Done, Elided, Failed
+	statusAssnPK string
 }
 
 type PlanSelectionItem struct {
@@ -220,7 +233,7 @@ func (mv *MainView) createNewPlanFromInput(g *gocui.Gui, v *gocui.View) error {
 		return err
 	}
 	mv.MainViewMode = MainViewModeListBar
-	err = mv.createNewPlan(g, mv.newPlanTaskPK, mv.newPlanDescription)
+	err = mv.createNewReminder(g, mv.newPlanTaskPK, mv.newPlanDescription)
 	if err != nil {
 		return err
 	}
@@ -229,6 +242,116 @@ func (mv *MainView) createNewPlanFromInput(g *gocui.Gui, v *gocui.View) error {
 	return nil
 }
 
+func (mv *MainView) createNewReminder(g *gocui.Gui, taskPK, checkText string) error {
+	dayPlan, err := mv.queryDayPlan()
+	if err != nil {
+		return err
+	}
+	if dayPlan == nil {
+		return nil
+	}
+	tasksTable := mv.tables[TableTasks]
+	dayPlanPK := dayPlan.Entries[api.GetPrimary(tasksTable.Columns)].Formatted
+
+	// Write .Check assertion on the task
+	checkPK := fmt.Sprintf("%d", rand.Int63())
+	_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
+		Table:      TableAssertions,
+		Pk:         checkPK,
+		InsertOnly: true,
+		Fields: map[string]string{
+			FieldARelation: ".Check",
+			FieldArg0:      fmt.Sprintf("tasks %s", taskPK),
+			FieldArg1:      checkText,
+		},
+	})
+	if err != nil {
+		return err
+	}
+
+	// Determine insertion order: after the cursor item or at the end
+	insertOrder, err := mv.resolveInsertOrder(dayPlanPK)
+	if err != nil {
+		return err
+	}
+	mv.newReminderInsertAfterPK = ""
+
+	todayStr := time.Now().Format("2006-01-02")
+	if err = mv.createReminderEntity(dayPlanPK, taskPK, checkText, todayStr, insertOrder); err != nil {
+		return err
+	}
+	err = mv.save()
+	if err != nil {
+		return err
+	}
+	return mv.refreshView(g)
+}
+
+// resolveInsertOrder returns the Order to use for a new .Entry assertion.
+// If newReminderInsertAfterPK is set, it shifts subsequent entries and returns
+// insertAfterOrder+1. Otherwise it returns maxOrder+1.
+func (mv *MainView) resolveInsertOrder(dayPlanPK string) (int, error) {
+	// Query all .Entry assertions sorted by order
+	resp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
+		Table: TableAssertions,
+		Conditions: []*jqlpb.Condition{{
+			Requires: []*jqlpb.Filter{
+				{Column: FieldArg0, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: fmt.Sprintf("tasks %s", dayPlanPK)}}},
+				{Column: FieldARelation, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Entry"}}},
+			},
+		}},
+		OrderBy: FieldOrder,
+	})
+	if err != nil {
+		return 0, err
+	}
+	assnTable := mv.tables[TableAssertions]
+	if len(resp.Rows) == 0 {
+		return 0, nil
+	}
+
+	if mv.newReminderInsertAfterPK == "" {
+		// Append to end
+		lastOrder, _ := strconv.Atoi(resp.Rows[len(resp.Rows)-1].Entries[api.IndexOfField(assnTable.Columns, FieldOrder)].Formatted)
+		return lastOrder + 1, nil
+	}
+
+	// Find the insertion point and shift subsequent entries
+	insertAfterOrder := -1
+	for _, row := range resp.Rows {
+		pk := row.Entries[api.GetPrimary(assnTable.Columns)].Formatted
+		if pk == mv.newReminderInsertAfterPK {
+			insertAfterOrder, _ = strconv.Atoi(row.Entries[api.IndexOfField(assnTable.Columns, FieldOrder)].Formatted)
+			break
+		}
+	}
+	if insertAfterOrder == -1 {
+		// Fallback: append to end
+		lastOrder, _ := strconv.Atoi(resp.Rows[len(resp.Rows)-1].Entries[api.IndexOfField(assnTable.Columns, FieldOrder)].Formatted)
+		return lastOrder + 1, nil
+	}
+
+	// Shift entries with order > insertAfterOrder upward (in reverse to avoid collisions)
+	for i := len(resp.Rows) - 1; i >= 0; i-- {
+		row := resp.Rows[i]
+		ord, _ := strconv.Atoi(row.Entries[api.IndexOfField(assnTable.Columns, FieldOrder)].Formatted)
+		if ord > insertAfterOrder {
+			pk := row.Entries[api.GetPrimary(assnTable.Columns)].Formatted
+			_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
+				UpdateOnly: true,
+				Table:      TableAssertions,
+				Pk:         pk,
+				Fields:     map[string]string{FieldOrder: fmt.Sprintf("%d", ord+1)},
+			})
+			if err != nil {
+				return 0, err
+			}
+		}
+	}
+	return insertAfterOrder + 1, nil
+}
+
+// TODO: createNewPlan can be deleted once substitutePlanSelectionsForTask migrates to the new assertion-based reminder model.
 func (mv *MainView) createNewPlan(g *gocui.Gui, taskPK, description string) error {
 	assnTable := mv.tables[TableAssertions]
 	newOrder := 0
@@ -273,6 +396,7 @@ func (mv *MainView) createNewPlan(g *gocui.Gui, taskPK, description string) erro
 	return mv.refreshView(g)
 }
 
+// TODO: insertDayPlan can be deleted once wrapTaskInRamps and substitute flows migrate to the new assertion-based reminder model.
 func (mv *MainView) insertDayPlan(g *gocui.Gui, description string, delta int) error {
 	assnTable := mv.tables[TableAssertions]
 	tasksTable := mv.tables[TableTasks]
@@ -510,7 +634,7 @@ func (mv *MainView) tabulatedTasks(g *gocui.Gui, v *gocui.View) ([]string, error
 		mv.cachedTodayTasks = today
 		if mv.preselectTask != "" {
 			for i, item := range mv.ix2item {
-				if isAssertionDayPlan(item.Description) && stripDayPlanPrefix(item.Description) == mv.preselectTask {
+				if info, ok := mv.reminderCache[item.ReminderArg0]; ok && info.taskPK == mv.preselectTask {
 					err = v.SetCursor(0, i)
 					if err != nil {
 						return nil, err
@@ -569,10 +693,12 @@ func (mv *MainView) todayBreakdown() ([]DayItem, error) {
 		// cycle if this is a one-off or we can't find its primary for some
 		// reason
 		brk := item.Description
-		meta := mv.today2item[stripDayPlanPrefix(item.Description)]
+		meta := mv.today2item[item.ReminderArg0]
 		taskPK := meta.TaskPK
 		if taskPK == "" {
-			taskPK = stripDayPlanPrefix(item.Description)
+			if info, ok := mv.reminderCache[item.ReminderArg0]; ok {
+				taskPK = info.taskPK
+			}
 		}
 		resp, err := mv.dbms.GetRow(ctx, &jqlpb.GetRowRequest{
 			Table: TableTasks,
@@ -809,9 +935,9 @@ func (mv *MainView) setTaskList(g *gocui.Gui, v *gocui.View) error {
 	ix := oy + cy
 	currentPK := ""
 	item, ok := mv.ix2item[ix]
-	if ok {
-		if meta, ok := mv.today2item[item.Description]; ok {
-			currentPK = meta.TaskPK
+	if ok && item.ReminderArg0 != "" {
+		if info, ok := mv.reminderCache[item.ReminderArg0]; ok {
+			currentPK = info.taskPK
 		}
 	}
 	inProgress, err := mv.queryInProgressTasks(currentPK)
@@ -827,6 +953,14 @@ func (mv *MainView) setTaskList(g *gocui.Gui, v *gocui.View) error {
 }
 
 func (mv *MainView) insertNewPlan(g *gocui.Gui, v *gocui.View) error {
+	_, oy := v.Origin()
+	_, cy := v.Cursor()
+	ix := oy + cy
+	if item, ok := mv.ix2item[ix]; ok {
+		mv.newReminderInsertAfterPK = item.PK
+	} else {
+		mv.newReminderInsertAfterPK = ""
+	}
 	err := mv.setTaskList(g, v)
 	if err != nil {
 		return err
@@ -1105,12 +1239,12 @@ func (mv *MainView) ResolveSelectedPK(g *gocui.Gui) (string, error) {
 		if !ok {
 			return "", fmt.Errorf("index beyond bounds: %d", ix)
 		}
-		strippedDescription := stripDayPlanPrefix(item.Description)
-		meta, ok := mv.today2item[strippedDescription]
-		if !ok {
-			return strippedDescription, nil
+		if item.ReminderArg0 != "" {
+			if info, ok := mv.reminderCache[item.ReminderArg0]; ok && info.taskPK != "" {
+				return info.taskPK, nil
+			}
 		}
-		return meta.TaskPK, nil
+		return stripDayPlanPrefix(item.Description), nil
 	} else {
 		tasksTable := mv.tables[TableTasks]
 		selectedTask := mv.tasks[mv.span][ix]
@@ -1253,6 +1387,8 @@ func (mv *MainView) refreshWeeklyDisplays() error {
 
 func (mv *MainView) refreshToday() error {
 	mv.today = []DayItem{}
+	mv.reminderCache = map[string]*reminderInfo{}
+	mv.today2item = map[string]DayItemMeta{}
 
 	today, err := mv.queryDayPlan()
 	if err != nil {
@@ -1263,41 +1399,124 @@ func (mv *MainView) refreshToday() error {
 	}
 	assnTable := mv.tables[TableAssertions]
 	tasksTable := mv.tables[TableTasks]
+	dayPlanArg0 := fmt.Sprintf("tasks %s", today.Entries[api.GetPrimary(tasksTable.Columns)].Formatted)
+
 	resp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
 		Table: TableAssertions,
-		Conditions: []*jqlpb.Condition{
-			{
-				Requires: []*jqlpb.Filter{
-					{
-						Column: FieldArg0,
-						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: fmt.Sprintf("tasks %s", today.Entries[api.GetPrimary(tasksTable.Columns)].Formatted)}},
-					},
-					{
-						Column: FieldARelation,
-						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Do Today"}},
-					},
-				},
+		Conditions: []*jqlpb.Condition{{
+			Requires: []*jqlpb.Filter{
+				{Column: FieldArg0, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: dayPlanArg0}}},
+				{Column: FieldARelation, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Entry"}}},
 			},
-		},
+		}},
 		OrderBy: FieldOrder,
 	})
-	currentBreak := ""
-	for _, row := range resp.Rows {
-		val := row.Entries[api.IndexOfField(assnTable.Columns, FieldArg1)].Formatted
-		if !strings.HasPrefix(val, "[") {
-			currentBreak = val
-			continue
-		}
-		mv.today = append(mv.today, DayItem{
-			Description: val,
-			Break:       currentBreak,
-			PK:          row.Entries[api.GetPrimary(assnTable.Columns)].Formatted,
-		})
-	}
-
-	err = mv.refreshToday2Item()
 	if err != nil {
 		return err
+	}
+
+	const reminderFKPrefix = "@{vt.reminders "
+	var reminderArg0s []string
+	reminderArg02EntryPK := map[string]string{}
+
+	// First pass: collect reminder arg0s and entry assertion PKs
+	for _, row := range resp.Rows {
+		arg1 := row.Entries[api.IndexOfField(assnTable.Columns, FieldArg1)].Formatted
+		entryPK := row.Entries[api.GetPrimary(assnTable.Columns)].Formatted
+		if strings.HasPrefix(arg1, reminderFKPrefix) && strings.HasSuffix(arg1, "}") {
+			arg0 := arg1[len(reminderFKPrefix) : len(arg1)-1]
+			reminderArg0s = append(reminderArg0s, arg0)
+			reminderArg02EntryPK[arg0] = entryPK
+		}
+	}
+
+	// Batch-query all attributes for these reminders
+	if len(reminderArg0s) > 0 {
+		queryArg0s := make([]string, len(reminderArg0s))
+		for i, arg0 := range reminderArg0s {
+			queryArg0s[i] = fmt.Sprintf("vt.reminders %s", arg0)
+		}
+		attrResp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
+			Table: TableAssertions,
+			Conditions: []*jqlpb.Condition{{
+				Requires: []*jqlpb.Filter{
+					{Column: FieldArg0, Match: &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: queryArg0s}}},
+				},
+			}},
+		})
+		if err != nil {
+			return err
+		}
+		attrs := map[string]map[string]string{}
+		assnPKs := map[string]map[string]string{}
+		for _, row := range attrResp.Rows {
+			arg0 := strings.TrimPrefix(row.Entries[api.IndexOfField(attrResp.Columns, FieldArg0)].Formatted, "vt.reminders ")
+			rel := strings.TrimPrefix(row.Entries[api.IndexOfField(attrResp.Columns, FieldARelation)].Formatted, ".")
+			val := row.Entries[api.IndexOfField(attrResp.Columns, FieldArg1)].Formatted
+			pk := row.Entries[api.GetPrimary(attrResp.Columns)].Formatted
+			if attrs[arg0] == nil {
+				attrs[arg0] = map[string]string{}
+				assnPKs[arg0] = map[string]string{}
+			}
+			attrs[arg0][rel] = val
+			assnPKs[arg0][rel] = pk
+		}
+		for _, arg0 := range reminderArg0s {
+			a := attrs[arg0]
+			taskRef := a["Task"]
+			checkText := a["Check"]
+			status := a["Status"]
+			taskPK := ""
+			taskArg0 := ""
+			if table, pk := api.ParseForeignKey(taskRef); table == TableTasks {
+				taskPK = pk
+				taskArg0 = "tasks " + pk
+			} else if strings.HasPrefix(taskRef, "tasks ") {
+				taskPK = taskRef[len("tasks "):]
+				taskArg0 = taskRef
+			}
+			desc := checkText
+			if desc == "" {
+				desc = taskPK
+			}
+			mv.reminderCache[arg0] = &reminderInfo{
+				taskPK:       taskPK,
+				taskArg0:     taskArg0,
+				checkText:    checkText,
+				description:  desc,
+				status:       status,
+				statusAssnPK: assnPKs[arg0]["Status"],
+			}
+		}
+	}
+
+	// Second pass: build DayItems in order, preserving break structure
+	currentBreak := ""
+	for _, row := range resp.Rows {
+		arg1 := row.Entries[api.IndexOfField(assnTable.Columns, FieldArg1)].Formatted
+		if strings.HasPrefix(arg1, reminderFKPrefix) && strings.HasSuffix(arg1, "}") {
+			arg0 := arg1[len(reminderFKPrefix) : len(arg1)-1]
+			info, ok := mv.reminderCache[arg0]
+			if !ok {
+				continue
+			}
+			prefix := "[ ]"
+			switch info.status {
+			case "Done":
+				prefix = "[x]"
+			case "Failed", "Elided":
+				prefix = "[-]"
+			}
+			mv.today = append(mv.today, DayItem{
+				Break:        currentBreak,
+				Description:  fmt.Sprintf("%s %s", prefix, info.description),
+				PK:           reminderArg02EntryPK[arg0],
+				ReminderArg0: arg0,
+			})
+			mv.today2item[arg0] = DayItemMeta{TaskPK: info.taskPK}
+		} else {
+			currentBreak = arg1
+		}
 	}
 	return nil
 }
@@ -1517,6 +1736,7 @@ func (mv *MainView) queryYesterday() (*jqlpb.Row, error) {
 	return resp.Rows[1], nil
 }
 
+// TODO: queryExistingTasks can be deleted once all flows migrate to the new assertion-based reminder model.
 func (mv *MainView) queryExistingTasks(planPK string) (map[string]bool, error) {
 	assnTable := mv.tables[TableAssertions]
 	resp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
@@ -1546,6 +1766,7 @@ func (mv *MainView) queryExistingTasks(planPK string) (map[string]bool, error) {
 	return existing, nil
 }
 
+// TODO: copyOldTasks can be deleted once all flows migrate to the new assertion-based reminder model.
 func (mv *MainView) copyOldTasks() error {
 	tasksTable := mv.tables[TableTasks]
 	assnTable := mv.tables[TableAssertions]
@@ -1631,6 +1852,7 @@ func (mv *MainView) copyOldTasks() error {
 	return mv.save()
 }
 
+// TODO: refreshToday2Item can be deleted once all flows migrate to the new assertion-based reminder model.
 func (mv *MainView) refreshToday2Item() error {
 	possibleTaskPKs := []string{}
 	activeAndHabitual, err := mv.queryActiveAndHabitualTasks()
@@ -1707,6 +1929,7 @@ func (mv *MainView) refreshToday2Item() error {
 	return nil
 }
 
+// TODO: queryPossibleDayPlanAdditions can be deleted once all flows migrate to the new assertion-based reminder model.
 func (mv *MainView) queryPossibleDayPlanAdditions() ([]string, error) {
 	tasksTable := mv.tables[TableTasks]
 	assnTable := mv.tables[TableAssertions]
@@ -1753,65 +1976,174 @@ func (mv *MainView) queryPossibleDayPlanAdditions() ([]string, error) {
 }
 
 func (mv *MainView) insertNewTasks() error {
-	tasksTable := mv.tables[TableTasks]
-
-	descriptions, err := mv.queryPossibleDayPlanAdditions()
-	if err != nil {
-		return err
-	}
 	dayPlan, err := mv.queryDayPlan()
-	if err != nil {
+	if err != nil || dayPlan == nil {
 		return err
 	}
-	if dayPlan == nil {
-		return nil
-	}
+	tasksTable := mv.tables[TableTasks]
 	dayPlanPK := dayPlan.Entries[api.GetPrimary(tasksTable.Columns)].Formatted
-	existingTasks, err := mv.queryExistingTasks(dayPlanPK)
+
+	activeAndHabitual, err := mv.queryActiveAndHabitualTasks()
 	if err != nil {
 		return err
 	}
 
-	for ix, desc := range descriptions {
-		if existingTasks[desc] {
+	allPKs := []string{}
+	activePKs := map[string]bool{}
+	for _, task := range activeAndHabitual.Rows {
+		if mv.isTaskDayPlan(task) {
 			continue
 		}
-		// pk doesn't really matter here so using a random integer
-		pk := fmt.Sprintf("%d", rand.Int63())
-		fields := map[string]string{
-			FieldArg0:      fmt.Sprintf("tasks %s", dayPlanPK),
-			FieldArg1:      desc,
-			FieldARelation: ".To Plan", // In a breakdown of Do Today, Do Tomorrow, & To Plan we add to the end
-			FieldOrder:     fmt.Sprintf("%d", ix+len(existingTasks)),
+		pk := task.Entries[api.GetPrimary(tasksTable.Columns)].Formatted
+		status := task.Entries[api.IndexOfField(tasksTable.Columns, FieldStatus)].Formatted
+		allPKs = append(allPKs, pk)
+		if status == StatusActive {
+			activePKs[pk] = true
 		}
-		_, err := mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
-			Table:  TableAssertions,
-			Pk:     pk,
-			Fields: fields,
+	}
+
+	// Query .Check assertions on all active/habitual tasks
+	arg0s := make([]string, len(allPKs))
+	for i, pk := range allPKs {
+		arg0s[i] = fmt.Sprintf("tasks %s", pk)
+	}
+	var checksResp *jqlpb.ListRowsResponse
+	if len(arg0s) > 0 {
+		checksResp, err = mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
+			Table: TableAssertions,
+			Conditions: []*jqlpb.Condition{{
+				Requires: []*jqlpb.Filter{
+					{Column: FieldArg0, Match: &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: arg0s}}},
+					{Column: FieldARelation, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Check"}}},
+				},
+			}},
 		})
 		if err != nil {
 			return err
 		}
 	}
+
+	// Build set of existing reminders in today's plan (taskPK + checkText)
+	existingReminders := map[string]bool{}
+	for _, info := range mv.reminderCache {
+		existingReminders[info.taskPK+"\x00"+info.checkText] = true
+	}
+
+	todayStr := time.Now().Format("2006-01-02")
+
+	// Find max order of existing .Entry assertions so new ones go at the end
+	nextOrder, err := mv.maxEntryOrder(dayPlanPK)
+	if err != nil {
+		return err
+	}
+	nextOrder++
+
+	// Create task-level reminders for active tasks not already in plan
+	for _, pk := range allPKs {
+		if !activePKs[pk] {
+			continue
+		}
+		if existingReminders[pk+"\x00"] {
+			continue
+		}
+		if err = mv.createReminderEntity(dayPlanPK, pk, "", todayStr, nextOrder); err != nil {
+			return err
+		}
+		nextOrder++
+		existingReminders[pk+"\x00"] = true
+	}
+
+	// Create check-level reminders for checks not already in plan
+	if checksResp != nil {
+		assnTable := mv.tables[TableAssertions]
+		for _, row := range checksResp.Rows {
+			arg0 := row.Entries[api.IndexOfField(assnTable.Columns, FieldArg0)].Formatted
+			checkText := row.Entries[api.IndexOfField(assnTable.Columns, FieldArg1)].Formatted
+			taskPK := strings.TrimPrefix(arg0, "tasks ")
+			// Skip checks with bracket prefixes (tracked separately per design)
+			if len(checkText) >= 4 && checkText[0] == '[' && checkText[2] == ']' && checkText[3] == ' ' {
+				continue
+			}
+			key := taskPK + "\x00" + checkText
+			if existingReminders[key] {
+				continue
+			}
+			if err = mv.createReminderEntity(dayPlanPK, taskPK, checkText, todayStr, nextOrder); err != nil {
+				return err
+			}
+			nextOrder++
+			existingReminders[key] = true
+		}
+	}
 	return mv.save()
 }
 
+// maxEntryOrder returns the highest Order value among .Entry assertions on the given day plan.
+func (mv *MainView) maxEntryOrder(dayPlanPK string) (int, error) {
+	resp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
+		Table: TableAssertions,
+		Conditions: []*jqlpb.Condition{{
+			Requires: []*jqlpb.Filter{
+				{Column: FieldArg0, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: fmt.Sprintf("tasks %s", dayPlanPK)}}},
+				{Column: FieldARelation, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Entry"}}},
+			},
+		}},
+		OrderBy: FieldOrder,
+		Dec:     true,
+		Limit:   1,
+	})
+	if err != nil {
+		return 0, err
+	}
+	if len(resp.Rows) == 0 {
+		return 0, nil
+	}
+	assnTable := mv.tables[TableAssertions]
+	orderStr := resp.Rows[0].Entries[api.IndexOfField(assnTable.Columns, FieldOrder)].Formatted
+	maxOrd, _ := strconv.Atoi(orderStr)
+	return maxOrd, nil
+}
+
+func (mv *MainView) createReminderEntity(dayPlanPK, taskPK, checkText, targetDate string, entryOrder int) error {
+	reminderArg0 := fmt.Sprintf("%d", rand.Int63())
+	reminderRef := fmt.Sprintf("vt.reminders %s", reminderArg0)
+	assns := []map[string]string{
+		{FieldARelation: ".Status", FieldArg0: reminderRef, FieldArg1: "Awaiting"},
+		{FieldARelation: ".Task", FieldArg0: reminderRef, FieldArg1: fmt.Sprintf("@{tasks %s}", taskPK)},
+		{FieldARelation: ".TargetDate", FieldArg0: reminderRef, FieldArg1: fmt.Sprintf("@{dates %s}", targetDate)},
+	}
+	if checkText != "" {
+		assns = append(assns, map[string]string{FieldARelation: ".Check", FieldArg0: reminderRef, FieldArg1: checkText})
+	}
+	for _, fields := range assns {
+		pk := fmt.Sprintf("%d", rand.Int63())
+		_, err := mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
+			Table:      TableAssertions,
+			Pk:         pk,
+			InsertOnly: true,
+			Fields:     fields,
+		})
+		if err != nil {
+			return err
+		}
+	}
+	entryPK := fmt.Sprintf("%d", rand.Int63())
+	_, err := mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
+		Table:      TableAssertions,
+		Pk:         entryPK,
+		InsertOnly: true,
+		Fields: map[string]string{
+			FieldARelation: ".Entry",
+			FieldArg0:      fmt.Sprintf("tasks %s", dayPlanPK),
+			FieldArg1:      fmt.Sprintf("@{vt.reminders %s}", reminderArg0),
+			FieldOrder:     fmt.Sprintf("%d", entryOrder),
+		},
+	})
+	return err
+}
+
 func (mv *MainView) refreshTasks(g *gocui.Gui, v *gocui.View) error {
-	// TODO(rabrams) this whole sequence is pretty inefficient. It involves multiple redundant
-	// O(n) operations plus loading and re-loading the data.
-	_, err := api.RunMacro(ctx, mv.dbms, "jql-timedb-autofill --v2", api.MacroCurrentView{}, true)
-	if err != nil {
-		return err
-	}
-	err = mv.load(g)
-	if err != nil {
-		return err
-	}
-	err = mv.copyOldTasks()
-	if err != nil {
-		return err
-	}
-	err = mv.load(g)
+	err := mv.load(g)
 	if err != nil {
 		return err
 	}
@@ -1838,67 +2170,47 @@ func (mv *MainView) markTask(g *gocui.Gui, v *gocui.View, status string) error {
 	}
 	_, oy := tasksView.Origin()
 	_, cy := tasksView.Cursor()
-
 	ix := oy + cy
 	if ix >= len(mv.cachedTodayTasks) {
 		return nil
 	}
-	// this is a bit of a hack since the today view can present tasks in different trees
-	// so we ony want to mark the selection if it actually is a task and clear any prefixes
-	selection := strings.TrimLeft(mv.cachedTodayTasks[ix], " ")
-	if !strings.HasPrefix(selection, "[") {
+	item, ok := mv.ix2item[ix]
+	if !ok || item.ReminderArg0 == "" {
 		return nil
 	}
-
-	newVal := strings.Replace(selection, "[ ]", "[-]", 1)
-	if status == StatusSatisfied {
-		newVal = strings.Replace(selection, "[ ]", "[x]", 1)
-	}
-	// TODO(rabrams) this code predates having ix2item. See if it can be cleaned up with it.
-	for _, item := range mv.today {
-		if item.Description != selection {
-			continue
-		}
-		_, err := mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
-			UpdateOnly: true,
-			Table:      TableAssertions,
-			Pk:         item.PK,
-			Fields:     map[string]string{FieldArg1: newVal},
-		})
-		if err != nil {
-			return err
-		}
-	}
-
-	meta, ok := mv.today2item[stripDayPlanPrefix(selection)]
+	info, ok := mv.reminderCache[item.ReminderArg0]
 	if !ok {
-		// Likely a one-off task in our plan so has no source to update
 		return nil
 	}
-
-	if meta.AssertionPK != "" {
-		_, err := mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
+	reminderStatus := "Awaiting"
+	if status == StatusSatisfied {
+		reminderStatus = "Done"
+	} else if status == StatusFailed || status == StatusAbandoned {
+		reminderStatus = "Failed"
+	}
+	if info.statusAssnPK != "" {
+		_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
 			UpdateOnly: true,
 			Table:      TableAssertions,
-			Pk:         meta.AssertionPK,
-			Fields:     map[string]string{FieldArg1: newVal},
+			Pk:         info.statusAssnPK,
+			Fields:     map[string]string{FieldArg1: reminderStatus},
 		})
-		if err != nil {
-			return err
-		}
-	} else if meta.TaskPK != "" {
-		_, err := mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
-			UpdateOnly: true,
-			Table:      TableTasks,
-			Pk:         meta.TaskPK,
-			Fields:     map[string]string{FieldStatus: status},
+	} else {
+		pk := fmt.Sprintf("%d", rand.Int63())
+		_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
+			InsertOnly: true,
+			Table:      TableAssertions,
+			Pk:         pk,
+			Fields: map[string]string{
+				FieldARelation: ".Status",
+				FieldArg0:      fmt.Sprintf("vt.reminders %s", item.ReminderArg0),
+				FieldArg1:      reminderStatus,
+			},
 		})
-		if err != nil {
-			return err
-		}
 	}
-	// Sadly no support for unmarking a task because by this point we've lost the context
-	// on where the task came from. You have to manually unmark it.
+	if err != nil {
+		return err
+	}
 	err = mv.save()
 	if err != nil {
 		return err
@@ -1911,7 +2223,7 @@ func (mv *MainView) markTask(g *gocui.Gui, v *gocui.View, status string) error {
 	if err != nil {
 		return err
 	}
-	err = mv.possiblyPromptForNextNounState(meta.TaskPK)
+	err = mv.possiblyPromptForNextNounState(info.taskPK)
 	if err != nil {
 		return err
 	}
@@ -2081,24 +2393,48 @@ func (mv *MainView) InjectTaskWithAllMatching(g *gocui.Gui, v *gocui.View, match
 		pk := row.Entries[api.GetPrimary(mv.tables[TableTasks].Columns)].Formatted
 		descPKs = append(descPKs, pk)
 	}
-	alreadyPresent, err := mv.queryPresentAndFutureDayPlanNames()
-	if err != nil {
-		return 0, nil
+	// Build set of task PKs already in today's plan from reminder cache
+	alreadyPresent := map[string]bool{}
+	for _, info := range mv.reminderCache {
+		if info.taskPK != "" && info.checkText == "" {
+			alreadyPresent[info.taskPK] = true
+		}
 	}
+
+	dayPlan, err := mv.queryDayPlan()
+	if err != nil || dayPlan == nil {
+		return 0, err
+	}
+	dayPlanPK := dayPlan.Entries[api.GetPrimary(tasksTable.Columns)].Formatted
+	todayStr := time.Now().Format("2006-01-02")
+
+	nextOrder, err := mv.maxEntryOrder(dayPlanPK)
+	if err != nil {
+		return 0, err
+	}
+	nextOrder++
+
 	added := 0
 	for _, descPK := range descPKs {
 		if alreadyPresent[descPK] {
 			continue
 		}
-		err := mv.insertDayPlan(g, descPK, 0)
+		err := mv.createReminderEntity(dayPlanPK, descPK, "", todayStr, nextOrder)
 		if err != nil {
 			return added, err
 		}
+		nextOrder++
 		added += 1
+	}
+	if added > 0 {
+		if err = mv.save(); err != nil {
+			return added, err
+		}
 	}
 	return added, mv.refreshView(g)
 }
 
+// TODO: queryPresentAndFutureDayPlanNames can be deleted once all flows migrate to the new assertion-based reminder model.
 func (mv *MainView) queryPresentAndFutureDayPlanNames() (map[string]bool, error) {
 	today, err := mv.queryDayPlan()
 	if err != nil {
@@ -2142,13 +2478,12 @@ func (mv *MainView) substituteTaskWithPrompt(g *gocui.Gui, v *gocui.View) error 
 	_, cy := v.Cursor()
 	ix := oy + cy
 	item := mv.ix2item[ix]
-	meta := mv.today2item[stripDayPlanPrefix(item.Description)]
-	isTask := meta.AssertionPK == ""
-	if isTask {
-		return mv.substituteTaskWithPlans(g, meta.TaskPK)
-	} else {
-		return mv.substitutePlanWithImplementation(g, item.Description)
+	if item.ReminderArg0 != "" {
+		if info, ok := mv.reminderCache[item.ReminderArg0]; ok && info.taskPK != "" {
+			return mv.substituteTaskWithPlans(g, info.taskPK)
+		}
 	}
+	return nil
 }
 
 func (mv *MainView) substituteTaskWithPlans(g *gocui.Gui, taskPK string) error {
@@ -2502,7 +2837,7 @@ func (mv *MainView) substitutePlanSelectionsForTask(g *gocui.Gui, v *gocui.View)
 	_, cy := tasksView.Cursor()
 	ix := oy + cy
 	item := mv.ix2item[ix]
-	meta := mv.today2item[stripDayPlanPrefix(item.Description)]
+	meta := mv.today2item[item.ReminderArg0]
 	// insert in reverse order since insertion is to the beginning
 	for i := len(mv.planSelections) - 1; i >= 0; i-- {
 		item := mv.planSelections[i]

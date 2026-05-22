@@ -36,17 +36,18 @@ class RemindersBackend(jql_pb2_grpc.JQLServicer):
             ])],
         ))
         _, cmap = common.list_rows_meta(status_response)
-        # Deduplicate while preserving order in case of malformed data
+        # Deduplicate while preserving order; strip "vt.reminders " prefix to get bare PKs
         reminder_arg0s = list(dict.fromkeys(
-            row.entries[cmap[schema.Fields.Arg0]].formatted
+            row.entries[cmap[schema.Fields.Arg0]].formatted[len("vt.reminders "):]
             for row in status_response.rows
+            if row.entries[cmap[schema.Fields.Arg0]].formatted.startswith("vt.reminders ")
         ))
         if not reminder_arg0s:
             return common.list_rows("vt.reminders", {}, request, VALUES)
 
         # Query 2: get all attributes for these reminders
         attr_map, raw_assn_pks = common.get_fields_for_items(
-            self.client, "", reminder_arg0s)
+            self.client, "vt.reminders", reminder_arg0s)
 
         # Queries 3 & 4: find today's day plan and which reminders are in it
         plan_pk = common.get_todays_day_plan(self.client)
@@ -63,7 +64,8 @@ class RemindersBackend(jql_pb2_grpc.JQLServicer):
 
             # Encode the day-plan assn pk so IncrementEntry can delete it
             if arg0 in entry_refs:
-                field_assn_pks["Active"] = [[entry_refs[arg0], f"@{{vt.reminders {arg0}}}"]]
+                assn_pk, _ = entry_refs[arg0]
+                field_assn_pks["Active"] = [[assn_pk, f"@{{vt.reminders {arg0}}}"]]
                 active = ["Today"]
             else:
                 active = ["Later"]
