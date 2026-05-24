@@ -89,6 +89,7 @@ type MainView struct {
 	searchText    string
 	searchAll     bool // indicates if we search all fields or just this one
 	selectOptions []string
+	selectedPK    string
 }
 
 // NewMainView returns a MainView initialized with a given Table
@@ -687,6 +688,17 @@ func (mv *MainView) updateTableViewContents(resetCursorRow bool) error {
 		selectedRow = mv.TableView.Selections.Primary.Row
 	}
 	mv.response = response
+	if mv.selectedPK != "" {
+		pkIndex := api.GetPrimary(mv.response.Columns)
+		for i, row := range mv.response.Rows {
+			rowPk := row.Entries[pkIndex].GetFormatted()
+			shortRowPk := strings.Split(rowPk, "\t")[0]
+			if rowPk == mv.selectedPK || shortRowPk == mv.selectedPK {
+				selectedRow = i
+			}
+		}
+		mv.selectedPK = ""
+	}
 
 	var header []string
 	var widths []int
@@ -1377,6 +1389,10 @@ func (mv *MainView) GoToPrimaryKey(pk string) error {
 		},
 	}
 	return mv.updateTableViewContents(true)
+}
+
+func (mv *MainView) SetSelectedPK(pk string) {
+	mv.selectedPK = pk
 }
 
 func (mv *MainView) AddFilters(filters []cli.Filter) error {

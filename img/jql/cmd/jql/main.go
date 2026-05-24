@@ -121,6 +121,9 @@ func runUI(cfg *cli.JQLConfig, dbms api.JQL_DBMS) error {
 			return err
 		}
 	}
+	if cfg.SelectPK != "" {
+		mv.SetSelectedPK(cfg.SelectPK)
+	}
 	g, err := gocui.NewGui(gocui.OutputNormal)
 	if err != nil {
 		return err

@@ -39,7 +39,8 @@ type JQLConfig struct {
 	VirtualGateway string
 	ListenUnix     string
 
-	PK string
+	PK       string
+	SelectPK string
 
 	TLSCert string
 	TLSKey  string
@@ -89,6 +90,7 @@ func (c *JQLConfig) Register(f *flag.FlagSet) {
 	f.StringVarP(&c.Path, "path", "p", "", "Path to the jql storage")
 	f.StringVarP(&c.Table, "table", "t", "", "The table to start on")
 	f.StringVarP(&c.PK, "pk", "", "", "The primary key to initially select")
+	f.StringVarP(&c.SelectPK, "select", "", "", "Place the cursor on the row with this primary key after initialization")
 	f.StringVarP(&c.VirtualGateway, "virtual-gateway", "", "", "The address where the virtual gateway runs")
 	f.StringVarP(&c.ListenUnix, "listen-unix", "", "", "Additional Unix socket path for the daemon to listen on")
 	f.StringArrayVarP(&c.filters, "filter", "", []string{}, "Add initial filters to the table")
@@ -115,6 +117,9 @@ func (c *JQLConfig) SwitchTool(tool, pk string, filters ...Filter) error {
 	}
 	if c.ListenUnix != "" {
 		args = append(args, "--listen-unix", c.ListenUnix)
+	}
+	if c.SelectPK != "" {
+		args = append(args, "--select", c.SelectPK)
 	}
 	for _, filter := range filters {
 		args = append(args, "--filter", fmt.Sprintf("%s=%s", filter.Key, filter.Value))
