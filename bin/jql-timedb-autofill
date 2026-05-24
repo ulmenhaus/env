@@ -406,6 +406,7 @@ class HabitModesV2(object):
                 status=schema.Values.StatusPending if implements else schema.Values.StatusActive,
             )
             new_pk = self._write_task(new_task)
+            self._write_assertion('Habit', f"tasks {new_pk}", f"@{{tasks {self.task_pk}}}")
             if implements:
                 self._write_assertion('Implements', f"{schema.Tables.Tasks} {new_pk}", implements)
 
@@ -456,6 +457,7 @@ class HabitModesV2(object):
                 primary_goal=primary_goal,
                 status=schema.Values.StatusActive if span == 'Day' else schema.Values.StatusPlanned,
             ))
+            self._write_assertion('Habit', f"tasks {new_pk}", f"@{{tasks {self.task_pk}}}")
             if consume_practice:
                 cycles.copy_attrs_to_task(self.dbms, practice_entries, practice_cmap, new_pk)
 
@@ -471,6 +473,7 @@ class HabitModesV2(object):
             primary_goal=self.task_pk,
             status=schema.Values.StatusPending,
         ))
+        self._write_assertion('Habit', f"tasks {new_pk}", f"@{{tasks {self.task_pk}}}")
         if implements:
             self._write_assertion('Implements', f"{schema.Tables.Tasks} {new_pk}", implements)
 
@@ -516,7 +519,7 @@ class HabitModesV2(object):
                 param = current - delta
         if ((param > end) and (delta > 0)) or ((param < end) and (delta < 0)):
             return
-        self._write_task(self._new_task(
+        new_pk = self._write_task(self._new_task(
             action=self.task_data['Action'],
             direct=self.task_data['Direct'],
             param_date=param_date,
@@ -524,6 +527,7 @@ class HabitModesV2(object):
             params=fmt.format(start=start, cur=param, end=end),
             primary_goal=self.task_pk,
         ))
+        self._write_assertion('Habit', f"tasks {new_pk}", f"@{{tasks {self.task_pk}}}")
 
     def _new_task(self,
                   action='',

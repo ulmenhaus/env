@@ -176,6 +176,21 @@ def main_v2():
                     fields=assn,
                     insert_only=True,
                 ))
+            for attr in ('DayPlanOrder', 'DayPlanGroup'):
+                val = (child_fields.get(attr) or [''])[0]
+                if val:
+                    assn = {
+                        schema.Fields.Relation: f'.{attr}',
+                        schema.Fields.Arg0: f"tasks {new_pk}",
+                        schema.Fields.Arg1: val,
+                        schema.Fields.Order: '0',
+                    }
+                    dbms.WriteRow(jql_pb2.WriteRowRequest(
+                        table=schema.Tables.Assertions,
+                        pk=pk_for_assertion(assn),
+                        fields=assn,
+                        insert_only=True,
+                    ))
 
 
 def main():

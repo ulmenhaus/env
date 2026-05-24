@@ -127,6 +127,27 @@ type PlanSelectionItem struct {
 	Marked bool
 }
 
+// reminderToPlace collects the data needed to position a new reminder in the day plan.
+type reminderToPlace struct {
+	taskPK       string
+	checkText    string
+	dayPlanGroup string
+	dayPlanOrder int
+}
+
+// dayPlanEntry is a snapshot of an existing .Entry assertion on the day plan.
+type dayPlanEntry struct {
+	pk    string
+	arg1  string
+	order int
+}
+
+// habitPlacementMeta carries DayPlanGroup and DayPlanOrder resolved from a habit task.
+type habitPlacementMeta struct {
+	dayPlanGroup string
+	dayPlanOrder int
+}
+
 // NewMainView returns a MainView initialized with a given Table
 func NewMainView(g *gocui.Gui, dbms api.JQL_DBMS, preselectTask string, injectMatchingTasks bool) (*MainView, error) {
 	rand.Seed(time.Now().UnixNano())
@@ -2031,36 +2052,20 @@ func (mv *MainView) insertNewTasks() error {
 
 	todayStr := time.Now().Format("2006-01-02")
 
-	// Find max order of existing .Entry assertions so new ones go at the end
-	nextOrder, err := mv.maxEntryOrder(dayPlanPK)
-	if err != nil {
-		return err
-	}
-	nextOrder++
-
-	// Create task-level reminders for active tasks not already in plan
+	// Collect all new reminders to place without creating them yet
+	var newPlacements []reminderToPlace
 	for _, pk := range allPKs {
-		if !activePKs[pk] {
+		if !activePKs[pk] || existingReminders[pk+"\x00"] {
 			continue
 		}
-		if existingReminders[pk+"\x00"] {
-			continue
-		}
-		if err = mv.createReminderEntity(dayPlanPK, pk, "", todayStr, nextOrder); err != nil {
-			return err
-		}
-		nextOrder++
+		newPlacements = append(newPlacements, reminderToPlace{taskPK: pk})
 		existingReminders[pk+"\x00"] = true
 	}
-
-	// Create check-level reminders for checks not already in plan
 	if checksResp != nil {
-		assnTable := mv.tables[TableAssertions]
 		for _, row := range checksResp.Rows {
-			arg0 := row.Entries[api.IndexOfField(assnTable.Columns, FieldArg0)].Formatted
-			checkText := row.Entries[api.IndexOfField(assnTable.Columns, FieldArg1)].Formatted
+			arg0 := row.Entries[api.IndexOfField(checksResp.Columns, FieldArg0)].Formatted
+			checkText := row.Entries[api.IndexOfField(checksResp.Columns, FieldArg1)].Formatted
 			taskPK := strings.TrimPrefix(arg0, "tasks ")
-			// Skip checks with bracket prefixes (tracked separately per design)
 			if len(checkText) >= 4 && checkText[0] == '[' && checkText[2] == ']' && checkText[3] == ' ' {
 				continue
 			}
@@ -2068,11 +2073,46 @@ func (mv *MainView) insertNewTasks() error {
 			if existingReminders[key] {
 				continue
 			}
-			if err = mv.createReminderEntity(dayPlanPK, taskPK, checkText, todayStr, nextOrder); err != nil {
-				return err
-			}
-			nextOrder++
+			newPlacements = append(newPlacements, reminderToPlace{taskPK: taskPK, checkText: checkText})
 			existingReminders[key] = true
+		}
+	}
+	if len(newPlacements) == 0 {
+		return nil
+	}
+
+	// Resolve DayPlanGroup/DayPlanOrder via habit tasks (2 batch queries)
+	seenPKs := map[string]bool{}
+	var uniqueTaskPKs []string
+	for _, p := range newPlacements {
+		if !seenPKs[p.taskPK] {
+			seenPKs[p.taskPK] = true
+			uniqueTaskPKs = append(uniqueTaskPKs, p.taskPK)
+		}
+	}
+	habitMeta, err := mv.fetchHabitPlacementMeta(uniqueTaskPKs)
+	if err != nil {
+		return err
+	}
+	for i := range newPlacements {
+		if m, ok := habitMeta[newPlacements[i].taskPK]; ok {
+			newPlacements[i].dayPlanGroup = m.dayPlanGroup
+			newPlacements[i].dayPlanOrder = m.dayPlanOrder
+		}
+	}
+
+	// Compute the full insertion sequence and apply order updates before writing new entries
+	entries, err := mv.queryDayPlanEntries(dayPlanPK)
+	if err != nil {
+		return err
+	}
+	orderChanges, reminderOrders := computeEntrySequence(entries, newPlacements)
+	if err := mv.applyOrderUpdates(orderChanges); err != nil {
+		return err
+	}
+	for i, p := range newPlacements {
+		if err := mv.createReminderEntity(dayPlanPK, p.taskPK, p.checkText, todayStr, reminderOrders[i]); err != nil {
+			return err
 		}
 	}
 	return mv.save()
@@ -2102,6 +2142,185 @@ func (mv *MainView) maxEntryOrder(dayPlanPK string) (int, error) {
 	orderStr := resp.Rows[0].Entries[api.IndexOfField(assnTable.Columns, FieldOrder)].Formatted
 	maxOrd, _ := strconv.Atoi(orderStr)
 	return maxOrd, nil
+}
+
+// queryDayPlanEntries returns all .Entry assertions on the day plan in order.
+func (mv *MainView) queryDayPlanEntries(dayPlanPK string) ([]dayPlanEntry, error) {
+	resp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
+		Table: TableAssertions,
+		Conditions: []*jqlpb.Condition{{
+			Requires: []*jqlpb.Filter{
+				{Column: FieldArg0, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: fmt.Sprintf("tasks %s", dayPlanPK)}}},
+				{Column: FieldARelation, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Entry"}}},
+			},
+		}},
+		OrderBy: FieldOrder,
+	})
+	if err != nil {
+		return nil, err
+	}
+	entries := make([]dayPlanEntry, 0, len(resp.Rows))
+	for _, row := range resp.Rows {
+		order, _ := strconv.Atoi(row.Entries[api.IndexOfField(resp.Columns, FieldOrder)].Formatted)
+		entries = append(entries, dayPlanEntry{
+			pk:    row.Entries[api.GetPrimary(resp.Columns)].Formatted,
+			arg1:  row.Entries[api.IndexOfField(resp.Columns, FieldArg1)].Formatted,
+			order: order,
+		})
+	}
+	return entries, nil
+}
+
+// fetchHabitPlacementMeta resolves DayPlanGroup and DayPlanOrder for a set of task PKs
+// by following their .Habit assertions to the originating habit tasks (2 batch queries).
+func (mv *MainView) fetchHabitPlacementMeta(taskPKs []string) (map[string]habitPlacementMeta, error) {
+	if len(taskPKs) == 0 {
+		return nil, nil
+	}
+	taskArg0s := make([]string, len(taskPKs))
+	for i, pk := range taskPKs {
+		taskArg0s[i] = fmt.Sprintf("tasks %s", pk)
+	}
+	habitResp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
+		Table: TableAssertions,
+		Conditions: []*jqlpb.Condition{{
+			Requires: []*jqlpb.Filter{
+				{Column: FieldArg0, Match: &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: taskArg0s}}},
+				{Column: FieldARelation, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Habit"}}},
+			},
+		}},
+	})
+	if err != nil {
+		return nil, err
+	}
+	taskToHabit := map[string]string{}
+	habitSeen := map[string]bool{}
+	var habitArg0s []string
+	for _, row := range habitResp.Rows {
+		arg0 := row.Entries[api.IndexOfField(habitResp.Columns, FieldArg0)].Formatted
+		arg1 := row.Entries[api.IndexOfField(habitResp.Columns, FieldArg1)].Formatted
+		taskPK := strings.TrimPrefix(arg0, "tasks ")
+		_, habitPK := api.ParseForeignKey(arg1)
+		if habitPK == "" {
+			continue
+		}
+		taskToHabit[taskPK] = habitPK
+		habitArg0 := fmt.Sprintf("tasks %s", habitPK)
+		if !habitSeen[habitArg0] {
+			habitSeen[habitArg0] = true
+			habitArg0s = append(habitArg0s, habitArg0)
+		}
+	}
+	if len(habitArg0s) == 0 {
+		return nil, nil
+	}
+	attrResp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
+		Table: TableAssertions,
+		Conditions: []*jqlpb.Condition{{
+			Requires: []*jqlpb.Filter{
+				{Column: FieldArg0, Match: &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: habitArg0s}}},
+				{Column: FieldARelation, Match: &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: []string{".DayPlanOrder", ".DayPlanGroup"}}}},
+			},
+		}},
+	})
+	if err != nil {
+		return nil, err
+	}
+	habitAttrs := map[string]map[string]string{}
+	for _, row := range attrResp.Rows {
+		habitPK := strings.TrimPrefix(row.Entries[api.IndexOfField(attrResp.Columns, FieldArg0)].Formatted, "tasks ")
+		rel := strings.TrimPrefix(row.Entries[api.IndexOfField(attrResp.Columns, FieldARelation)].Formatted, ".")
+		val := row.Entries[api.IndexOfField(attrResp.Columns, FieldArg1)].Formatted
+		if habitAttrs[habitPK] == nil {
+			habitAttrs[habitPK] = map[string]string{}
+		}
+		habitAttrs[habitPK][rel] = val
+	}
+	result := map[string]habitPlacementMeta{}
+	for taskPK, habitPK := range taskToHabit {
+		attrs := habitAttrs[habitPK]
+		group := attrs["DayPlanGroup"]
+		orderStr := attrs["DayPlanOrder"]
+		if group == "" && orderStr == "" {
+			continue
+		}
+		order, _ := strconv.Atoi(orderStr)
+		result[taskPK] = habitPlacementMeta{dayPlanGroup: group, dayPlanOrder: order}
+	}
+	return result, nil
+}
+
+// computeEntrySequence builds the desired final ordering for existing entries and new
+// reminders. Each new reminder is inserted immediately after the existing entry whose
+// arg1 text matches its DayPlanGroup (or after the 0th entry if none matches).
+// Reminders sharing the same anchor are sorted by DayPlanOrder.
+// Returns: a map of existing entry pk -> new order (only entries that changed), and
+// a slice of assigned order values parallel to placements.
+func computeEntrySequence(entries []dayPlanEntry, placements []reminderToPlace) (map[string]int, []int) {
+	reminderOrders := make([]int, len(placements))
+	orderChanges := map[string]int{}
+	if len(entries) == 0 {
+		for i := range placements {
+			reminderOrders[i] = i
+		}
+		return orderChanges, reminderOrders
+	}
+	textToIdx := map[string]int{}
+	for i, e := range entries {
+		textToIdx[e.arg1] = i
+	}
+	type anchoredPlacement struct {
+		idx          int
+		anchor       int
+		dayPlanOrder int
+	}
+	anchored := make([]anchoredPlacement, len(placements))
+	for i, p := range placements {
+		anchor := 0
+		if p.dayPlanGroup != "" {
+			if idx, ok := textToIdx[p.dayPlanGroup]; ok {
+				anchor = idx
+			}
+		}
+		anchored[i] = anchoredPlacement{i, anchor, p.dayPlanOrder}
+	}
+	byAnchor := map[int][]anchoredPlacement{}
+	for _, ap := range anchored {
+		byAnchor[ap.anchor] = append(byAnchor[ap.anchor], ap)
+	}
+	for anchor := range byAnchor {
+		sort.SliceStable(byAnchor[anchor], func(i, j int) bool {
+			return byAnchor[anchor][i].dayPlanOrder < byAnchor[anchor][j].dayPlanOrder
+		})
+	}
+	newOrder := 0
+	for i, entry := range entries {
+		if entry.order != newOrder {
+			orderChanges[entry.pk] = newOrder
+		}
+		newOrder++
+		for _, ap := range byAnchor[i] {
+			reminderOrders[ap.idx] = newOrder
+			newOrder++
+		}
+	}
+	return orderChanges, reminderOrders
+}
+
+// applyOrderUpdates writes changed Order values to existing .Entry assertions.
+func (mv *MainView) applyOrderUpdates(orderChanges map[string]int) error {
+	for pk, newOrder := range orderChanges {
+		_, err := mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
+			UpdateOnly: true,
+			Table:      TableAssertions,
+			Pk:         pk,
+			Fields:     map[string]string{FieldOrder: fmt.Sprintf("%d", newOrder)},
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (mv *MainView) createReminderEntity(dayPlanPK, taskPK, checkText, targetDate string, entryOrder int) error {
@@ -2143,7 +2362,14 @@ func (mv *MainView) createReminderEntity(dayPlanPK, taskPK, checkText, targetDat
 }
 
 func (mv *MainView) refreshTasks(g *gocui.Gui, v *gocui.View) error {
-	err := mv.load(g)
+	if err := mv.carryForwardEntries(); err != nil {
+		return err
+	}
+	_, err := api.RunMacro(ctx, mv.dbms, "jql-timedb-autofill --v2", api.MacroCurrentView{}, true)
+	if err != nil {
+		return err
+	}
+	err = mv.load(g)
 	if err != nil {
 		return err
 	}
@@ -2152,6 +2378,100 @@ func (mv *MainView) refreshTasks(g *gocui.Gui, v *gocui.View) error {
 		return err
 	}
 	return mv.refreshView(g)
+}
+
+// carryForwardEntries copies .Entry assertions from yesterday's day plan to today's,
+// skipping any reminder references whose status is Done, Failed, or Elided.
+func (mv *MainView) carryForwardEntries() error {
+	tasksTable := mv.tables[TableTasks]
+
+	yesterday, err := mv.queryYesterday()
+	if err != nil {
+		return nil // no yesterday plan — nothing to carry forward
+	}
+	today, err := mv.queryDayPlan()
+	if err != nil || today == nil {
+		return err
+	}
+
+	todayPK := today.Entries[api.GetPrimary(tasksTable.Columns)].Formatted
+	yesterdayPK := yesterday.Entries[api.GetPrimary(tasksTable.Columns)].Formatted
+
+	// Short-circuit if today already has entries.
+	todayEntries, err := mv.queryDayPlanEntries(todayPK)
+	if err != nil {
+		return err
+	}
+	if len(todayEntries) > 0 {
+		return nil
+	}
+
+	// Get yesterday's entries in order.
+	yesterdayEntries, err := mv.queryDayPlanEntries(yesterdayPK)
+	if err != nil {
+		return err
+	}
+	if len(yesterdayEntries) == 0 {
+		return nil
+	}
+
+	// Collect reminder PKs so we can batch-query their statuses.
+	var reminderPKs []string
+	for _, e := range yesterdayEntries {
+		if table, pk := api.ParseForeignKey(e.arg1); table == "vt.reminders" {
+			reminderPKs = append(reminderPKs, fmt.Sprintf("vt.reminders %s", pk))
+		}
+	}
+
+	// Build a set of reminder PKs that should be skipped (Done/Failed/Elided).
+	skipReminders := map[string]bool{}
+	if len(reminderPKs) > 0 {
+		statusResp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
+			Table: TableAssertions,
+			Conditions: []*jqlpb.Condition{{
+				Requires: []*jqlpb.Filter{
+					{Column: FieldArg0, Match: &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: reminderPKs}}},
+					{Column: FieldARelation, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Status"}}},
+				},
+			}},
+		})
+		if err != nil {
+			return err
+		}
+		for _, row := range statusResp.Rows {
+			arg0 := row.Entries[api.IndexOfField(statusResp.Columns, FieldArg0)].Formatted
+			status := row.Entries[api.IndexOfField(statusResp.Columns, FieldArg1)].Formatted
+			switch status {
+			case "Done", "Failed", "Elided":
+				skipReminders[arg0] = true
+			}
+		}
+	}
+
+	// Copy qualifying entries to today's plan, preserving order.
+	for _, e := range yesterdayEntries {
+		if table, pk := api.ParseForeignKey(e.arg1); table == "vt.reminders" {
+			if skipReminders[fmt.Sprintf("vt.reminders %s", pk)] {
+				continue
+			}
+		}
+		newPK := fmt.Sprintf("%d", rand.Int63())
+		_, err := mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
+			Table:      TableAssertions,
+			Pk:         newPK,
+			InsertOnly: true,
+			Fields: map[string]string{
+				FieldARelation: ".Entry",
+				FieldArg0:      fmt.Sprintf("tasks %s", todayPK),
+				FieldArg1:      e.arg1,
+				FieldOrder:     fmt.Sprintf("%d", e.order),
+			},
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return mv.save()
 }
 
 func (mv *MainView) taskMarker(status string) func(g *gocui.Gui, v *gocui.View) error {
