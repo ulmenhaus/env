@@ -1996,13 +1996,25 @@ func (mv *MainView) queryPossibleDayPlanAdditions() ([]string, error) {
 	return descriptions, nil
 }
 
-func (mv *MainView) insertNewTasks() error {
+func (mv *MainView) insertNewReminders() error {
 	dayPlan, err := mv.queryDayPlan()
 	if err != nil || dayPlan == nil {
 		return err
 	}
 	tasksTable := mv.tables[TableTasks]
 	dayPlanPK := dayPlan.Entries[api.GetPrimary(tasksTable.Columns)].Formatted
+
+	// Query today's existing entries upfront to know what's already in the plan.
+	entries, err := mv.queryDayPlanEntries(dayPlanPK)
+	if err != nil {
+		return err
+	}
+	inTodayPlan := map[string]bool{}
+	for _, e := range entries {
+		if table, pk := api.ParseForeignKey(e.arg1); table == "vt.reminders" {
+			inTodayPlan[pk] = true
+		}
+	}
 
 	activeAndHabitual, err := mv.queryActiveAndHabitualTasks()
 	if err != nil {
@@ -2044,22 +2056,20 @@ func (mv *MainView) insertNewTasks() error {
 		}
 	}
 
-	// Build set of existing reminders in today's plan (taskPK + checkText)
-	existingReminders := map[string]bool{}
-	for _, info := range mv.reminderCache {
-		existingReminders[info.taskPK+"\x00"+info.checkText] = true
-	}
-
 	todayStr := time.Now().Format("2006-01-02")
 
-	// Collect all new reminders to place without creating them yet
-	var newPlacements []reminderToPlace
+	// Collect all candidate (taskPK, checkText) pairs with within-batch deduplication.
+	seenCandidates := map[string]bool{}
+	var candidates []reminderToPlace
 	for _, pk := range allPKs {
-		if !activePKs[pk] || existingReminders[pk+"\x00"] {
+		if !activePKs[pk] {
 			continue
 		}
-		newPlacements = append(newPlacements, reminderToPlace{taskPK: pk})
-		existingReminders[pk+"\x00"] = true
+		key := pk + "\x00"
+		if !seenCandidates[key] {
+			seenCandidates[key] = true
+			candidates = append(candidates, reminderToPlace{taskPK: pk})
+		}
 	}
 	if checksResp != nil {
 		for _, row := range checksResp.Rows {
@@ -2070,21 +2080,79 @@ func (mv *MainView) insertNewTasks() error {
 				continue
 			}
 			key := taskPK + "\x00" + checkText
-			if existingReminders[key] {
-				continue
+			if !seenCandidates[key] {
+				seenCandidates[key] = true
+				candidates = append(candidates, reminderToPlace{taskPK: taskPK, checkText: checkText})
 			}
-			newPlacements = append(newPlacements, reminderToPlace{taskPK: taskPK, checkText: checkText})
-			existingReminders[key] = true
 		}
 	}
-	if len(newPlacements) == 0 {
-		return nil
+
+	// Classify candidates: those needing a new reminder entity vs. existing ones due today.
+	toCreate, existingToPlace, err := mv.resolveReminderPlacements(candidates)
+	if err != nil {
+		return err
 	}
 
-	// Resolve DayPlanGroup/DayPlanOrder via habit tasks (2 batch queries)
+	// Filter existing reminders to those not already in today's plan.
+	var filteredExisting []string
+	for _, bareID := range existingToPlace {
+		if !inTodayPlan[bareID] {
+			filteredExisting = append(filteredExisting, bareID)
+		}
+	}
+
+	// Phase 1: insert existing due reminders after the Zeroeth Entry (order 0) if one
+	// exists, otherwise at the very beginning.
+	if len(filteredExisting) > 0 {
+		insertStart := 0
+		shiftOrderChanges := map[string]int{}
+		if len(entries) > 0 && entries[0].order == 0 {
+			insertStart = 1
+			for _, e := range entries[1:] {
+				shiftOrderChanges[e.pk] = e.order + len(filteredExisting)
+			}
+		} else {
+			for _, e := range entries {
+				shiftOrderChanges[e.pk] = e.order + len(filteredExisting)
+			}
+		}
+		if err := mv.applyOrderUpdates(shiftOrderChanges); err != nil {
+			return err
+		}
+		for i, bareID := range filteredExisting {
+			newPK := fmt.Sprintf("%d", rand.Int63())
+			_, err := mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
+				Table:      TableAssertions,
+				Pk:         newPK,
+				InsertOnly: true,
+				Fields: map[string]string{
+					FieldARelation: ".Entry",
+					FieldArg0:      fmt.Sprintf("tasks %s", dayPlanPK),
+					FieldArg1:      fmt.Sprintf("@{vt.reminders %s}", bareID),
+					FieldOrder:     fmt.Sprintf("%d", insertStart+i),
+				},
+			})
+			if err != nil {
+				return err
+			}
+		}
+		// Re-query so Phase 2 sees the updated entry list.
+		entries, err = mv.queryDayPlanEntries(dayPlanPK)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Phase 2: create new reminder entities for candidates with no existing reminder.
+	if len(toCreate) == 0 {
+		if len(filteredExisting) > 0 {
+			return mv.save()
+		}
+		return nil
+	}
 	seenPKs := map[string]bool{}
 	var uniqueTaskPKs []string
-	for _, p := range newPlacements {
+	for _, p := range toCreate {
 		if !seenPKs[p.taskPK] {
 			seenPKs[p.taskPK] = true
 			uniqueTaskPKs = append(uniqueTaskPKs, p.taskPK)
@@ -2094,23 +2162,17 @@ func (mv *MainView) insertNewTasks() error {
 	if err != nil {
 		return err
 	}
-	for i := range newPlacements {
-		if m, ok := habitMeta[newPlacements[i].taskPK]; ok {
-			newPlacements[i].dayPlanGroup = m.dayPlanGroup
-			newPlacements[i].dayPlanOrder = m.dayPlanOrder
+	for i := range toCreate {
+		if m, ok := habitMeta[toCreate[i].taskPK]; ok {
+			toCreate[i].dayPlanGroup = m.dayPlanGroup
+			toCreate[i].dayPlanOrder = m.dayPlanOrder
 		}
 	}
-
-	// Compute the full insertion sequence and apply order updates before writing new entries
-	entries, err := mv.queryDayPlanEntries(dayPlanPK)
-	if err != nil {
-		return err
-	}
-	orderChanges, reminderOrders := computeEntrySequence(entries, newPlacements)
+	orderChanges, reminderOrders := computeEntrySequence(entries, toCreate)
 	if err := mv.applyOrderUpdates(orderChanges); err != nil {
 		return err
 	}
-	for i, p := range newPlacements {
+	for i, p := range toCreate {
 		if err := mv.createReminderEntity(dayPlanPK, p.taskPK, p.checkText, todayStr, reminderOrders[i]); err != nil {
 			return err
 		}
@@ -2349,6 +2411,121 @@ func (mv *MainView) applyOrderUpdates(orderChanges map[string]int) error {
 	return nil
 }
 
+// resolveReminderPlacements classifies candidates into those needing a new reminder entity
+// (toCreate) and bare IDs of existing reminders whose TargetDate is today or earlier
+// (existingToPlace). Uses one query to find existing reminders and a second to check
+// their TargetDate assertions.
+func (mv *MainView) resolveReminderPlacements(candidates []reminderToPlace) (toCreate []reminderToPlace, existingToPlace []string, err error) {
+	if len(candidates) == 0 {
+		return nil, nil, nil
+	}
+	arg1Set := map[string]bool{}
+	for _, c := range candidates {
+		arg1Set[fmt.Sprintf("@{tasks %s}", c.taskPK)] = true
+		if c.checkText != "" {
+			arg1Set[c.checkText] = true
+		}
+	}
+	arg1Values := make([]string, 0, len(arg1Set))
+	for v := range arg1Set {
+		arg1Values = append(arg1Values, v)
+	}
+	resp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
+		Table: TableAssertions,
+		Conditions: []*jqlpb.Condition{{
+			Requires: []*jqlpb.Filter{
+				{Column: FieldArg1, Match: &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: arg1Values}}},
+			},
+		}},
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	// Group Arg1 values by reminder ID (Arg0 prefixed "vt.reminders ").
+	reminderArg1s := map[string]map[string]bool{}
+	for _, row := range resp.Rows {
+		arg0 := row.Entries[api.IndexOfField(resp.Columns, FieldArg0)].Formatted
+		if !strings.HasPrefix(arg0, "vt.reminders ") {
+			continue
+		}
+		arg1 := row.Entries[api.IndexOfField(resp.Columns, FieldArg1)].Formatted
+		if reminderArg1s[arg0] == nil {
+			reminderArg1s[arg0] = map[string]bool{}
+		}
+		reminderArg1s[arg0][arg1] = true
+	}
+	// Index taskRef → reminder IDs.
+	taskRefToReminders := map[string][]string{}
+	for reminderID, arg1s := range reminderArg1s {
+		for arg1 := range arg1s {
+			if strings.HasPrefix(arg1, "@{tasks ") {
+				taskRefToReminders[arg1] = append(taskRefToReminders[arg1], reminderID)
+			}
+		}
+	}
+	// Map each candidate key to the reminder ID that covers it.
+	candidateToReminder := map[string]string{}
+	for _, c := range candidates {
+		taskRef := fmt.Sprintf("@{tasks %s}", c.taskPK)
+		key := c.taskPK + "\x00" + c.checkText
+		for _, reminderID := range taskRefToReminders[taskRef] {
+			if c.checkText == "" || reminderArg1s[reminderID][c.checkText] {
+				candidateToReminder[key] = reminderID
+				break
+			}
+		}
+	}
+	// Query TargetDate for all matched reminder IDs.
+	seenIDs := map[string]bool{}
+	var matchedIDs []string
+	for _, reminderID := range candidateToReminder {
+		if !seenIDs[reminderID] {
+			seenIDs[reminderID] = true
+			matchedIDs = append(matchedIDs, reminderID)
+		}
+	}
+	reminderTargetDate := map[string]string{} // reminderID → "YYYY-MM-DD" or ""
+	if len(matchedIDs) > 0 {
+		tdResp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
+			Table: TableAssertions,
+			Conditions: []*jqlpb.Condition{{
+				Requires: []*jqlpb.Filter{
+					{Column: FieldArg0, Match: &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: matchedIDs}}},
+					{Column: FieldARelation, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".TargetDate"}}},
+				},
+			}},
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, row := range tdResp.Rows {
+			arg0 := row.Entries[api.IndexOfField(tdResp.Columns, FieldArg0)].Formatted
+			val := row.Entries[api.IndexOfField(tdResp.Columns, FieldArg1)].Formatted
+			_, dateStr := api.ParseForeignKey(val)
+			reminderTargetDate[arg0] = dateStr
+		}
+	}
+	todayStr := time.Now().Format("2006-01-02")
+	existingSet := map[string]bool{}
+	for _, c := range candidates {
+		key := c.taskPK + "\x00" + c.checkText
+		reminderID, exists := candidateToReminder[key]
+		if !exists {
+			toCreate = append(toCreate, c)
+			continue
+		}
+		targetDate := reminderTargetDate[reminderID]
+		if targetDate == "" || targetDate <= todayStr {
+			bareID := strings.TrimPrefix(reminderID, "vt.reminders ")
+			if !existingSet[bareID] {
+				existingSet[bareID] = true
+				existingToPlace = append(existingToPlace, bareID)
+			}
+		}
+	}
+	return toCreate, existingToPlace, nil
+}
+
 func (mv *MainView) createReminderEntity(dayPlanPK, taskPK, checkText, targetDate string, entryOrder int) error {
 	reminderArg0 := fmt.Sprintf("%d", rand.Int63())
 	reminderRef := fmt.Sprintf("vt.reminders %s", reminderArg0)
@@ -2395,11 +2572,10 @@ func (mv *MainView) refreshTasks(g *gocui.Gui, v *gocui.View) error {
 	if err := mv.carryForwardEntries(); err != nil {
 		return err
 	}
-	err = mv.load(g)
-	if err != nil {
+	if err = mv.load(g); err != nil {
 		return err
 	}
-	err = mv.insertNewTasks()
+	err = mv.insertNewReminders()
 	if err != nil {
 		return err
 	}
