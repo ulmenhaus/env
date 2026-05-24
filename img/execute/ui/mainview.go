@@ -2194,6 +2194,7 @@ func (mv *MainView) fetchHabitPlacementMeta(taskPKs []string) (map[string]habitP
 		return nil, err
 	}
 	taskToHabit := map[string]string{}
+	habitToTasks := map[string][]string{}
 	habitSeen := map[string]bool{}
 	var habitArg0s []string
 	for _, row := range habitResp.Rows {
@@ -2205,6 +2206,7 @@ func (mv *MainView) fetchHabitPlacementMeta(taskPKs []string) (map[string]habitP
 			continue
 		}
 		taskToHabit[taskPK] = habitPK
+		habitToTasks[habitPK] = append(habitToTasks[habitPK], taskPK)
 		habitArg0 := fmt.Sprintf("tasks %s", habitPK)
 		if !habitSeen[habitArg0] {
 			habitSeen[habitArg0] = true
@@ -2213,6 +2215,11 @@ func (mv *MainView) fetchHabitPlacementMeta(taskPKs []string) (map[string]habitP
 	}
 	if len(habitArg0s) == 0 {
 		return nil, nil
+	}
+	// Sort tasks within each habit lexicographically so they correspond one-to-one
+	// with the habit's assertions in assertion-Order sequence.
+	for habitPK := range habitToTasks {
+		sort.Strings(habitToTasks[habitPK])
 	}
 	attrResp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
 		Table: TableAssertions,
@@ -2226,26 +2233,45 @@ func (mv *MainView) fetchHabitPlacementMeta(taskPKs []string) (map[string]habitP
 	if err != nil {
 		return nil, err
 	}
-	habitAttrs := map[string]map[string]string{}
+	type ordVal struct {
+		ord int
+		val string
+	}
+	habitGroups := map[string][]ordVal{}
+	habitOrders := map[string][]ordVal{}
 	for _, row := range attrResp.Rows {
 		habitPK := strings.TrimPrefix(row.Entries[api.IndexOfField(attrResp.Columns, FieldArg0)].Formatted, "tasks ")
 		rel := strings.TrimPrefix(row.Entries[api.IndexOfField(attrResp.Columns, FieldARelation)].Formatted, ".")
 		val := row.Entries[api.IndexOfField(attrResp.Columns, FieldArg1)].Formatted
-		if habitAttrs[habitPK] == nil {
-			habitAttrs[habitPK] = map[string]string{}
+		ord, _ := strconv.Atoi(row.Entries[api.IndexOfField(attrResp.Columns, FieldOrder)].Formatted)
+		switch rel {
+		case "DayPlanGroup":
+			habitGroups[habitPK] = append(habitGroups[habitPK], ordVal{ord, val})
+		case "DayPlanOrder":
+			habitOrders[habitPK] = append(habitOrders[habitPK], ordVal{ord, val})
 		}
-		habitAttrs[habitPK][rel] = val
+	}
+	for habitPK := range habitGroups {
+		sort.Slice(habitGroups[habitPK], func(i, j int) bool {
+			return habitGroups[habitPK][i].ord < habitGroups[habitPK][j].ord
+		})
+	}
+	for habitPK := range habitOrders {
+		sort.Slice(habitOrders[habitPK], func(i, j int) bool {
+			return habitOrders[habitPK][i].ord < habitOrders[habitPK][j].ord
+		})
 	}
 	result := map[string]habitPlacementMeta{}
-	for taskPK, habitPK := range taskToHabit {
-		attrs := habitAttrs[habitPK]
-		group := attrs["DayPlanGroup"]
-		orderStr := attrs["DayPlanOrder"]
-		if group == "" && orderStr == "" {
-			continue
+	for habitPK, tasks := range habitToTasks {
+		groups := habitGroups[habitPK]
+		orders := habitOrders[habitPK]
+		for i, taskPK := range tasks {
+			if i >= len(groups) || i >= len(orders) {
+				continue // beyond bounds — goes to start of day plan
+			}
+			order, _ := strconv.Atoi(orders[i].val)
+			result[taskPK] = habitPlacementMeta{dayPlanGroup: groups[i].val, dayPlanOrder: order}
 		}
-		order, _ := strconv.Atoi(orderStr)
-		result[taskPK] = habitPlacementMeta{dayPlanGroup: group, dayPlanOrder: order}
 	}
 	return result, nil
 }
@@ -2362,11 +2388,11 @@ func (mv *MainView) createReminderEntity(dayPlanPK, taskPK, checkText, targetDat
 }
 
 func (mv *MainView) refreshTasks(g *gocui.Gui, v *gocui.View) error {
-	if err := mv.carryForwardEntries(); err != nil {
-		return err
-	}
 	_, err := api.RunMacro(ctx, mv.dbms, "jql-timedb-autofill --v2", api.MacroCurrentView{}, true)
 	if err != nil {
+		return err
+	}
+	if err := mv.carryForwardEntries(); err != nil {
 		return err
 	}
 	err = mv.load(g)
@@ -2530,6 +2556,17 @@ func (mv *MainView) markTask(g *gocui.Gui, v *gocui.View, status string) error {
 	}
 	if err != nil {
 		return err
+	}
+	if info.taskPK != "" && status != "" {
+		_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
+			UpdateOnly: true,
+			Table:      TableTasks,
+			Pk:         info.taskPK,
+			Fields:     map[string]string{FieldStatus: status},
+		})
+		if err != nil {
+			return err
+		}
 	}
 	err = mv.save()
 	if err != nil {
