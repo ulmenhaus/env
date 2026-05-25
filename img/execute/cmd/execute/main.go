@@ -99,7 +99,7 @@ func runExecute() error {
 		}
 		cfg.Table = ""
 		cfg.Query = base64.StdEncoding.EncodeToString(data)
-		cfg.SelectPK = reminderID
+		cfg.SelectPK = fmt.Sprintf("%s %s", ui.TableReminders, reminderID)
 		return cfg.SwitchTool("jql", "")
 	}
 	err = g.SetKeybinding("", 'a', gocui.ModNone, goToActiveReminder)
@@ -138,7 +138,7 @@ func runExecute() error {
 		}
 		cfg.Table = ""
 		cfg.Query = base64.StdEncoding.EncodeToString(data)
-		cfg.SelectPK = reminderID
+		cfg.SelectPK = fmt.Sprintf("%s %s", ui.TableReminders, reminderID)
 		return cfg.SwitchTool("jql", "")
 	}
 	err = g.SetKeybinding("", 'A', gocui.ModNone, goToReminders)

@@ -99,6 +99,18 @@ class ActiveRemindersBackend(jql_pb2_grpc.JQLServicer):
 
         return common.list_rows("vt.active_reminders", entries, request, VALUES)
 
+    def GetRow(self, request, context):
+        resp = self.ListRows(jql_pb2.ListRowsRequest(), context)
+        primary, _ = common.list_rows_meta(resp)
+        for row in resp.rows:
+            if row.entries[primary].formatted == request.pk:
+                return jql_pb2.GetRowResponse(
+                    table="vt.active_reminders",
+                    columns=resp.columns,
+                    row=row,
+                )
+        raise ValueError(request.pk)
+
     def IncrementEntry(self, request, context):
         arg0, pk_map = common.decode_pk(request.pk)
 
