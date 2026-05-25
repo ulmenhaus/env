@@ -53,9 +53,11 @@ const (
 	TableTasks      string = "tasks"
 	TableAssertions string = "assertions"
 	TableNouns      string = "nouns"
-	TablePractices  string = "vt.practices"
-	TableKits       string = "vt.kits"
-	TableTools      string = "vt.tools"
+	TablePractices       string = "vt.practices"
+	TableKits            string = "vt.kits"
+	TableTools           string = "vt.tools"
+	TableActiveReminders string = "vt.active_reminders"
+	TableReminders       string = "vt.reminders"
 
 	JQLName string = "jql"
 

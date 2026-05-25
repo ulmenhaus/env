@@ -26,18 +26,18 @@ class ActiveRemindersBackend(jql_pb2_grpc.JQLServicer):
         plan_pk = common.get_todays_day_plan(self.client)
         # Query 2: get reminder arg0s that are in the day plan
         entry_refs = common.get_day_plan_entry_refs(self.client, plan_pk)
-        reminder_arg0s = list(entry_refs.keys())
-        if not reminder_arg0s:
+        reminder_bareids = list(entry_refs.keys())
+        if not reminder_bareids:
             return common.list_rows("vt.active_reminders", {}, request, VALUES)
 
         # Query 3: get all reminder attributes
         attr_map, raw_assn_pks = common.get_fields_for_items(
-            self.client, "vt.reminders", reminder_arg0s)
+            self.client, "vt.reminders", reminder_bareids)
 
         # Collect task PKs so we can batch-query their notes
         task_pks = []
-        for arg0 in reminder_arg0s:
-            task_val = attr_map.get(arg0, {}).get("Task", [""])[0]
+        for bareid in reminder_bareids:
+            task_val = attr_map.get(bareid, {}).get("Task", [""])[0]
             if task_val and common.is_foreign(task_val):
                 _, task_pk = common.parse_foreign(task_val)
                 task_pks.append(task_pk)
@@ -49,16 +49,16 @@ class ActiveRemindersBackend(jql_pb2_grpc.JQLServicer):
                 self.client, "tasks", task_pks, fields=("Note",))
 
         entries = {}
-        for arg0 in reminder_arg0s:
-            fields = attr_map.get(arg0, {})
-            field_assn_pks = dict(raw_assn_pks.get(arg0, {}))
+        for bareid in reminder_bareids:
+            fields = attr_map.get(bareid, {})
+            field_assn_pks = dict(raw_assn_pks.get(bareid, {}))
 
             # Remap assertion relation names to display column names
             if "NextStep" in field_assn_pks:
                 field_assn_pks["Next Step"] = field_assn_pks.pop("NextStep")
 
             # Encode entry assertion PK and order for Order column updates
-            entry_assn_pk, entry_order = entry_refs.get(arg0, ("", "0"))
+            entry_assn_pk, entry_order = entry_refs.get(bareid, ("", "0"))
             field_assn_pks["A Order"] = [[entry_assn_pk, entry_order]]
 
             task_val = fields.get("Task", [""])[0]
@@ -80,13 +80,13 @@ class ActiveRemindersBackend(jql_pb2_grpc.JQLServicer):
             else:
                 parent_notes_display = ["\n".join(f"* {v}" for v in note_values)]
 
-            # Encode task arg0 and note assn pairs into pk_map for WriteRow
+            # Encode task bareid and note assn pairs into pk_map for WriteRow
             field_assn_pks["Parent Notes"] = notes_pairs
             if task_pk:
                 field_assn_pks["Task"] = [["", f"tasks {task_pk}"]]
 
             status_raw = fields.get("Status", [""])[0]
-            pk = common.encode_pk(arg0, field_assn_pks)
+            pk = common.encode_pk(f"vt.reminders {bareid}", field_assn_pks)
             entries[pk] = {
                 "_pk": [pk],
                 "Description": [description] if description else [],

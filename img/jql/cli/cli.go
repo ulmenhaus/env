@@ -3,6 +3,7 @@ package cli
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"os/exec"
@@ -15,6 +16,7 @@ import (
 	"github.com/ulmenhaus/env/proto/jql/jqlpb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -41,6 +43,7 @@ type JQLConfig struct {
 
 	PK       string
 	SelectPK string
+	Query    string
 
 	TLSCert string
 	TLSKey  string
@@ -49,7 +52,21 @@ type JQLConfig struct {
 	filters []string
 }
 
+func (c *JQLConfig) queryTable() string {
+	if c.Query == "" {
+		return ""
+	}
+	req, err := c.GetQuery()
+	if err != nil {
+		return ""
+	}
+	return req.Table
+}
+
 func (c *JQLConfig) Validate() error {
+	if c.Query != "" && (c.Table != "" || len(c.filters) > 0) {
+		return fmt.Errorf("--query cannot be used with --table or --filter")
+	}
 	switch c.Mode {
 	case ModeDaemon:
 		if c.Path == "" {
@@ -65,7 +82,7 @@ func (c *JQLConfig) Validate() error {
 		if c.Path != "" {
 			return fmt.Errorf("Path cannot be provided for client mode")
 		}
-		if c.Table == "" {
+		if c.Table == "" && c.queryTable() == "" {
 			return fmt.Errorf("Table must be provided for client mode")
 		}
 		if c.Addr == "" {
@@ -75,7 +92,7 @@ func (c *JQLConfig) Validate() error {
 		if c.Path == "" {
 			return fmt.Errorf("Path must be provided for standalone mode")
 		}
-		if c.Table == "" {
+		if c.Table == "" && c.queryTable() == "" {
 			return fmt.Errorf("Table must be provided for standalone mode")
 		}
 	default:
@@ -94,6 +111,7 @@ func (c *JQLConfig) Register(f *flag.FlagSet) {
 	f.StringVarP(&c.VirtualGateway, "virtual-gateway", "", "", "The address where the virtual gateway runs")
 	f.StringVarP(&c.ListenUnix, "listen-unix", "", "", "Additional Unix socket path for the daemon to listen on")
 	f.StringArrayVarP(&c.filters, "filter", "", []string{}, "Add initial filters to the table")
+	f.StringVarP(&c.Query, "query", "", "", "Base64-encoded ListRowsRequest as the initial query (mutually exclusive with --table and --filter)")
 	f.StringVarP(&c.TLSCert, "tls-cert", "", "", "Path to TLS certificate file")
 	f.StringVarP(&c.TLSKey, "tls-key", "", "", "Path to TLS key file")
 	f.StringVarP(&c.TLSCA, "tls-ca", "", "", "Path to TLS CA certificate file")
@@ -120,6 +138,9 @@ func (c *JQLConfig) SwitchTool(tool, pk string, filters ...Filter) error {
 	}
 	if c.SelectPK != "" {
 		args = append(args, "--select", c.SelectPK)
+	}
+	if c.Query != "" {
+		args = append(args, "--query", c.Query)
 	}
 	for _, filter := range filters {
 		args = append(args, "--filter", fmt.Sprintf("%s=%s", filter.Key, filter.Value))
@@ -240,6 +261,18 @@ func (c *JQLConfig) clientCredentials() (credentials.TransportCredentials, error
 		RootCAs:      caPool,
 	}
 	return credentials.NewTLS(tlsCfg), nil
+}
+
+func (c *JQLConfig) GetQuery() (*jqlpb.ListRowsRequest, error) {
+	data, err := base64.StdEncoding.DecodeString(c.Query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode --query: %w", err)
+	}
+	req := &jqlpb.ListRowsRequest{}
+	if err := proto.Unmarshal(data, req); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal --query: %w", err)
+	}
+	return req, nil
 }
 
 func (c *JQLConfig) GetFilters() []Filter {

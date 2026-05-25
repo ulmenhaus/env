@@ -37,35 +37,35 @@ class RemindersBackend(jql_pb2_grpc.JQLServicer):
         ))
         _, cmap = common.list_rows_meta(status_response)
         # Deduplicate while preserving order; strip "vt.reminders " prefix to get bare PKs
-        reminder_arg0s = list(dict.fromkeys(
+        reminder_bareids = list(dict.fromkeys(
             row.entries[cmap[schema.Fields.Arg0]].formatted[len("vt.reminders "):]
             for row in status_response.rows
             if row.entries[cmap[schema.Fields.Arg0]].formatted.startswith("vt.reminders ")
         ))
-        if not reminder_arg0s:
+        if not reminder_bareids:
             return common.list_rows("vt.reminders", {}, request, VALUES)
 
         # Query 2: get all attributes for these reminders
         attr_map, raw_assn_pks = common.get_fields_for_items(
-            self.client, "vt.reminders", reminder_arg0s)
+            self.client, "vt.reminders", reminder_bareids)
 
         # Queries 3 & 4: find today's day plan and which reminders are in it
         plan_pk = common.get_todays_day_plan(self.client)
         entry_refs = common.get_day_plan_entry_refs(self.client, plan_pk)
 
         entries = {}
-        for arg0 in reminder_arg0s:
-            fields = attr_map.get(arg0, {})
-            field_assn_pks = dict(raw_assn_pks.get(arg0, {}))
+        for bareid in reminder_bareids:
+            fields = attr_map.get(bareid, {})
+            field_assn_pks = dict(raw_assn_pks.get(bareid, {}))
 
             # Remap internal relation name to display column name
             if "TargetDate" in field_assn_pks:
                 field_assn_pks["Target Date"] = field_assn_pks.pop("TargetDate")
 
             # Encode the day-plan assn pk so IncrementEntry can delete it
-            if arg0 in entry_refs:
-                assn_pk, _ = entry_refs[arg0]
-                field_assn_pks["Active"] = [[assn_pk, f"@{{vt.reminders {arg0}}}"]]
+            if bareid in entry_refs:
+                assn_pk, _ = entry_refs[bareid]
+                field_assn_pks["Active"] = [[assn_pk, f"@{{vt.reminders {bareid}}}"]]
                 active = ["Today"]
             else:
                 active = ["Later"]
@@ -75,17 +75,18 @@ class RemindersBackend(jql_pb2_grpc.JQLServicer):
             description = check_val if check_val else task_val
 
             status_raw = fields.get("Status", [""])[0]
-            pk = common.encode_pk(arg0, field_assn_pks)
+            pk = common.encode_pk(f"vt.reminders {bareid}", field_assn_pks)
             entries[pk] = {
                 "_pk": [pk],
                 "Active": active,
                 "Priority": fields.get("Priority", []),
                 "Target Date": fields.get("TargetDate", []),
                 "Description": [description] if description else [],
-                "Status": [common.colorize_status(status_raw)] if status_raw else [],
+                "Status": [status_raw] if status_raw else [],
             }
 
-        return common.list_rows("vt.reminders", entries, request, VALUES)
+        return common.list_rows("vt.reminders", entries, request, VALUES,
+                                display_overrides={"Status": common.colorize_status})
 
     def IncrementEntry(self, request, context):
         arg0, pk_map = common.decode_pk(request.pk)

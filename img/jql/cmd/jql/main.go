@@ -104,6 +104,18 @@ func runDaemon(cfg *cli.JQLConfig, dbms api.JQL_DBMS) error {
 }
 
 func runUI(cfg *cli.JQLConfig, dbms api.JQL_DBMS) error {
+	var initialQuery *jqlpb.ListRowsRequest
+	if cfg.Query != "" {
+		q, err := cfg.GetQuery()
+		if err != nil {
+			return err
+		}
+		initialQuery = q
+		cfg.Table = q.Table
+		// Reset the query so that it won't be carried over in
+		// subsequent UI changes
+		cfg.Query = ""
+	}
 	mv, err := ui.NewMainView(dbms, cfg.Table)
 	if err != nil {
 		return err
@@ -114,11 +126,18 @@ func runUI(cfg *cli.JQLConfig, dbms api.JQL_DBMS) error {
 			return err
 		}
 	}
-	filters := cfg.GetFilters()
-	if len(filters) > 0 {
-		err = mv.AddFilters(filters)
+	if initialQuery != nil {
+		err = mv.LoadQuery(initialQuery)
 		if err != nil {
 			return err
+		}
+	} else {
+		filters := cfg.GetFilters()
+		if len(filters) > 0 {
+			err = mv.AddFilters(filters)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	if cfg.SelectPK != "" {

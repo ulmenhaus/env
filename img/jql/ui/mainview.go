@@ -1395,6 +1395,17 @@ func (mv *MainView) SetSelectedPK(pk string) {
 	mv.selectedPK = pk
 }
 
+func (mv *MainView) LoadQuery(req *jqlpb.ListRowsRequest) error {
+	mv.request = *req
+	if len(mv.request.Conditions) == 0 {
+		mv.request.Conditions = []*jqlpb.Condition{{}}
+	}
+	if mv.request.GroupBy == nil {
+		mv.request.GroupBy = &jqlpb.GroupBy{}
+	}
+	return mv.updateTableViewContents(true)
+}
+
 func (mv *MainView) AddFilters(filters []cli.Filter) error {
 	for _, filter := range filters {
 		mv.request.Conditions[0].Requires = append(mv.request.Conditions[0].Requires, &jqlpb.Filter{

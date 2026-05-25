@@ -191,7 +191,8 @@ def _filter_matches(row, f):
         return (f.contains_match.value.lower() in "\n".join(
             row.get(f.column, "")).lower()) ^ f.negated
     elif match_type == 'in_match':
-        return (row.get(f.column, "") in f.in_match.values) ^ f.negated
+        values = row[f.column] if row[f.column] else [""]
+        return bool(set(f.in_match.values) & set(values))
     else:
         raise ValueError("Unknown filter type", match_type)
 
@@ -400,14 +401,21 @@ def strip_foreign_noun(entry):
     return entry[len("@{nouns "):-1]
 
 
-def _mapping_to_row(mapping, fields):
-    return jql_pb2.Row(entries=[
-        jql_pb2.Entry(
-            formatted=format_attrs(mapping.get(field, [])),
-            display_value=present_attrs(mapping.get(field, [])),
-            link=link_attrs(mapping.get(field, [])),
-        ) for field in fields
-    ])
+def _mapping_to_row(mapping, fields, display_overrides=None):
+    display_overrides = display_overrides or {}
+    entries = []
+    for field in fields:
+        attrs = mapping.get(field, [])
+        formatted = format_attrs(attrs)
+        display_value = present_attrs(attrs)
+        if field in display_overrides and formatted:
+            display_value = display_overrides[field](formatted)
+        entries.append(jql_pb2.Entry(
+            formatted=formatted,
+            display_value=display_value,
+            link=link_attrs(attrs),
+        ))
+    return jql_pb2.Row(entries=entries)
 
 
 def _fields_to_columns(fields,
@@ -469,6 +477,7 @@ def list_rows(
     allow_foreign=True,
     client=None,
     hide_grouping_fields=False,
+    display_overrides=None,
 ):
     values = values if values else {}
     type_of = {k: jql_pb2.EntryType.ENUM for k in values}
@@ -489,7 +498,7 @@ def list_rows(
                                    values,
                                    max_lens,
                                    client=client),
-        rows=[_mapping_to_row(relative, fields) for relative in final],
+        rows=[_mapping_to_row(relative, fields, display_overrides) for relative in final],
         all=len(rows),
         total=len(grouped),
         groupings=groupings,

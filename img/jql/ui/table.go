@@ -96,6 +96,46 @@ func stringSlice(s string, chars int) string {
 	return string([]rune(s)[chars:])
 }
 
+// visibleLen returns the number of visible (non-ANSI-escape) runes in val.
+func visibleLen(val []rune) int {
+	n, i := 0, 0
+	for i < len(val) {
+		if val[i] == '\033' && i+1 < len(val) && val[i+1] == '[' {
+			i += 2
+			for i < len(val) && !(val[i] >= 0x40 && val[i] <= 0x7E) {
+				i++
+			}
+			i++
+		} else {
+			n++
+			i++
+		}
+	}
+	return n
+}
+
+// truncateToVisible returns val truncated so that at most width visible
+// (non-ANSI-escape) runes remain.
+func truncateToVisible(val []rune, width int) []rune {
+	visible, i := 0, 0
+	for i < len(val) {
+		if val[i] == '\033' && i+1 < len(val) && val[i+1] == '[' {
+			i += 2
+			for i < len(val) && !(val[i] >= 0x40 && val[i] <= 0x7E) {
+				i++
+			}
+			i++
+		} else {
+			visible++
+			if visible == width {
+				return val[:i+1]
+			}
+			i++
+		}
+	}
+	return val
+}
+
 // WriteContents writes the contents of the table to a gocui view
 func (tv *TableView) WriteContents(v io.Writer) error {
 	// TODO paginate horizantally and vertically
@@ -121,17 +161,22 @@ func (tv *TableView) WriteContents(v io.Writer) error {
 			width := tv.Widths[j]
 			rawVal = strings.Split(rawVal, "\n")[0]
 			val := []rune(rawVal)
-			if len(val) >= width {
-				val = val[:width]
+			resetSuffix := ""
+			visLen := visibleLen(val)
+			if visLen >= width {
+				val = truncateToVisible(val, width)
+				if strings.Contains(rawVal, "\033[") {
+					resetSuffix = "\033[0m"
+				}
 			} else {
-				diff := width - len(val)
+				diff := width - visLen
 				for k := 0; k < diff; k++ {
 					val = append(val, ' ')
 				}
 			}
 
 			level := tv.selectionLevel(Coordinate{Row: i, Column: j})
-			rowString += fmt.Sprintf("%s%s%s%s", stringMult(">", level), stringMult(" ", 3-level), string(val), stringMult(" ", 5))
+			rowString += fmt.Sprintf("%s%s%s%s%s", stringMult(">", level), stringMult(" ", 3-level), string(val), resetSuffix, stringMult(" ", 5))
 		}
 		content += stringSlice(strings.ReplaceAll(rowString, "%", "%%"), tv.XOffset)
 		content += "\n"

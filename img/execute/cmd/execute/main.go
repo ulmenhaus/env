@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 
 	"github.com/jroimartin/gocui"
@@ -9,6 +10,7 @@ import (
 	"github.com/ulmenhaus/env/img/execute/ui"
 	"github.com/ulmenhaus/env/img/jql/cli"
 	"github.com/ulmenhaus/env/proto/jql/jqlpb"
+	"google.golang.org/protobuf/proto"
 )
 
 func main() {
@@ -78,19 +80,68 @@ func runExecute() error {
 		return err
 	}
 
-	goToToday := func(g *gocui.Gui, v *gocui.View) error {
+	goToActiveReminder := func(g *gocui.Gui, v *gocui.View) error {
 		if mv.MainViewMode != ui.MainViewModeListBar {
-			mv.Edit(v, gocui.Key(0), 't', gocui.ModNone)
+			mv.Edit(v, gocui.Key(0), 'a', gocui.ModNone)
 			return nil
 		}
-		pk, err := mv.GetTodayPlanPK()
+		reminderID, err := mv.GetSelectedReminderArg0(g)
 		if err != nil {
 			return err
 		}
-		cfg.Table = ui.TableTasks
-		return cfg.SwitchTool("jql", pk)
+		req := &jqlpb.ListRowsRequest{
+			Table:   ui.TableActiveReminders,
+			OrderBy: "A Order",
+		}
+		data, err := proto.Marshal(req)
+		if err != nil {
+			return err
+		}
+		cfg.Table = ""
+		cfg.Query = base64.StdEncoding.EncodeToString(data)
+		cfg.SelectPK = reminderID
+		return cfg.SwitchTool("jql", "")
 	}
-	err = g.SetKeybinding("", 't', gocui.ModNone, goToToday)
+	err = g.SetKeybinding("", 'a', gocui.ModNone, goToActiveReminder)
+	if err != nil {
+		return err
+	}
+
+	goToReminders := func(g *gocui.Gui, v *gocui.View) error {
+		if mv.MainViewMode != ui.MainViewModeListBar {
+			mv.Edit(v, gocui.Key(0), 'A', gocui.ModNone)
+			return nil
+		}
+		reminderID, err := mv.GetSelectedReminderArg0(g)
+		if err != nil {
+			return err
+		}
+		req := &jqlpb.ListRowsRequest{
+			Table:   ui.TableReminders,
+			OrderBy: "A Order",
+			Conditions: []*jqlpb.Condition{
+				{
+					Requires: []*jqlpb.Filter{
+						{
+							Column: "Status",
+							Match: &jqlpb.Filter_InMatch{InMatch: &jqlpb.InMatch{
+								Values: []string{"Awaiting", "Ready"},
+							}},
+						},
+					},
+				},
+			},
+		}
+		data, err := proto.Marshal(req)
+		if err != nil {
+			return err
+		}
+		cfg.Table = ""
+		cfg.Query = base64.StdEncoding.EncodeToString(data)
+		cfg.SelectPK = reminderID
+		return cfg.SwitchTool("jql", "")
+	}
+	err = g.SetKeybinding("", 'A', gocui.ModNone, goToReminders)
 	if err != nil {
 		return err
 	}

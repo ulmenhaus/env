@@ -1273,6 +1273,23 @@ func (mv *MainView) ResolveSelectedPK(g *gocui.Gui) (string, error) {
 	}
 }
 
+func (mv *MainView) GetSelectedReminderArg0(g *gocui.Gui) (string, error) {
+	var cy, oy int
+	view, err := g.View(TasksView)
+	if err != nil && err != gocui.ErrUnknownView {
+		return "", err
+	} else if err == nil {
+		_, oy = view.Origin()
+		_, cy = view.Cursor()
+	}
+	ix := oy + cy
+	item, ok := mv.ix2item[ix]
+	if !ok {
+		return "", nil
+	}
+	return item.ReminderArg0, nil
+}
+
 func (mv *MainView) refreshView(g *gocui.Gui) error {
 	err := mv.refreshWeeklyDisplays()
 	if err != nil {
