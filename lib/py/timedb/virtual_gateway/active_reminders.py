@@ -100,10 +100,12 @@ class ActiveRemindersBackend(jql_pb2_grpc.JQLServicer):
         return common.list_rows("vt.active_reminders", entries, request, VALUES)
 
     def GetRow(self, request, context):
+        arg0, _ = common.decode_pk(request.pk)
         resp = self.ListRows(jql_pb2.ListRowsRequest(), context)
         primary, _ = common.list_rows_meta(resp)
         for row in resp.rows:
-            if row.entries[primary].formatted == request.pk:
+            row_arg0, _ = common.decode_pk(row.entries[primary].formatted)
+            if row_arg0 == arg0:
                 return jql_pb2.GetRowResponse(
                     table="vt.active_reminders",
                     columns=resp.columns,

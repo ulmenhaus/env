@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/ulmenhaus/env/img/jql/osm"
 	"github.com/ulmenhaus/env/img/jql/types"
@@ -531,6 +532,13 @@ func ParseForeignKey(s string) (string, string) {
 		return "", ""
 	}
 	return ParsePolyForeignStr(s[2 : len(s)-1])
+}
+
+// ParseFormattedDate parses a date string in "DD Mon YYYY" format (e.g. "25 Jan 2026")
+// and returns the corresponding time.Time in UTC. Returns an error if the string does
+// not match the expected format.
+func ParseFormattedDate(s string) (time.Time, error) {
+	return time.Parse("02 Jan 2006", s)
 }
 
 func ParseLink(entry *jqlpb.Entry) (string, []string) {

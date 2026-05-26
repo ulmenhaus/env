@@ -2013,6 +2013,127 @@ func (mv *MainView) queryPossibleDayPlanAdditions() ([]string, error) {
 	return descriptions, nil
 }
 
+// buildCandidatesForTasks builds (taskPK, checkText) reminder candidates for the given task PKs.
+// Only tasks in activePKs receive a bare-task (empty checkText) candidate; all tasks are queried
+// for .Check assertions to collect additional check-level candidates.
+func (mv *MainView) buildCandidatesForTasks(allPKs []string, activePKs map[string]bool) ([]reminderToPlace, error) {
+	arg0s := make([]string, len(allPKs))
+	for i, pk := range allPKs {
+		arg0s[i] = fmt.Sprintf("tasks %s", pk)
+	}
+	var checksResp *jqlpb.ListRowsResponse
+	var err error
+	if len(arg0s) > 0 {
+		checksResp, err = mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
+			Table: TableAssertions,
+			Conditions: []*jqlpb.Condition{{
+				Requires: []*jqlpb.Filter{
+					{Column: FieldArg0, Match: &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: arg0s}}},
+					{Column: FieldARelation, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Check"}}},
+				},
+			}},
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+	seenCandidates := map[string]bool{}
+	var candidates []reminderToPlace
+	for _, pk := range allPKs {
+		if !activePKs[pk] {
+			continue
+		}
+		key := pk + "\x00"
+		if !seenCandidates[key] {
+			seenCandidates[key] = true
+			candidates = append(candidates, reminderToPlace{taskPK: pk})
+		}
+	}
+	if checksResp != nil {
+		for _, row := range checksResp.Rows {
+			arg0 := row.Entries[api.IndexOfField(checksResp.Columns, FieldArg0)].Formatted
+			checkText := row.Entries[api.IndexOfField(checksResp.Columns, FieldArg1)].Formatted
+			taskPK := strings.TrimPrefix(arg0, "tasks ")
+			if len(checkText) >= 4 && checkText[0] == '[' && checkText[2] == ']' && checkText[3] == ' ' {
+				continue
+			}
+			key := taskPK + "\x00" + checkText
+			if !seenCandidates[key] {
+				seenCandidates[key] = true
+				candidates = append(candidates, reminderToPlace{taskPK: taskPK, checkText: checkText})
+			}
+		}
+	}
+	return candidates, nil
+}
+
+// placeRemindersAtPosition resolves candidates via resolveReminderPlacements, filters out reminders
+// already in today's plan, shifts existing entries upward to make room, and inserts all new entries
+// sequentially starting at insertAfterOrder+1. Returns the count of entries added.
+func (mv *MainView) placeRemindersAtPosition(
+	dayPlanPK string,
+	entries []dayPlanEntry,
+	inTodayPlan map[string]bool,
+	insertAfterOrder int,
+	candidates []reminderToPlace,
+	todayStr string,
+) (int, error) {
+	toCreate, existingToPlace, err := mv.resolveReminderPlacements(candidates)
+	if err != nil {
+		return 0, err
+	}
+	var filteredExisting []string
+	for _, bareID := range existingToPlace {
+		if !inTodayPlan[bareID] {
+			filteredExisting = append(filteredExisting, bareID)
+		}
+	}
+	totalToAdd := len(toCreate) + len(filteredExisting)
+	if totalToAdd == 0 {
+		return 0, nil
+	}
+	for i := len(entries) - 1; i >= 0; i-- {
+		e := entries[i]
+		if e.order > insertAfterOrder {
+			_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
+				UpdateOnly: true,
+				Table:      TableAssertions,
+				Pk:         e.pk,
+				Fields:     map[string]string{FieldOrder: fmt.Sprintf("%d", e.order+totalToAdd)},
+			})
+			if err != nil {
+				return 0, err
+			}
+		}
+	}
+	nextOrder := insertAfterOrder + 1
+	for _, bareID := range filteredExisting {
+		newPK := fmt.Sprintf("%d", rand.Int63())
+		_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
+			Table:      TableAssertions,
+			Pk:         newPK,
+			InsertOnly: true,
+			Fields: map[string]string{
+				FieldARelation: ".Entry",
+				FieldArg0:      fmt.Sprintf("tasks %s", dayPlanPK),
+				FieldArg1:      fmt.Sprintf("@{vt.reminders %s}", bareID),
+				FieldOrder:     fmt.Sprintf("%d", nextOrder),
+			},
+		})
+		if err != nil {
+			return 0, err
+		}
+		nextOrder++
+	}
+	for _, c := range toCreate {
+		if err := mv.createReminderEntity(dayPlanPK, c.taskPK, c.checkText, todayStr, nextOrder); err != nil {
+			return 0, err
+		}
+		nextOrder++
+	}
+	return totalToAdd, nil
+}
+
 func (mv *MainView) insertNewReminders() error {
 	dayPlan, err := mv.queryDayPlan()
 	if err != nil || dayPlan == nil {
@@ -2052,56 +2173,11 @@ func (mv *MainView) insertNewReminders() error {
 		}
 	}
 
-	// Query .Check assertions on all active/habitual tasks
-	arg0s := make([]string, len(allPKs))
-	for i, pk := range allPKs {
-		arg0s[i] = fmt.Sprintf("tasks %s", pk)
-	}
-	var checksResp *jqlpb.ListRowsResponse
-	if len(arg0s) > 0 {
-		checksResp, err = mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
-			Table: TableAssertions,
-			Conditions: []*jqlpb.Condition{{
-				Requires: []*jqlpb.Filter{
-					{Column: FieldArg0, Match: &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: arg0s}}},
-					{Column: FieldARelation, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Check"}}},
-				},
-			}},
-		})
-		if err != nil {
-			return err
-		}
-	}
-
 	todayStr := time.Now().Format("2006-01-02")
 
-	// Collect all candidate (taskPK, checkText) pairs with within-batch deduplication.
-	seenCandidates := map[string]bool{}
-	var candidates []reminderToPlace
-	for _, pk := range allPKs {
-		if !activePKs[pk] {
-			continue
-		}
-		key := pk + "\x00"
-		if !seenCandidates[key] {
-			seenCandidates[key] = true
-			candidates = append(candidates, reminderToPlace{taskPK: pk})
-		}
-	}
-	if checksResp != nil {
-		for _, row := range checksResp.Rows {
-			arg0 := row.Entries[api.IndexOfField(checksResp.Columns, FieldArg0)].Formatted
-			checkText := row.Entries[api.IndexOfField(checksResp.Columns, FieldArg1)].Formatted
-			taskPK := strings.TrimPrefix(arg0, "tasks ")
-			if len(checkText) >= 4 && checkText[0] == '[' && checkText[2] == ']' && checkText[3] == ' ' {
-				continue
-			}
-			key := taskPK + "\x00" + checkText
-			if !seenCandidates[key] {
-				seenCandidates[key] = true
-				candidates = append(candidates, reminderToPlace{taskPK: taskPK, checkText: checkText})
-			}
-		}
+	candidates, err := mv.buildCandidatesForTasks(allPKs, activePKs)
+	if err != nil {
+		return err
 	}
 
 	// Classify candidates: those needing a new reminder entity vs. existing ones due today.
@@ -2581,7 +2657,37 @@ func (mv *MainView) createReminderEntity(dayPlanPK, taskPK, checkText, targetDat
 	return err
 }
 
+// maybeMarkPreviousDayPlanSatisfied marks the current active day plan as Satisfied if its start
+// date is before today, closing it out before autofill creates a fresh one.
+func (mv *MainView) maybeMarkPreviousDayPlanSatisfied() error {
+	dayPlan, err := mv.queryDayPlan()
+	if err != nil || dayPlan == nil {
+		return err
+	}
+	tasksTable := mv.tables[TableTasks]
+	startStr := dayPlan.Entries[api.IndexOfField(tasksTable.Columns, FieldStart)].Formatted
+	startDate, err := api.ParseFormattedDate(startStr)
+	if err != nil {
+		return nil // unparseable date — skip rather than error
+	}
+	today := time.Now().Truncate(24 * time.Hour)
+	if !startDate.Before(today) {
+		return nil
+	}
+	pk := dayPlan.Entries[api.GetPrimary(tasksTable.Columns)].Formatted
+	_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
+		UpdateOnly: true,
+		Table:      TableTasks,
+		Pk:         pk,
+		Fields:     map[string]string{FieldStatus: StatusSatisfied},
+	})
+	return err
+}
+
 func (mv *MainView) refreshTasks(g *gocui.Gui, v *gocui.View) error {
+	if err := mv.maybeMarkPreviousDayPlanSatisfied(); err != nil {
+		return err
+	}
 	_, err := api.RunMacro(ctx, mv.dbms, "jql-timedb-autofill --v2", api.MacroCurrentView{}, true)
 	if err != nil {
 		return err
@@ -2932,7 +3038,8 @@ func (mv *MainView) InjectTaskWithAllMatching(g *gocui.Gui, v *gocui.View, match
 	if err != nil {
 		return 0, err
 	}
-	descPKs := []string{}
+	allPKs := []string{}
+	activePKs := map[string]bool{}
 	for _, row := range activeDescendants.Rows {
 		action := row.Entries[api.IndexOfField(mv.tables[TableTasks].Columns, FieldAction)].Formatted
 		direct := row.Entries[api.IndexOfField(mv.tables[TableTasks].Columns, FieldDirect)].Formatted
@@ -2941,14 +3048,8 @@ func (mv *MainView) InjectTaskWithAllMatching(g *gocui.Gui, v *gocui.View, match
 			continue
 		}
 		pk := row.Entries[api.GetPrimary(mv.tables[TableTasks].Columns)].Formatted
-		descPKs = append(descPKs, pk)
-	}
-	// Build set of task PKs already in today's plan from reminder cache
-	alreadyPresent := map[string]bool{}
-	for _, info := range mv.reminderCache {
-		if info.taskPK != "" && info.checkText == "" {
-			alreadyPresent[info.taskPK] = true
-		}
+		allPKs = append(allPKs, pk)
+		activePKs[pk] = true
 	}
 
 	dayPlan, err := mv.queryDayPlan()
@@ -2958,22 +3059,18 @@ func (mv *MainView) InjectTaskWithAllMatching(g *gocui.Gui, v *gocui.View, match
 	dayPlanPK := dayPlan.Entries[api.GetPrimary(tasksTable.Columns)].Formatted
 	todayStr := time.Now().Format("2006-01-02")
 
-	// Count new items before touching the DB so we can shift atomically.
-	toAdd := 0
-	for _, descPK := range descPKs {
-		if !alreadyPresent[descPK] {
-			toAdd++
-		}
-	}
-	if toAdd == 0 {
-		return 0, nil
-	}
-
-	// Find the order of the entry under the cursor to use as insertion point.
 	entries, err := mv.queryDayPlanEntries(dayPlanPK)
 	if err != nil {
 		return 0, err
 	}
+	inTodayPlan := map[string]bool{}
+	for _, e := range entries {
+		if table, pk := api.ParseForeignKey(e.arg1); table == "vt.reminders" {
+			inTodayPlan[pk] = true
+		}
+	}
+
+	// Find the order of the entry under the cursor to use as insertion point.
 	var cursorEntryPK string
 	if tasksView, viewErr := g.View(TasksView); viewErr == nil {
 		_, oy := tasksView.Origin()
@@ -2993,34 +3090,14 @@ func (mv *MainView) InjectTaskWithAllMatching(g *gocui.Gui, v *gocui.View, match
 		insertAfterOrder = entries[len(entries)-1].order
 	}
 
-	// Shift existing entries that follow the insertion point upward by toAdd.
-	for i := len(entries) - 1; i >= 0; i-- {
-		e := entries[i]
-		if e.order > insertAfterOrder {
-			_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
-				UpdateOnly: true,
-				Table:      TableAssertions,
-				Pk:         e.pk,
-				Fields:     map[string]string{FieldOrder: fmt.Sprintf("%d", e.order+toAdd)},
-			})
-			if err != nil {
-				return 0, err
-			}
-		}
+	candidates, err := mv.buildCandidatesForTasks(allPKs, activePKs)
+	if err != nil {
+		return 0, err
 	}
 
-	nextOrder := insertAfterOrder + 1
-	added := 0
-	for _, descPK := range descPKs {
-		if alreadyPresent[descPK] {
-			continue
-		}
-		err := mv.createReminderEntity(dayPlanPK, descPK, "", todayStr, nextOrder)
-		if err != nil {
-			return added, err
-		}
-		nextOrder++
-		added++
+	added, err := mv.placeRemindersAtPosition(dayPlanPK, entries, inTodayPlan, insertAfterOrder, candidates, todayStr)
+	if err != nil {
+		return added, err
 	}
 	if added > 0 {
 		if err = mv.save(); err != nil {
