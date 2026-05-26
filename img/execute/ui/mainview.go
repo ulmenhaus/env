@@ -2958,12 +2958,58 @@ func (mv *MainView) InjectTaskWithAllMatching(g *gocui.Gui, v *gocui.View, match
 	dayPlanPK := dayPlan.Entries[api.GetPrimary(tasksTable.Columns)].Formatted
 	todayStr := time.Now().Format("2006-01-02")
 
-	nextOrder, err := mv.maxEntryOrder(dayPlanPK)
+	// Count new items before touching the DB so we can shift atomically.
+	toAdd := 0
+	for _, descPK := range descPKs {
+		if !alreadyPresent[descPK] {
+			toAdd++
+		}
+	}
+	if toAdd == 0 {
+		return 0, nil
+	}
+
+	// Find the order of the entry under the cursor to use as insertion point.
+	entries, err := mv.queryDayPlanEntries(dayPlanPK)
 	if err != nil {
 		return 0, err
 	}
-	nextOrder++
+	var cursorEntryPK string
+	if tasksView, viewErr := g.View(TasksView); viewErr == nil {
+		_, oy := tasksView.Origin()
+		_, cy := tasksView.Cursor()
+		if item, ok := mv.ix2item[oy+cy]; ok {
+			cursorEntryPK = item.PK
+		}
+	}
+	insertAfterOrder := -1
+	for _, e := range entries {
+		if e.pk == cursorEntryPK {
+			insertAfterOrder = e.order
+			break
+		}
+	}
+	if insertAfterOrder == -1 && len(entries) > 0 {
+		insertAfterOrder = entries[len(entries)-1].order
+	}
 
+	// Shift existing entries that follow the insertion point upward by toAdd.
+	for i := len(entries) - 1; i >= 0; i-- {
+		e := entries[i]
+		if e.order > insertAfterOrder {
+			_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
+				UpdateOnly: true,
+				Table:      TableAssertions,
+				Pk:         e.pk,
+				Fields:     map[string]string{FieldOrder: fmt.Sprintf("%d", e.order+toAdd)},
+			})
+			if err != nil {
+				return 0, err
+			}
+		}
+	}
+
+	nextOrder := insertAfterOrder + 1
 	added := 0
 	for _, descPK := range descPKs {
 		if alreadyPresent[descPK] {
@@ -2974,7 +3020,7 @@ func (mv *MainView) InjectTaskWithAllMatching(g *gocui.Gui, v *gocui.View, match
 			return added, err
 		}
 		nextOrder++
-		added += 1
+		added++
 	}
 	if added > 0 {
 		if err = mv.save(); err != nil {
