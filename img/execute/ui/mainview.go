@@ -127,12 +127,10 @@ type PlanSelectionItem struct {
 	Marked bool
 }
 
-// reminderToPlace collects the data needed to position a new reminder in the day plan.
+// reminderToPlace collects the data needed to create a reminder for a given task/check pair.
 type reminderToPlace struct {
-	taskPK       string
-	checkText    string
-	dayPlanGroup string
-	dayPlanOrder int
+	taskPK    string
+	checkText string
 }
 
 // dayPlanEntry is a snapshot of an existing .Entry assertion on the day plan.
@@ -140,12 +138,6 @@ type dayPlanEntry struct {
 	pk    string
 	arg1  string
 	order int
-}
-
-// habitPlacementMeta carries DayPlanGroup and DayPlanOrder resolved from a habit task.
-type habitPlacementMeta struct {
-	dayPlanGroup string
-	dayPlanOrder int
 }
 
 // NewMainView returns a MainView initialized with a given Table
@@ -2134,6 +2126,135 @@ func (mv *MainView) placeRemindersAtPosition(
 	return totalToAdd, nil
 }
 
+// buildCandidatesFromAwaitingReminders returns (taskPK, checkText) candidates for all
+// reminder entities whose .Status is Awaiting or Ready. These are fed into
+// resolveReminderPlacements so that due reminders surface in the day plan even when their
+// parent task is not in the active/habitual query.
+// createMissingReminders creates reminder assertion clusters for every (task, check) candidate
+// that has no existing reminder entity. Newly created reminders get todayStr as their TargetDate
+// and are not yet added to any day plan; addDueRemindersToDay handles that step.
+func (mv *MainView) createMissingReminders(candidates []reminderToPlace, todayStr string) error {
+	toCreate, _, err := mv.resolveReminderPlacements(candidates)
+	if err != nil {
+		return err
+	}
+	for _, c := range toCreate {
+		if _, err := mv.createReminder(c.taskPK, c.checkText, todayStr); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// queryDueReminderBareIDs returns the bare IDs of all Awaiting/Ready reminder entities
+// whose TargetDate is at or before todayStr.
+func (mv *MainView) queryDueReminderBareIDs(todayStr string) ([]string, error) {
+	statusResp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
+		Table: TableAssertions,
+		Conditions: []*jqlpb.Condition{{
+			Requires: []*jqlpb.Filter{
+				{Column: FieldARelation, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Status"}}},
+				{Column: FieldArg1, Match: &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: []string{"Awaiting", "Ready"}}}},
+			},
+		}},
+	})
+	if err != nil {
+		return nil, err
+	}
+	var bareIDs []string
+	var arg0s []string
+	for _, row := range statusResp.Rows {
+		arg0 := row.Entries[api.IndexOfField(statusResp.Columns, FieldArg0)].Formatted
+		if !strings.HasPrefix(arg0, "vt.reminders ") {
+			continue
+		}
+		bareIDs = append(bareIDs, strings.TrimPrefix(arg0, "vt.reminders "))
+		arg0s = append(arg0s, arg0)
+	}
+	if len(arg0s) == 0 {
+		return nil, nil
+	}
+	tdResp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
+		Table: TableAssertions,
+		Conditions: []*jqlpb.Condition{{
+			Requires: []*jqlpb.Filter{
+				{Column: FieldArg0, Match: &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: arg0s}}},
+				{Column: FieldARelation, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".TargetDate"}}},
+			},
+		}},
+	})
+	if err != nil {
+		return nil, err
+	}
+	targetDates := map[string]string{}
+	for _, row := range tdResp.Rows {
+		arg0 := row.Entries[api.IndexOfField(tdResp.Columns, FieldArg0)].Formatted
+		arg1 := row.Entries[api.IndexOfField(tdResp.Columns, FieldArg1)].Formatted
+		_, dateStr := api.ParseForeignKey(arg1)
+		targetDates[strings.TrimPrefix(arg0, "vt.reminders ")] = dateStr
+	}
+	var due []string
+	for _, bareID := range bareIDs {
+		td := targetDates[bareID]
+		if td == "" || td <= todayStr {
+			due = append(due, bareID)
+		}
+	}
+	return due, nil
+}
+
+// addDueRemindersToDay adds all Awaiting/Ready reminders whose TargetDate is today or earlier
+// to the day plan, skipping any already present. New entries are inserted after the Zeroeth
+// Entry (order 0) if one exists, otherwise at the beginning.
+func (mv *MainView) addDueRemindersToDay(dayPlanPK string, entries []dayPlanEntry, inTodayPlan map[string]bool, todayStr string) error {
+	dueIDs, err := mv.queryDueReminderBareIDs(todayStr)
+	if err != nil {
+		return err
+	}
+	var toAdd []string
+	for _, bareID := range dueIDs {
+		if !inTodayPlan[bareID] {
+			toAdd = append(toAdd, bareID)
+		}
+	}
+	if len(toAdd) == 0 {
+		return nil
+	}
+	insertStart := 0
+	shiftOrderChanges := map[string]int{}
+	if len(entries) > 0 && entries[0].order == 0 {
+		insertStart = 1
+		for _, e := range entries[1:] {
+			shiftOrderChanges[e.pk] = e.order + len(toAdd)
+		}
+	} else {
+		for _, e := range entries {
+			shiftOrderChanges[e.pk] = e.order + len(toAdd)
+		}
+	}
+	if err := mv.applyOrderUpdates(shiftOrderChanges); err != nil {
+		return err
+	}
+	for i, bareID := range toAdd {
+		newPK := fmt.Sprintf("%d", rand.Int63())
+		_, err := mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
+			Table:      TableAssertions,
+			Pk:         newPK,
+			InsertOnly: true,
+			Fields: map[string]string{
+				FieldARelation: ".Entry",
+				FieldArg0:      fmt.Sprintf("tasks %s", dayPlanPK),
+				FieldArg1:      fmt.Sprintf("@{vt.reminders %s}", bareID),
+				FieldOrder:     fmt.Sprintf("%d", insertStart+i),
+			},
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (mv *MainView) insertNewReminders() error {
 	dayPlan, err := mv.queryDayPlan()
 	if err != nil || dayPlan == nil {
@@ -2142,7 +2263,6 @@ func (mv *MainView) insertNewReminders() error {
 	tasksTable := mv.tables[TableTasks]
 	dayPlanPK := dayPlan.Entries[api.GetPrimary(tasksTable.Columns)].Formatted
 
-	// Query today's existing entries upfront to know what's already in the plan.
 	entries, err := mv.queryDayPlanEntries(dayPlanPK)
 	if err != nil {
 		return err
@@ -2158,7 +2278,6 @@ func (mv *MainView) insertNewReminders() error {
 	if err != nil {
 		return err
 	}
-
 	allPKs := []string{}
 	activePKs := map[string]bool{}
 	for _, task := range activeAndHabitual.Rows {
@@ -2179,124 +2298,13 @@ func (mv *MainView) insertNewReminders() error {
 	if err != nil {
 		return err
 	}
-
-	// Classify candidates: those needing a new reminder entity vs. existing ones due today.
-	toCreate, existingToPlace, err := mv.resolveReminderPlacements(candidates)
-	if err != nil {
+	if err := mv.createMissingReminders(candidates, todayStr); err != nil {
 		return err
 	}
-
-	// Filter existing reminders to those not already in today's plan.
-	var filteredExisting []string
-	for _, bareID := range existingToPlace {
-		if !inTodayPlan[bareID] {
-			filteredExisting = append(filteredExisting, bareID)
-		}
-	}
-
-	// Phase 1: insert existing due reminders after the Zeroeth Entry (order 0) if one
-	// exists, otherwise at the very beginning.
-	if len(filteredExisting) > 0 {
-		insertStart := 0
-		shiftOrderChanges := map[string]int{}
-		if len(entries) > 0 && entries[0].order == 0 {
-			insertStart = 1
-			for _, e := range entries[1:] {
-				shiftOrderChanges[e.pk] = e.order + len(filteredExisting)
-			}
-		} else {
-			for _, e := range entries {
-				shiftOrderChanges[e.pk] = e.order + len(filteredExisting)
-			}
-		}
-		if err := mv.applyOrderUpdates(shiftOrderChanges); err != nil {
-			return err
-		}
-		for i, bareID := range filteredExisting {
-			newPK := fmt.Sprintf("%d", rand.Int63())
-			_, err := mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
-				Table:      TableAssertions,
-				Pk:         newPK,
-				InsertOnly: true,
-				Fields: map[string]string{
-					FieldARelation: ".Entry",
-					FieldArg0:      fmt.Sprintf("tasks %s", dayPlanPK),
-					FieldArg1:      fmt.Sprintf("@{vt.reminders %s}", bareID),
-					FieldOrder:     fmt.Sprintf("%d", insertStart+i),
-				},
-			})
-			if err != nil {
-				return err
-			}
-		}
-		// Re-query so Phase 2 sees the updated entry list.
-		entries, err = mv.queryDayPlanEntries(dayPlanPK)
-		if err != nil {
-			return err
-		}
-	}
-
-	// Phase 2: create new reminder entities for candidates with no existing reminder.
-	if len(toCreate) == 0 {
-		if len(filteredExisting) > 0 {
-			return mv.save()
-		}
-		return nil
-	}
-	seenPKs := map[string]bool{}
-	var uniqueTaskPKs []string
-	for _, p := range toCreate {
-		if !seenPKs[p.taskPK] {
-			seenPKs[p.taskPK] = true
-			uniqueTaskPKs = append(uniqueTaskPKs, p.taskPK)
-		}
-	}
-	habitMeta, err := mv.fetchHabitPlacementMeta(uniqueTaskPKs)
-	if err != nil {
+	if err := mv.addDueRemindersToDay(dayPlanPK, entries, inTodayPlan, todayStr); err != nil {
 		return err
-	}
-	for i := range toCreate {
-		if m, ok := habitMeta[toCreate[i].taskPK]; ok {
-			toCreate[i].dayPlanGroup = m.dayPlanGroup
-			toCreate[i].dayPlanOrder = m.dayPlanOrder
-		}
-	}
-	orderChanges, reminderOrders := computeEntrySequence(entries, toCreate)
-	if err := mv.applyOrderUpdates(orderChanges); err != nil {
-		return err
-	}
-	for i, p := range toCreate {
-		if err := mv.createReminderEntity(dayPlanPK, p.taskPK, p.checkText, todayStr, reminderOrders[i]); err != nil {
-			return err
-		}
 	}
 	return mv.save()
-}
-
-// maxEntryOrder returns the highest Order value among .Entry assertions on the given day plan.
-func (mv *MainView) maxEntryOrder(dayPlanPK string) (int, error) {
-	resp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
-		Table: TableAssertions,
-		Conditions: []*jqlpb.Condition{{
-			Requires: []*jqlpb.Filter{
-				{Column: FieldArg0, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: fmt.Sprintf("tasks %s", dayPlanPK)}}},
-				{Column: FieldARelation, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Entry"}}},
-			},
-		}},
-		OrderBy: FieldOrder,
-		Dec:     true,
-		Limit:   1,
-	})
-	if err != nil {
-		return 0, err
-	}
-	if len(resp.Rows) == 0 {
-		return 0, nil
-	}
-	assnTable := mv.tables[TableAssertions]
-	orderStr := resp.Rows[0].Entries[api.IndexOfField(assnTable.Columns, FieldOrder)].Formatted
-	maxOrd, _ := strconv.Atoi(orderStr)
-	return maxOrd, nil
 }
 
 // queryDayPlanEntries returns all .Entry assertions on the day plan in order.
@@ -2326,167 +2334,6 @@ func (mv *MainView) queryDayPlanEntries(dayPlanPK string) ([]dayPlanEntry, error
 	return entries, nil
 }
 
-// fetchHabitPlacementMeta resolves DayPlanGroup and DayPlanOrder for a set of task PKs
-// by following their .Habit assertions to the originating habit tasks (2 batch queries).
-func (mv *MainView) fetchHabitPlacementMeta(taskPKs []string) (map[string]habitPlacementMeta, error) {
-	if len(taskPKs) == 0 {
-		return nil, nil
-	}
-	taskArg0s := make([]string, len(taskPKs))
-	for i, pk := range taskPKs {
-		taskArg0s[i] = fmt.Sprintf("tasks %s", pk)
-	}
-	habitResp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
-		Table: TableAssertions,
-		Conditions: []*jqlpb.Condition{{
-			Requires: []*jqlpb.Filter{
-				{Column: FieldArg0, Match: &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: taskArg0s}}},
-				{Column: FieldARelation, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Habit"}}},
-			},
-		}},
-	})
-	if err != nil {
-		return nil, err
-	}
-	taskToHabit := map[string]string{}
-	habitToTasks := map[string][]string{}
-	habitSeen := map[string]bool{}
-	var habitArg0s []string
-	for _, row := range habitResp.Rows {
-		arg0 := row.Entries[api.IndexOfField(habitResp.Columns, FieldArg0)].Formatted
-		arg1 := row.Entries[api.IndexOfField(habitResp.Columns, FieldArg1)].Formatted
-		taskPK := strings.TrimPrefix(arg0, "tasks ")
-		_, habitPK := api.ParseForeignKey(arg1)
-		if habitPK == "" {
-			continue
-		}
-		taskToHabit[taskPK] = habitPK
-		habitToTasks[habitPK] = append(habitToTasks[habitPK], taskPK)
-		habitArg0 := fmt.Sprintf("tasks %s", habitPK)
-		if !habitSeen[habitArg0] {
-			habitSeen[habitArg0] = true
-			habitArg0s = append(habitArg0s, habitArg0)
-		}
-	}
-	if len(habitArg0s) == 0 {
-		return nil, nil
-	}
-	// Sort tasks within each habit lexicographically so they correspond one-to-one
-	// with the habit's assertions in assertion-Order sequence.
-	for habitPK := range habitToTasks {
-		sort.Strings(habitToTasks[habitPK])
-	}
-	attrResp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
-		Table: TableAssertions,
-		Conditions: []*jqlpb.Condition{{
-			Requires: []*jqlpb.Filter{
-				{Column: FieldArg0, Match: &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: habitArg0s}}},
-				{Column: FieldARelation, Match: &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: []string{".DayPlanOrder", ".DayPlanGroup"}}}},
-			},
-		}},
-	})
-	if err != nil {
-		return nil, err
-	}
-	type ordVal struct {
-		ord int
-		val string
-	}
-	habitGroups := map[string][]ordVal{}
-	habitOrders := map[string][]ordVal{}
-	for _, row := range attrResp.Rows {
-		habitPK := strings.TrimPrefix(row.Entries[api.IndexOfField(attrResp.Columns, FieldArg0)].Formatted, "tasks ")
-		rel := strings.TrimPrefix(row.Entries[api.IndexOfField(attrResp.Columns, FieldARelation)].Formatted, ".")
-		val := row.Entries[api.IndexOfField(attrResp.Columns, FieldArg1)].Formatted
-		ord, _ := strconv.Atoi(row.Entries[api.IndexOfField(attrResp.Columns, FieldOrder)].Formatted)
-		switch rel {
-		case "DayPlanGroup":
-			habitGroups[habitPK] = append(habitGroups[habitPK], ordVal{ord, val})
-		case "DayPlanOrder":
-			habitOrders[habitPK] = append(habitOrders[habitPK], ordVal{ord, val})
-		}
-	}
-	for habitPK := range habitGroups {
-		sort.Slice(habitGroups[habitPK], func(i, j int) bool {
-			return habitGroups[habitPK][i].ord < habitGroups[habitPK][j].ord
-		})
-	}
-	for habitPK := range habitOrders {
-		sort.Slice(habitOrders[habitPK], func(i, j int) bool {
-			return habitOrders[habitPK][i].ord < habitOrders[habitPK][j].ord
-		})
-	}
-	result := map[string]habitPlacementMeta{}
-	for habitPK, tasks := range habitToTasks {
-		groups := habitGroups[habitPK]
-		orders := habitOrders[habitPK]
-		for i, taskPK := range tasks {
-			if i >= len(groups) || i >= len(orders) {
-				continue // beyond bounds — goes to start of day plan
-			}
-			order, _ := strconv.Atoi(orders[i].val)
-			result[taskPK] = habitPlacementMeta{dayPlanGroup: groups[i].val, dayPlanOrder: order}
-		}
-	}
-	return result, nil
-}
-
-// computeEntrySequence builds the desired final ordering for existing entries and new
-// reminders. Each new reminder is inserted immediately after the existing entry whose
-// arg1 text matches its DayPlanGroup (or after the 0th entry if none matches).
-// Reminders sharing the same anchor are sorted by DayPlanOrder.
-// Returns: a map of existing entry pk -> new order (only entries that changed), and
-// a slice of assigned order values parallel to placements.
-func computeEntrySequence(entries []dayPlanEntry, placements []reminderToPlace) (map[string]int, []int) {
-	reminderOrders := make([]int, len(placements))
-	orderChanges := map[string]int{}
-	if len(entries) == 0 {
-		for i := range placements {
-			reminderOrders[i] = i
-		}
-		return orderChanges, reminderOrders
-	}
-	textToIdx := map[string]int{}
-	for i, e := range entries {
-		textToIdx[e.arg1] = i
-	}
-	type anchoredPlacement struct {
-		idx          int
-		anchor       int
-		dayPlanOrder int
-	}
-	anchored := make([]anchoredPlacement, len(placements))
-	for i, p := range placements {
-		anchor := 0
-		if p.dayPlanGroup != "" {
-			if idx, ok := textToIdx[p.dayPlanGroup]; ok {
-				anchor = idx
-			}
-		}
-		anchored[i] = anchoredPlacement{i, anchor, p.dayPlanOrder}
-	}
-	byAnchor := map[int][]anchoredPlacement{}
-	for _, ap := range anchored {
-		byAnchor[ap.anchor] = append(byAnchor[ap.anchor], ap)
-	}
-	for anchor := range byAnchor {
-		sort.SliceStable(byAnchor[anchor], func(i, j int) bool {
-			return byAnchor[anchor][i].dayPlanOrder < byAnchor[anchor][j].dayPlanOrder
-		})
-	}
-	newOrder := 0
-	for i, entry := range entries {
-		if entry.order != newOrder {
-			orderChanges[entry.pk] = newOrder
-		}
-		newOrder++
-		for _, ap := range byAnchor[i] {
-			reminderOrders[ap.idx] = newOrder
-			newOrder++
-		}
-	}
-	return orderChanges, reminderOrders
-}
 
 // applyOrderUpdates writes changed Order values to existing .Entry assertions.
 func (mv *MainView) applyOrderUpdates(orderChanges map[string]int) error {
@@ -2619,9 +2466,11 @@ func (mv *MainView) resolveReminderPlacements(candidates []reminderToPlace) (toC
 	return toCreate, existingToPlace, nil
 }
 
-func (mv *MainView) createReminderEntity(dayPlanPK, taskPK, checkText, targetDate string, entryOrder int) error {
-	reminderArg0 := fmt.Sprintf("%d", rand.Int63())
-	reminderRef := fmt.Sprintf("vt.reminders %s", reminderArg0)
+// createReminder creates the assertion cluster for a new reminder and returns its bare ID.
+// It does NOT add the reminder to any day plan; use createReminderEntity for that.
+func (mv *MainView) createReminder(taskPK, checkText, targetDate string) (string, error) {
+	bareID := fmt.Sprintf("%d", rand.Int63())
+	reminderRef := fmt.Sprintf("vt.reminders %s", bareID)
 	assns := []map[string]string{
 		{FieldARelation: ".Status", FieldArg0: reminderRef, FieldArg1: "Awaiting"},
 		{FieldARelation: ".Task", FieldArg0: reminderRef, FieldArg1: fmt.Sprintf("@{tasks %s}", taskPK)},
@@ -2639,18 +2488,26 @@ func (mv *MainView) createReminderEntity(dayPlanPK, taskPK, checkText, targetDat
 			Fields:     fields,
 		})
 		if err != nil {
-			return err
+			return "", err
 		}
 	}
+	return bareID, nil
+}
+
+func (mv *MainView) createReminderEntity(dayPlanPK, taskPK, checkText, targetDate string, entryOrder int) error {
+	bareID, err := mv.createReminder(taskPK, checkText, targetDate)
+	if err != nil {
+		return err
+	}
 	entryPK := fmt.Sprintf("%d", rand.Int63())
-	_, err := mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
+	_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
 		Table:      TableAssertions,
 		Pk:         entryPK,
 		InsertOnly: true,
 		Fields: map[string]string{
 			FieldARelation: ".Entry",
 			FieldArg0:      fmt.Sprintf("tasks %s", dayPlanPK),
-			FieldArg1:      fmt.Sprintf("@{vt.reminders %s}", reminderArg0),
+			FieldArg1:      fmt.Sprintf("@{vt.reminders %s}", bareID),
 			FieldOrder:     fmt.Sprintf("%d", entryOrder),
 		},
 	})
