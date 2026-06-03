@@ -12,6 +12,7 @@ import (
 
 	"github.com/jroimartin/gocui"
 	"github.com/ulmenhaus/env/img/jql/api"
+	"github.com/ulmenhaus/env/img/lib/timedb"
 	"github.com/ulmenhaus/env/proto/jql/jqlpb"
 )
 
@@ -164,7 +165,7 @@ func NewMainView(g *gocui.Gui, dbms api.JQL_DBMS, preselectTask string, injectMa
 func (mv *MainView) load(g *gocui.Gui) error {
 	mv.MainViewMode = MainViewModeListBar
 	mv.tasks = map[string]([]*jqlpb.Row){}
-	mv.span = Today
+	mv.span = timedb.Today
 	tables, err := api.GetTables(ctx, mv.dbms)
 	if err != nil {
 		return err
@@ -213,11 +214,11 @@ func (mv *MainView) selectQueryItem(g *gocui.Gui, v *gocui.View) error {
 	_, cy := v.Cursor()
 	ix := oy + cy
 	selected := mv.filteredTasks[ix]
-	err := g.DeleteView(QueryTasksView)
+	err := g.DeleteView(timedb.QueryTasksView)
 	if err != nil {
 		return err
 	}
-	err = g.DeleteView(QueryView)
+	err = g.DeleteView(timedb.QueryView)
 	if err != nil {
 		return err
 	}
@@ -251,7 +252,7 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 }
 
 func (mv *MainView) createNewPlanFromInput(g *gocui.Gui, v *gocui.View) error {
-	err := g.DeleteView(NewPlanView)
+	err := g.DeleteView(timedb.NewPlanView)
 	if err != nil {
 		return err
 	}
@@ -273,19 +274,19 @@ func (mv *MainView) createNewReminder(g *gocui.Gui, taskPK, checkText string) er
 	if dayPlan == nil {
 		return nil
 	}
-	tasksTable := mv.tables[TableTasks]
+	tasksTable := mv.tables[timedb.TableTasks]
 	dayPlanPK := dayPlan.Entries[api.GetPrimary(tasksTable.Columns)].Formatted
 
 	// Write .Check assertion on the task
 	checkPK := fmt.Sprintf("%d", rand.Int63())
 	_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
-		Table:      TableAssertions,
+		Table:      timedb.TableAssertions,
 		Pk:         checkPK,
 		InsertOnly: true,
 		Fields: map[string]string{
-			FieldARelation: ".Check",
-			FieldArg0:      fmt.Sprintf("tasks %s", taskPK),
-			FieldArg1:      checkText,
+			timedb.FieldRelation: ".Check",
+			timedb.FieldArg0:      fmt.Sprintf("tasks %s", taskPK),
+			timedb.FieldArg1:      checkText,
 		},
 	})
 	if err != nil {
@@ -316,26 +317,26 @@ func (mv *MainView) createNewReminder(g *gocui.Gui, taskPK, checkText string) er
 func (mv *MainView) resolveInsertOrder(dayPlanPK string) (int, error) {
 	// Query all .Entry assertions sorted by order
 	resp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
-		Table: TableAssertions,
+		Table: timedb.TableAssertions,
 		Conditions: []*jqlpb.Condition{{
 			Requires: []*jqlpb.Filter{
-				{Column: FieldArg0, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: fmt.Sprintf("tasks %s", dayPlanPK)}}},
-				{Column: FieldARelation, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Entry"}}},
+				{Column: timedb.FieldArg0, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: fmt.Sprintf("tasks %s", dayPlanPK)}}},
+				{Column: timedb.FieldRelation, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Entry"}}},
 			},
 		}},
-		OrderBy: FieldOrder,
+		OrderBy: timedb.FieldOrder,
 	})
 	if err != nil {
 		return 0, err
 	}
-	assnTable := mv.tables[TableAssertions]
+	assnTable := mv.tables[timedb.TableAssertions]
 	if len(resp.Rows) == 0 {
 		return 0, nil
 	}
 
 	if mv.newReminderInsertAfterPK == "" {
 		// Append to end
-		lastOrder, _ := strconv.Atoi(resp.Rows[len(resp.Rows)-1].Entries[api.IndexOfField(assnTable.Columns, FieldOrder)].Formatted)
+		lastOrder, _ := strconv.Atoi(resp.Rows[len(resp.Rows)-1].Entries[api.IndexOfField(assnTable.Columns, timedb.FieldOrder)].Formatted)
 		return lastOrder + 1, nil
 	}
 
@@ -344,27 +345,27 @@ func (mv *MainView) resolveInsertOrder(dayPlanPK string) (int, error) {
 	for _, row := range resp.Rows {
 		pk := row.Entries[api.GetPrimary(assnTable.Columns)].Formatted
 		if pk == mv.newReminderInsertAfterPK {
-			insertAfterOrder, _ = strconv.Atoi(row.Entries[api.IndexOfField(assnTable.Columns, FieldOrder)].Formatted)
+			insertAfterOrder, _ = strconv.Atoi(row.Entries[api.IndexOfField(assnTable.Columns, timedb.FieldOrder)].Formatted)
 			break
 		}
 	}
 	if insertAfterOrder == -1 {
 		// Fallback: append to end
-		lastOrder, _ := strconv.Atoi(resp.Rows[len(resp.Rows)-1].Entries[api.IndexOfField(assnTable.Columns, FieldOrder)].Formatted)
+		lastOrder, _ := strconv.Atoi(resp.Rows[len(resp.Rows)-1].Entries[api.IndexOfField(assnTable.Columns, timedb.FieldOrder)].Formatted)
 		return lastOrder + 1, nil
 	}
 
 	// Shift entries with order > insertAfterOrder upward (in reverse to avoid collisions)
 	for i := len(resp.Rows) - 1; i >= 0; i-- {
 		row := resp.Rows[i]
-		ord, _ := strconv.Atoi(row.Entries[api.IndexOfField(assnTable.Columns, FieldOrder)].Formatted)
+		ord, _ := strconv.Atoi(row.Entries[api.IndexOfField(assnTable.Columns, timedb.FieldOrder)].Formatted)
 		if ord > insertAfterOrder {
 			pk := row.Entries[api.GetPrimary(assnTable.Columns)].Formatted
 			_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
 				UpdateOnly: true,
-				Table:      TableAssertions,
+				Table:      timedb.TableAssertions,
 				Pk:         pk,
-				Fields:     map[string]string{FieldOrder: fmt.Sprintf("%d", ord+1)},
+				Fields:     map[string]string{timedb.FieldOrder: fmt.Sprintf("%d", ord+1)},
 			})
 			if err != nil {
 				return 0, err
@@ -376,14 +377,14 @@ func (mv *MainView) resolveInsertOrder(dayPlanPK string) (int, error) {
 
 // TODO: createNewPlan can be deleted once substitutePlanSelectionsForTask migrates to the new assertion-based reminder model.
 func (mv *MainView) createNewPlan(g *gocui.Gui, taskPK, description string) error {
-	assnTable := mv.tables[TableAssertions]
+	assnTable := mv.tables[timedb.TableAssertions]
 	newOrder := 0
 	plansResp, err := mv.queryPlans([]string{taskPK})
 	if err != nil {
 		return err
 	}
 	for _, plan := range plansResp.Rows {
-		orderInt, err := strconv.Atoi(plan.Entries[api.IndexOfField(assnTable.Columns, FieldOrder)].Formatted)
+		orderInt, err := strconv.Atoi(plan.Entries[api.IndexOfField(assnTable.Columns, timedb.FieldOrder)].Formatted)
 		if err != nil {
 			continue
 		}
@@ -395,13 +396,13 @@ func (mv *MainView) createNewPlan(g *gocui.Gui, taskPK, description string) erro
 	// pk doesn't really matter here so using a random integer
 	pk := fmt.Sprintf("%d", rand.Int63())
 	fields := map[string]string{
-		FieldArg0:      fmt.Sprintf("tasks %s", taskPK),
-		FieldArg1:      fmt.Sprintf("[ ] %s", description),
-		FieldARelation: ".Plan",
-		FieldOrder:     fmt.Sprintf("%d", newOrder),
+		timedb.FieldArg0:      fmt.Sprintf("tasks %s", taskPK),
+		timedb.FieldArg1:      fmt.Sprintf("[ ] %s", description),
+		timedb.FieldRelation: ".Plan",
+		timedb.FieldOrder:     fmt.Sprintf("%d", newOrder),
 	}
 	_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
-		Table:  TableAssertions,
+		Table:  timedb.TableAssertions,
 		Pk:     pk,
 		Fields: fields,
 	})
@@ -421,9 +422,9 @@ func (mv *MainView) createNewPlan(g *gocui.Gui, taskPK, description string) erro
 
 // TODO: insertDayPlan can be deleted once wrapTaskInRamps and substitute flows migrate to the new assertion-based reminder model.
 func (mv *MainView) insertDayPlan(g *gocui.Gui, description string, delta int) error {
-	assnTable := mv.tables[TableAssertions]
-	tasksTable := mv.tables[TableTasks]
-	tasksView, err := g.View(TasksView)
+	assnTable := mv.tables[timedb.TableAssertions]
+	tasksTable := mv.tables[timedb.TableTasks]
+	tasksView, err := g.View(timedb.TasksView)
 	if err != nil {
 		return err
 	}
@@ -437,30 +438,30 @@ func (mv *MainView) insertDayPlan(g *gocui.Gui, description string, delta int) e
 	}
 	dayPlanLink := fmt.Sprintf("tasks %s", dayPlan.Entries[api.GetPrimary(tasksTable.Columns)].Formatted)
 	existingTodos, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
-		Table: TableAssertions,
+		Table: timedb.TableAssertions,
 		Conditions: []*jqlpb.Condition{
 			{
 				Requires: []*jqlpb.Filter{
 					{
-						Column: FieldArg0,
+						Column: timedb.FieldArg0,
 						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: dayPlanLink}},
 					},
 					{
-						Column: FieldARelation,
-						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Do Today"}},
+						Column: timedb.FieldRelation,
+						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Do timedb.Today"}},
 					},
 				},
 			},
 		},
-		OrderBy: FieldOrder,
+		OrderBy: timedb.FieldOrder,
 	})
 	if err != nil {
 		return err
 	}
 	dayOrder := 0
 	for _, row := range existingTodos.Rows {
-		if row.Entries[api.IndexOfField(assnTable.Columns, FieldArg1)].Formatted == insertsAfter.Description {
-			dayOrder, err = strconv.Atoi(row.Entries[api.IndexOfField(assnTable.Columns, FieldOrder)].Formatted)
+		if row.Entries[api.IndexOfField(assnTable.Columns, timedb.FieldArg1)].Formatted == insertsAfter.Description {
+			dayOrder, err = strconv.Atoi(row.Entries[api.IndexOfField(assnTable.Columns, timedb.FieldOrder)].Formatted)
 			if err != nil {
 				return err
 			}
@@ -469,7 +470,7 @@ func (mv *MainView) insertDayPlan(g *gocui.Gui, description string, delta int) e
 	dayOrder += delta
 	updated := []string{}
 	for _, row := range existingTodos.Rows {
-		orderInt, err := strconv.Atoi(row.Entries[api.IndexOfField(assnTable.Columns, FieldOrder)].Formatted)
+		orderInt, err := strconv.Atoi(row.Entries[api.IndexOfField(assnTable.Columns, timedb.FieldOrder)].Formatted)
 		if err != nil {
 			return err
 		}
@@ -477,9 +478,9 @@ func (mv *MainView) insertDayPlan(g *gocui.Gui, description string, delta int) e
 			pk := row.Entries[api.GetPrimary(assnTable.Columns)].Formatted
 			_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
 				UpdateOnly: true,
-				Table:      TableAssertions,
+				Table:      timedb.TableAssertions,
 				Pk:         pk,
-				Fields:     map[string]string{FieldOrder: fmt.Sprintf("%d", orderInt+1)},
+				Fields:     map[string]string{timedb.FieldOrder: fmt.Sprintf("%d", orderInt+1)},
 			})
 			if err != nil {
 				return err
@@ -488,20 +489,20 @@ func (mv *MainView) insertDayPlan(g *gocui.Gui, description string, delta int) e
 			updated = append([]string{pk}, updated...)
 		}
 	}
-	err = mv.syncPKs(TableAssertions, updated)
+	err = mv.syncPKs(timedb.TableAssertions, updated)
 	if err != nil {
 		return err
 	}
 
 	fields := map[string]string{
-		FieldArg0:      dayPlanLink,
-		FieldArg1:      fmt.Sprintf("[ ] %s", description),
-		FieldARelation: ".Do Today",
-		FieldOrder:     fmt.Sprintf("%d", dayOrder+1),
+		timedb.FieldArg0:      dayPlanLink,
+		timedb.FieldArg1:      fmt.Sprintf("[ ] %s", description),
+		timedb.FieldRelation: ".Do timedb.Today",
+		timedb.FieldOrder:     fmt.Sprintf("%d", dayOrder+1),
 	}
 	pk := fmt.Sprintf("%d", rand.Int63())
 	_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
-		Table:      TableAssertions,
+		Table:      timedb.TableAssertions,
 		Pk:         pk,
 		Fields:     fields,
 		InsertOnly: true,
@@ -533,13 +534,13 @@ func (mv *MainView) syncPKs(table string, updated []string) error {
 
 func (mv *MainView) queryForNewPlanLayout(g *gocui.Gui) error {
 	maxX, _ := g.Size()
-	newPlanView, err := g.SetView(NewPlanView, 4, 5, maxX-4, 9)
+	newPlanView, err := g.SetView(timedb.NewPlanView, 4, 5, maxX-4, 9)
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	}
 	newPlanView.Editable = true
 	newPlanView.Editor = mv
-	g.SetCurrentView(NewPlanView)
+	g.SetCurrentView(timedb.NewPlanView)
 	newPlanView.Clear()
 	newPlanView.Write([]byte("New Plan Description\n"))
 	newPlanView.Write([]byte(mv.newPlanDescription))
@@ -548,7 +549,7 @@ func (mv *MainView) queryForNewPlanLayout(g *gocui.Gui) error {
 
 func (mv *MainView) queryForTaskLayout(g *gocui.Gui) error {
 	maxX, maxY := g.Size()
-	queryTasksView, err := g.SetView(QueryTasksView, 4, 5, maxX-4, maxY-7)
+	queryTasksView, err := g.SetView(timedb.QueryTasksView, 4, 5, maxX-4, maxY-7)
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	}
@@ -558,7 +559,7 @@ func (mv *MainView) queryForTaskLayout(g *gocui.Gui) error {
 	queryTasksView.Editable = true
 	queryTasksView.Editor = mv
 	queryTasksView.Clear()
-	g.SetCurrentView(QueryTasksView)
+	g.SetCurrentView(timedb.QueryTasksView)
 	for _, task := range mv.filteredTasks {
 		spaces := maxX - len(task)
 		if spaces > 0 {
@@ -566,7 +567,7 @@ func (mv *MainView) queryForTaskLayout(g *gocui.Gui) error {
 		}
 		queryTasksView.Write([]byte(task + "\n"))
 	}
-	query, err := g.SetView(QueryView, 4, maxY-7, maxX-4, maxY-5)
+	query, err := g.SetView(timedb.QueryView, 4, maxY-7, maxX-4, maxY-5)
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	}
@@ -577,12 +578,12 @@ func (mv *MainView) queryForTaskLayout(g *gocui.Gui) error {
 
 func (mv *MainView) listTasksLayout(g *gocui.Gui) error {
 	maxX, maxY := g.Size()
-	counts, err := g.SetView(CountsView, 0, 0, (maxX*3)/4, 2)
+	counts, err := g.SetView(timedb.CountsView, 0, 0, (maxX*3)/4, 2)
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	}
 	counts.Clear()
-	for _, span := range Spans {
+	for _, span := range timedb.Spans {
 		prefix := "  "
 		if span == mv.span {
 			prefix = blackTextEscape + whiteBackEscape + prefix
@@ -594,14 +595,14 @@ func (mv *MainView) listTasksLayout(g *gocui.Gui) error {
 		if span == mv.span {
 			suffix += resetEscape
 		}
-		fmt.Fprintf(counts, "%s%s %s    ", prefix, Span2Title[span], suffix)
+		fmt.Fprintf(counts, "%s%s %s    ", prefix, timedb.Span2Title[span], suffix)
 	}
-	tasks, err := g.SetView(TasksView, 0, 3, (maxX*3)/4, maxY-4)
+	tasks, err := g.SetView(timedb.TasksView, 0, 3, (maxX*3)/4, maxY-4)
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	}
 	tasks.Clear()
-	weekly, err := g.SetView(WeeklyAttrsView, 0, maxY-4, (maxX*3)/4, maxY-1)
+	weekly, err := g.SetView(timedb.WeeklyAttrsView, 0, maxY-4, (maxX*3)/4, maxY-1)
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	}
@@ -612,8 +613,8 @@ func (mv *MainView) listTasksLayout(g *gocui.Gui) error {
 	if mv.weeklyTouchstone != "" {
 		weekly.Write([]byte(fmt.Sprintf("Touchstone: %s\n", mv.weeklyTouchstone)))
 	}
-	g.SetCurrentView(TasksView)
-	log, err := g.SetView(LogView, (maxX*3/4)+1, 0, maxX-1, maxY-1)
+	g.SetCurrentView(timedb.TasksView)
+	log, err := g.SetView(timedb.LogView, (maxX*3/4)+1, 0, maxX-1, maxY-1)
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	}
@@ -630,10 +631,10 @@ func (mv *MainView) listTasksLayout(g *gocui.Gui) error {
 		fmt.Fprintf(tasks, "%s\n", desc)
 	}
 
-	logTable := mv.tables[TableLog]
-	logDescriptionField := api.IndexOfField(logTable.Columns, FieldLogDescription)
-	beginField := api.IndexOfField(logTable.Columns, FieldBegin)
-	endField := api.IndexOfField(logTable.Columns, FieldEnd)
+	logTable := mv.tables[timedb.TableLog]
+	logDescriptionField := api.IndexOfField(logTable.Columns, timedb.FieldLogDescription)
+	beginField := api.IndexOfField(logTable.Columns, timedb.FieldBegin)
+	endField := api.IndexOfField(logTable.Columns, timedb.FieldEnd)
 
 	for _, logEntry := range mv.log {
 		fmt.Fprintf(
@@ -648,7 +649,7 @@ func (mv *MainView) listTasksLayout(g *gocui.Gui) error {
 }
 
 func (mv *MainView) tabulatedTasks(g *gocui.Gui, v *gocui.View) ([]string, error) {
-	if mv.span == Today {
+	if mv.span == timedb.Today {
 		wasNil := mv.cachedTodayTasks == nil
 		today, err := mv.todayTasks()
 		if err != nil {
@@ -677,9 +678,9 @@ func (mv *MainView) tabulatedTasks(g *gocui.Gui, v *gocui.View) ([]string, error
 		}
 		return mv.cachedTodayTasks, nil
 	}
-	tasksTable := mv.tables[TableTasks]
-	projectField := api.IndexOfField(tasksTable.Columns, FieldPrimaryGoal)
-	descriptionField := api.IndexOfField(tasksTable.Columns, FieldDescription)
+	tasksTable := mv.tables[timedb.TableTasks]
+	projectField := api.IndexOfField(tasksTable.Columns, timedb.FieldPrimaryGoal)
+	descriptionField := api.IndexOfField(tasksTable.Columns, timedb.FieldDescription)
 
 	// 10 char buffer
 	buffer := 10
@@ -709,7 +710,7 @@ func (mv *MainView) todayBreakdown() ([]DayItem, error) {
 	if mv.TaskViewMode != TaskViewModeListCycles {
 		return mv.today, nil
 	}
-	tasksTable := mv.tables[TableTasks]
+	tasksTable := mv.tables[timedb.TableTasks]
 	today := []DayItem{}
 	for _, item := range mv.today {
 		// Fall back to using the item's description as its attention
@@ -724,7 +725,7 @@ func (mv *MainView) todayBreakdown() ([]DayItem, error) {
 			}
 		}
 		resp, err := mv.dbms.GetRow(ctx, &jqlpb.GetRowRequest{
-			Table: TableTasks,
+			Table: timedb.TableTasks,
 			Pk:    taskPK,
 		})
 		if err == nil {
@@ -799,106 +800,106 @@ func (mv *MainView) save() error {
 }
 
 func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
-	err := g.SetKeybinding(TasksView, 'k', gocui.ModNone, mv.cursorUp)
+	err := g.SetKeybinding(timedb.TasksView, 'k', gocui.ModNone, mv.cursorUp)
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(TasksView, 'j', gocui.ModNone, mv.cursorDown)
+	err = g.SetKeybinding(timedb.TasksView, 'j', gocui.ModNone, mv.cursorDown)
 	if err != nil {
 		return err
 	}
-	if err := g.SetKeybinding(TasksView, gocui.KeyEnter, gocui.ModNone, mv.logTime); err != nil {
+	if err := g.SetKeybinding(timedb.TasksView, gocui.KeyEnter, gocui.ModNone, mv.logTime); err != nil {
 		return err
 	}
-	err = g.SetKeybinding(TasksView, 'e', gocui.ModNone, mv.runProcedure)
+	err = g.SetKeybinding(timedb.TasksView, 'e', gocui.ModNone, mv.runProcedure)
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(TasksView, 'w', gocui.ModNone, mv.openLink)
+	err = g.SetKeybinding(timedb.TasksView, 'w', gocui.ModNone, mv.openLink)
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(TasksView, 'i', gocui.ModNone, mv.bumpStatus)
+	err = g.SetKeybinding(timedb.TasksView, 'i', gocui.ModNone, mv.bumpStatus)
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(TasksView, 'I', gocui.ModNone, mv.degradeStatus)
+	err = g.SetKeybinding(timedb.TasksView, 'I', gocui.ModNone, mv.degradeStatus)
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(TasksView, 'l', gocui.ModNone, mv.nextSpan)
+	err = g.SetKeybinding(timedb.TasksView, 'l', gocui.ModNone, mv.nextSpan)
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(TasksView, 'h', gocui.ModNone, mv.prevSpan)
+	err = g.SetKeybinding(timedb.TasksView, 'h', gocui.ModNone, mv.prevSpan)
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(TasksView, 'a', gocui.ModNone, mv.switchModes)
+	err = g.SetKeybinding(timedb.TasksView, 'a', gocui.ModNone, mv.switchModes)
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(TasksView, 'f', gocui.ModNone, mv.toggleFocus)
+	err = g.SetKeybinding(timedb.TasksView, 'f', gocui.ModNone, mv.toggleFocus)
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(TasksView, 'X', gocui.ModNone, mv.refreshTasks)
+	err = g.SetKeybinding(timedb.TasksView, 'X', gocui.ModNone, mv.refreshTasks)
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(TasksView, 'P', gocui.ModNone, mv.wrapTaskInRamps)
+	err = g.SetKeybinding(timedb.TasksView, 'P', gocui.ModNone, mv.wrapTaskInRamps)
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(NewPlansView, 'x', gocui.ModNone, mv.toggleAllPlans)
+	err = g.SetKeybinding(timedb.NewPlansView, 'x', gocui.ModNone, mv.toggleAllPlans)
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(TasksView, 'x', gocui.ModNone, mv.taskMarker(StatusSatisfied))
+	err = g.SetKeybinding(timedb.TasksView, 'x', gocui.ModNone, mv.taskMarker(timedb.StatusSatisfied))
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(TasksView, 'z', gocui.ModNone, mv.taskMarker(StatusFailed))
+	err = g.SetKeybinding(timedb.TasksView, 'z', gocui.ModNone, mv.taskMarker(timedb.StatusFailed))
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(TasksView, 'Z', gocui.ModNone, mv.taskMarker(StatusAbandoned))
+	err = g.SetKeybinding(timedb.TasksView, 'Z', gocui.ModNone, mv.taskMarker(timedb.StatusAbandoned))
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(TasksView, 'd', gocui.ModNone, mv.deleteDayPlan)
+	err = g.SetKeybinding(timedb.TasksView, 'd', gocui.ModNone, mv.deleteDayPlan)
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(TasksView, 's', gocui.ModNone, mv.substituteTaskWithPrompt)
+	err = g.SetKeybinding(timedb.TasksView, 's', gocui.ModNone, mv.substituteTaskWithPrompt)
 	if err != nil {
 		return err
 	}
-	if err := g.SetKeybinding(QueryTasksView, gocui.KeyEnter, gocui.ModNone, mv.selectQueryItem); err != nil {
+	if err := g.SetKeybinding(timedb.QueryTasksView, gocui.KeyEnter, gocui.ModNone, mv.selectQueryItem); err != nil {
 		return err
 	}
-	if err := g.SetKeybinding(NewPlanView, gocui.KeyEnter, gocui.ModNone, mv.createNewPlanFromInput); err != nil {
+	if err := g.SetKeybinding(timedb.NewPlanView, gocui.KeyEnter, gocui.ModNone, mv.createNewPlanFromInput); err != nil {
 		return err
 	}
-	if err := g.SetKeybinding(NewPlansView, 'j', gocui.ModNone, mv.basicCursorDown); err != nil {
+	if err := g.SetKeybinding(timedb.NewPlansView, 'j', gocui.ModNone, mv.basicCursorDown); err != nil {
 		return err
 	}
-	if err := g.SetKeybinding(NewPlansView, 'k', gocui.ModNone, mv.basicCursorUp); err != nil {
+	if err := g.SetKeybinding(timedb.NewPlansView, 'k', gocui.ModNone, mv.basicCursorUp); err != nil {
 		return err
 	}
-	if err := g.SetKeybinding(NewPlansView, gocui.KeySpace, gocui.ModNone, mv.markPlanSelection); err != nil {
+	if err := g.SetKeybinding(timedb.NewPlansView, gocui.KeySpace, gocui.ModNone, mv.markPlanSelection); err != nil {
 		return err
 	}
-	if err := g.SetKeybinding(NewPlansView, gocui.KeyEnter, gocui.ModNone, mv.substitutePlanSelections); err != nil {
+	if err := g.SetKeybinding(timedb.NewPlansView, gocui.KeyEnter, gocui.ModNone, mv.substitutePlanSelections); err != nil {
 		return err
 	}
-	if err := g.SetKeybinding(NextStateView, 'j', gocui.ModNone, mv.basicCursorDown); err != nil {
+	if err := g.SetKeybinding(timedb.NextStateView, 'j', gocui.ModNone, mv.basicCursorDown); err != nil {
 		return err
 	}
-	if err := g.SetKeybinding(NextStateView, 'k', gocui.ModNone, mv.basicCursorUp); err != nil {
+	if err := g.SetKeybinding(timedb.NextStateView, 'k', gocui.ModNone, mv.basicCursorUp); err != nil {
 		return err
 	}
-	if err := g.SetKeybinding(NextStateView, gocui.KeyEnter, gocui.ModNone, mv.selectNextNounState); err != nil {
+	if err := g.SetKeybinding(timedb.NextStateView, gocui.KeyEnter, gocui.ModNone, mv.selectNextNounState); err != nil {
 		return err
 	}
 	return nil
@@ -916,11 +917,11 @@ func (mv *MainView) selectNextFreeTask(g *gocui.Gui, v *gocui.View) {
 
 func (mv *MainView) nextSpan(g *gocui.Gui, v *gocui.View) error {
 	ixs := map[string]int{}
-	for ix, span := range Spans {
+	for ix, span := range timedb.Spans {
 		ixs[span] = ix
 	}
-	mv.span = Spans[(ixs[mv.span]+1)%len(Spans)]
-	if mv.span == Today {
+	mv.span = timedb.Spans[(ixs[mv.span]+1)%len(timedb.Spans)]
+	if mv.span == timedb.Today {
 		mv.selectNextFreeTask(g, v)
 	} else {
 		v.SetCursor(0, 0)
@@ -930,15 +931,15 @@ func (mv *MainView) nextSpan(g *gocui.Gui, v *gocui.View) error {
 
 func (mv *MainView) prevSpan(g *gocui.Gui, v *gocui.View) error {
 	ixs := map[string]int{}
-	for ix, span := range Spans {
+	for ix, span := range timedb.Spans {
 		ixs[span] = ix
 	}
 	prevIx := (ixs[mv.span] - 1)
 	if prevIx == -1 {
-		prevIx = len(Spans) - 1
+		prevIx = len(timedb.Spans) - 1
 	}
-	mv.span = Spans[prevIx]
-	if mv.span == Today {
+	mv.span = timedb.Spans[prevIx]
+	if mv.span == timedb.Today {
 		mv.selectNextFreeTask(g, v)
 	} else {
 		v.SetCursor(0, 0)
@@ -1008,7 +1009,7 @@ func (mv *MainView) queryForNewPlan(taskPK string) error {
 }
 
 func (mv *MainView) bumpStatus(g *gocui.Gui, v *gocui.View) error {
-	if mv.span == Today {
+	if mv.span == timedb.Today {
 		return mv.insertNewPlan(g, v)
 	}
 	return mv.addToStatus(g, v, 1)
@@ -1020,9 +1021,9 @@ func (mv *MainView) degradeStatus(g *gocui.Gui, v *gocui.View) error {
 
 func (mv *MainView) addToStatus(g *gocui.Gui, v *gocui.View, delta int) error {
 	// TODO getting selected task is very common. Should factor out.
-	tasksTable := mv.tables[TableTasks]
+	tasksTable := mv.tables[timedb.TableTasks]
 	var cy, oy int
-	view, err := g.View(TasksView)
+	view, err := g.View(timedb.TasksView)
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	} else if err == nil {
@@ -1031,12 +1032,12 @@ func (mv *MainView) addToStatus(g *gocui.Gui, v *gocui.View, delta int) error {
 	}
 
 	selectedTask := mv.tasks[mv.span][oy+cy]
-	pk := selectedTask.Entries[api.IndexOfField(tasksTable.Columns, FieldDescription)].Formatted
+	pk := selectedTask.Entries[api.IndexOfField(tasksTable.Columns, timedb.FieldDescription)].Formatted
 
 	_, err = mv.dbms.IncrementEntry(ctx, &jqlpb.IncrementEntryRequest{
-		Table:  TableTasks,
+		Table:  timedb.TableTasks,
 		Pk:     pk,
-		Column: FieldStatus,
+		Column: timedb.FieldStatus,
 		Amount: int32(delta),
 	})
 	if err != nil {
@@ -1055,7 +1056,7 @@ func (mv *MainView) runProcedure(g *gocui.Gui, v *gocui.View) error {
 		return err
 	}
 	view := api.MacroCurrentView{
-		Table:            TableTasks,
+		Table:            timedb.TableTasks,
 		PrimarySelection: pk,
 	}
 	_, err = api.RunMacro(ctx, mv.dbms, "jql-timedb-run-procedure", view, true)
@@ -1070,32 +1071,32 @@ func (mv *MainView) openLink(g *gocui.Gui, v *gocui.View) error {
 	if err != nil {
 		return err
 	}
-	tasksTable := mv.tables[TableTasks]
-	nounsTable := mv.tables[TableNouns]
+	tasksTable := mv.tables[timedb.TableTasks]
+	nounsTable := mv.tables[timedb.TableNouns]
 	task, err := mv.dbms.GetRow(ctx, &jqlpb.GetRowRequest{
-		Table: TableTasks,
+		Table: timedb.TableTasks,
 		Pk:    pk,
 	})
 	if err != nil {
 		return err
 	}
-	direct := task.Row.Entries[api.IndexOfField(tasksTable.Columns, FieldDirect)].Formatted
+	direct := task.Row.Entries[api.IndexOfField(tasksTable.Columns, timedb.FieldDirect)].Formatted
 	obj, err := mv.dbms.GetRow(ctx, &jqlpb.GetRowRequest{
-		Table: TableNouns,
+		Table: timedb.TableNouns,
 		Pk:    direct,
 	})
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command("txtopen", obj.Row.Entries[api.IndexOfField(nounsTable.Columns, FieldLink)].Formatted)
+	cmd := exec.Command("txtopen", obj.Row.Entries[api.IndexOfField(nounsTable.Columns, timedb.FieldLink)].Formatted)
 	return cmd.Run()
 }
 
 func (mv *MainView) logTime(g *gocui.Gui, v *gocui.View) error {
-	tasksTable := mv.tables[TableTasks]
-	logTable := mv.tables[TableLog]
+	tasksTable := mv.tables[timedb.TableTasks]
+	logTable := mv.tables[timedb.TableLog]
 	var cy, oy int
-	view, err := g.View(TasksView)
+	view, err := g.View(timedb.TasksView)
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	} else if err == nil {
@@ -1108,23 +1109,23 @@ func (mv *MainView) logTime(g *gocui.Gui, v *gocui.View) error {
 	// XXX this is a really janky way to check the value of the time entry
 	// and create the next valid entry
 	if len(mv.log) == 0 {
-		err = mv.newTime(g, fmt.Sprintf("%s (0001)", selectedTask.Entries[api.IndexOfField(tasksTable.Columns, FieldDescription)].Formatted), selectedTask, false)
+		err = mv.newTime(g, fmt.Sprintf("%s (0001)", selectedTask.Entries[api.IndexOfField(tasksTable.Columns, timedb.FieldDescription)].Formatted), selectedTask, false)
 		if err != nil {
 			return err
 		}
-	} else if mv.log[0].Entries[api.IndexOfField(logTable.Columns, FieldEnd)].Formatted == "31 Dec 1969 16:00:00" {
-		pk := mv.log[0].Entries[api.IndexOfField(logTable.Columns, FieldLogDescription)].Formatted
+	} else if mv.log[0].Entries[api.IndexOfField(logTable.Columns, timedb.FieldEnd)].Formatted == "31 Dec 1969 16:00:00" {
+		pk := mv.log[0].Entries[api.IndexOfField(logTable.Columns, timedb.FieldLogDescription)].Formatted
 		_, err := mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
 			UpdateOnly: true,
-			Table:      TableLog,
+			Table:      timedb.TableLog,
 			Pk:         pk,
-			Fields:     map[string]string{FieldEnd: ""},
+			Fields:     map[string]string{timedb.FieldEnd: ""},
 		})
 		if err != nil {
 			return err
 		}
 	} else {
-		pk := mv.log[0].Entries[api.IndexOfField(logTable.Columns, FieldLogDescription)].Formatted
+		pk := mv.log[0].Entries[api.IndexOfField(logTable.Columns, timedb.FieldLogDescription)].Formatted
 		ordinal := pk[len(pk)-5 : len(pk)-1]
 		ordinalI, err := strconv.Atoi(ordinal)
 		if err != nil {
@@ -1144,16 +1145,16 @@ func (mv *MainView) logTime(g *gocui.Gui, v *gocui.View) error {
 }
 
 func (mv *MainView) newTime(g *gocui.Gui, pk string, selectedTask *jqlpb.Row, andFinish bool) error {
-	tasksTable := mv.tables[TableTasks]
+	tasksTable := mv.tables[timedb.TableTasks]
 	fields := map[string]string{
-		FieldBegin: "",
-		FieldTask:  selectedTask.Entries[api.IndexOfField(tasksTable.Columns, FieldDescription)].Formatted,
+		timedb.FieldBegin: "",
+		timedb.FieldTask:  selectedTask.Entries[api.IndexOfField(tasksTable.Columns, timedb.FieldDescription)].Formatted,
 	}
 	if andFinish {
-		fields[FieldEnd] = ""
+		fields[timedb.FieldEnd] = ""
 	}
 	_, err := mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
-		Table:  TableLog,
+		Table:  timedb.TableLog,
 		Pk:     pk,
 		Fields: fields,
 	})
@@ -1195,7 +1196,7 @@ func (mv *MainView) cursorDown(g *gocui.Gui, v *gocui.View) error {
 	cx, cy := v.Cursor()
 	_, oy := v.Origin()
 	delta := 1
-	if mv.span == Today {
+	if mv.span == timedb.Today {
 		for {
 			ix := cy + oy + delta
 			// TODO(rabrams) would be good to comprehensively stop the cursor at the end of each
@@ -1243,13 +1244,13 @@ func (mv *MainView) GetTodayPlanPK() (string, error) {
 	if today == nil {
 		return "", nil
 	}
-	tasksTable := mv.tables[TableTasks]
+	tasksTable := mv.tables[timedb.TableTasks]
 	return today.Entries[api.GetPrimary(tasksTable.Columns)].Formatted, nil
 }
 
 func (mv *MainView) ResolveSelectedPK(g *gocui.Gui) (string, error) {
 	var cy, oy int
-	view, err := g.View(TasksView)
+	view, err := g.View(timedb.TasksView)
 	if err != nil && err != gocui.ErrUnknownView {
 		return "", err
 	} else if err == nil {
@@ -1257,7 +1258,7 @@ func (mv *MainView) ResolveSelectedPK(g *gocui.Gui) (string, error) {
 		_, cy = view.Cursor()
 	}
 	ix := oy + cy
-	if mv.span == Today {
+	if mv.span == timedb.Today {
 		item, ok := mv.ix2item[ix]
 		if !ok {
 			return "", fmt.Errorf("index beyond bounds: %d", ix)
@@ -1269,15 +1270,15 @@ func (mv *MainView) ResolveSelectedPK(g *gocui.Gui) (string, error) {
 		}
 		return stripDayPlanPrefix(item.Description), nil
 	} else {
-		tasksTable := mv.tables[TableTasks]
+		tasksTable := mv.tables[timedb.TableTasks]
 		selectedTask := mv.tasks[mv.span][ix]
-		return selectedTask.Entries[api.IndexOfField(tasksTable.Columns, FieldDescription)].Formatted, nil
+		return selectedTask.Entries[api.IndexOfField(tasksTable.Columns, timedb.FieldDescription)].Formatted, nil
 	}
 }
 
 func (mv *MainView) GetSelectedReminderArg0(g *gocui.Gui) (string, error) {
 	var cy, oy int
-	view, err := g.View(TasksView)
+	view, err := g.View(timedb.TasksView)
 	if err != nil && err != gocui.ErrUnknownView {
 		return "", err
 	} else if err == nil {
@@ -1297,13 +1298,13 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 	if err != nil {
 		return err
 	}
-	tasksTable := mv.tables[TableTasks]
-	descriptionField := api.IndexOfField(tasksTable.Columns, FieldDescription)
-	projectField := api.IndexOfField(tasksTable.Columns, FieldPrimaryGoal)
-	spanField := api.IndexOfField(tasksTable.Columns, FieldSpan)
-	statusField := api.IndexOfField(tasksTable.Columns, FieldStatus)
+	tasksTable := mv.tables[timedb.TableTasks]
+	descriptionField := api.IndexOfField(tasksTable.Columns, timedb.FieldDescription)
+	projectField := api.IndexOfField(tasksTable.Columns, timedb.FieldPrimaryGoal)
+	spanField := api.IndexOfField(tasksTable.Columns, timedb.FieldSpan)
+	statusField := api.IndexOfField(tasksTable.Columns, timedb.FieldStatus)
 
-	active, err := mv.queryAllTasks(StatusPlanned, StatusActive)
+	active, err := mv.queryAllTasks(timedb.StatusPlanned, timedb.StatusActive)
 	if err != nil {
 		return err
 	}
@@ -1312,12 +1313,12 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 		span := task.Entries[spanField].Formatted
 		// qurater scope tasks are good to keep an eye on, but to keep the
 		// UX simple let's lump then in with the tasks for "this month"
-		if span == SpanQuarter {
-			span = SpanMonth
+		if span == timedb.SpanQuarter {
+			span = timedb.SpanMonth
 		}
 		// If the task has already been started then mark it as active for today
 		if task.Entries[statusField].Formatted == "Active" {
-			span = SpanDay
+			span = timedb.SpanDay
 		}
 		if mv.TaskViewMode == TaskViewModeListCycles {
 			task, err = mv.retrieveAttentionCycle(tasksTable, task)
@@ -1339,7 +1340,7 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 				return err
 			}
 		}
-		mv.tasks[SpanPending] = append(mv.tasks[SpanPending], task)
+		mv.tasks[timedb.SpanPending] = append(mv.tasks[timedb.SpanPending], task)
 	}
 	for span := range mv.tasks {
 		sort.Slice(mv.tasks[span], func(i, j int) bool {
@@ -1354,7 +1355,7 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 	}
 
 	var cy, oy int
-	view, err := g.View(TasksView)
+	view, err := g.View(timedb.TasksView)
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	} else if err == nil {
@@ -1363,7 +1364,7 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 	}
 
 	mv.log = []*jqlpb.Row{}
-	if mv.span != Today {
+	if mv.span != timedb.Today {
 		if oy+cy < len(mv.tasks[mv.span]) {
 			selectedTask := mv.tasks[mv.span][oy+cy]
 			resp, err := mv.queryLogs(selectedTask)
@@ -1378,15 +1379,15 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 
 func (mv *MainView) refreshWeeklyDisplays() error {
 	intentions, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
-		Table:   TableTasks,
-		OrderBy: FieldStart,
+		Table:   timedb.TableTasks,
+		OrderBy: timedb.FieldStart,
 		Dec:     true,
 		Limit:   1,
 		Conditions: []*jqlpb.Condition{
 			{
 				Requires: []*jqlpb.Filter{
 					{
-						Column: FieldAction,
+						Column: timedb.FieldAction,
 						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: "Intend"}},
 					},
 				},
@@ -1399,18 +1400,18 @@ func (mv *MainView) refreshWeeklyDisplays() error {
 	if len(intentions.Rows) == 0 {
 		mv.weeklyIntention = ""
 	} else {
-		mv.weeklyIntention = intentions.Rows[0].Entries[api.IndexOfField(intentions.Columns, FieldDirect)].Formatted
+		mv.weeklyIntention = intentions.Rows[0].Entries[api.IndexOfField(intentions.Columns, timedb.FieldDirect)].Formatted
 	}
 	touchstones, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
-		Table:   TableTasks,
-		OrderBy: FieldStart,
+		Table:   timedb.TableTasks,
+		OrderBy: timedb.FieldStart,
 		Dec:     true,
 		Limit:   1,
 		Conditions: []*jqlpb.Condition{
 			{
 				Requires: []*jqlpb.Filter{
 					{
-						Column: FieldAction,
+						Column: timedb.FieldAction,
 						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: "Ritualize"}},
 					},
 				},
@@ -1420,7 +1421,7 @@ func (mv *MainView) refreshWeeklyDisplays() error {
 	if len(touchstones.Rows) == 0 {
 		mv.weeklyTouchstone = ""
 	} else {
-		mv.weeklyTouchstone = touchstones.Rows[0].Entries[api.IndexOfField(touchstones.Columns, FieldDirect)].Formatted
+		mv.weeklyTouchstone = touchstones.Rows[0].Entries[api.IndexOfField(touchstones.Columns, timedb.FieldDirect)].Formatted
 	}
 	return nil
 }
@@ -1437,19 +1438,19 @@ func (mv *MainView) refreshToday() error {
 	if today == nil {
 		return nil
 	}
-	assnTable := mv.tables[TableAssertions]
-	tasksTable := mv.tables[TableTasks]
+	assnTable := mv.tables[timedb.TableAssertions]
+	tasksTable := mv.tables[timedb.TableTasks]
 	dayPlanArg0 := fmt.Sprintf("tasks %s", today.Entries[api.GetPrimary(tasksTable.Columns)].Formatted)
 
 	resp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
-		Table: TableAssertions,
+		Table: timedb.TableAssertions,
 		Conditions: []*jqlpb.Condition{{
 			Requires: []*jqlpb.Filter{
-				{Column: FieldArg0, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: dayPlanArg0}}},
-				{Column: FieldARelation, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Entry"}}},
+				{Column: timedb.FieldArg0, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: dayPlanArg0}}},
+				{Column: timedb.FieldRelation, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Entry"}}},
 			},
 		}},
-		OrderBy: FieldOrder,
+		OrderBy: timedb.FieldOrder,
 	})
 	if err != nil {
 		return err
@@ -1461,7 +1462,7 @@ func (mv *MainView) refreshToday() error {
 
 	// First pass: collect reminder arg0s and entry assertion PKs
 	for _, row := range resp.Rows {
-		arg1 := row.Entries[api.IndexOfField(assnTable.Columns, FieldArg1)].Formatted
+		arg1 := row.Entries[api.IndexOfField(assnTable.Columns, timedb.FieldArg1)].Formatted
 		entryPK := row.Entries[api.GetPrimary(assnTable.Columns)].Formatted
 		if strings.HasPrefix(arg1, reminderFKPrefix) && strings.HasSuffix(arg1, "}") {
 			arg0 := arg1[len(reminderFKPrefix) : len(arg1)-1]
@@ -1477,10 +1478,10 @@ func (mv *MainView) refreshToday() error {
 			queryArg0s[i] = fmt.Sprintf("vt.reminders %s", arg0)
 		}
 		attrResp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
-			Table: TableAssertions,
+			Table: timedb.TableAssertions,
 			Conditions: []*jqlpb.Condition{{
 				Requires: []*jqlpb.Filter{
-					{Column: FieldArg0, Match: &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: queryArg0s}}},
+					{Column: timedb.FieldArg0, Match: &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: queryArg0s}}},
 				},
 			}},
 		})
@@ -1490,9 +1491,9 @@ func (mv *MainView) refreshToday() error {
 		attrs := map[string]map[string]string{}
 		assnPKs := map[string]map[string]string{}
 		for _, row := range attrResp.Rows {
-			arg0 := strings.TrimPrefix(row.Entries[api.IndexOfField(attrResp.Columns, FieldArg0)].Formatted, "vt.reminders ")
-			rel := strings.TrimPrefix(row.Entries[api.IndexOfField(attrResp.Columns, FieldARelation)].Formatted, ".")
-			val := row.Entries[api.IndexOfField(attrResp.Columns, FieldArg1)].Formatted
+			arg0 := strings.TrimPrefix(row.Entries[api.IndexOfField(attrResp.Columns, timedb.FieldArg0)].Formatted, "vt.reminders ")
+			rel := strings.TrimPrefix(row.Entries[api.IndexOfField(attrResp.Columns, timedb.FieldRelation)].Formatted, ".")
+			val := row.Entries[api.IndexOfField(attrResp.Columns, timedb.FieldArg1)].Formatted
 			pk := row.Entries[api.GetPrimary(attrResp.Columns)].Formatted
 			if attrs[arg0] == nil {
 				attrs[arg0] = map[string]string{}
@@ -1508,7 +1509,7 @@ func (mv *MainView) refreshToday() error {
 			status := a["Status"]
 			taskPK := ""
 			taskArg0 := ""
-			if table, pk := api.ParseForeignKey(taskRef); table == TableTasks {
+			if table, pk := api.ParseForeignKey(taskRef); table == timedb.TableTasks {
 				taskPK = pk
 				taskArg0 = "tasks " + pk
 			} else if strings.HasPrefix(taskRef, "tasks ") {
@@ -1533,7 +1534,7 @@ func (mv *MainView) refreshToday() error {
 	// Second pass: build DayItems in order, preserving break structure
 	currentBreak := ""
 	for _, row := range resp.Rows {
-		arg1 := row.Entries[api.IndexOfField(assnTable.Columns, FieldArg1)].Formatted
+		arg1 := row.Entries[api.IndexOfField(assnTable.Columns, timedb.FieldArg1)].Formatted
 		if strings.HasPrefix(arg1, reminderFKPrefix) && strings.HasSuffix(arg1, "}") {
 			arg0 := arg1[len(reminderFKPrefix) : len(arg1)-1]
 			info, ok := mv.reminderCache[arg0]
@@ -1562,8 +1563,8 @@ func (mv *MainView) refreshToday() error {
 }
 
 func (mv *MainView) queryInProgressTasks(ignore string) ([]string, error) {
-	tasksTable := mv.tables[TableTasks]
-	tasks, err := mv.queryAllTasks(StatusActive, StatusHabitual)
+	tasksTable := mv.tables[timedb.TableTasks]
+	tasks, err := mv.queryAllTasks(timedb.StatusActive, timedb.StatusHabitual)
 	if err != nil {
 		return nil, err
 	}
@@ -1583,36 +1584,36 @@ func (mv *MainView) queryAllTasks(status ...string) (*jqlpb.ListRowsResponse, er
 		statusMap[s] = true
 	}
 	return mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
-		Table: TableTasks,
+		Table: timedb.TableTasks,
 		Conditions: []*jqlpb.Condition{
 			{
 				Requires: []*jqlpb.Filter{
 					{
-						Column: FieldStatus,
+						Column: timedb.FieldStatus,
 						Match:  &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: status}},
 					},
 				},
 			},
 		},
-		OrderBy: FieldDescription,
+		OrderBy: timedb.FieldDescription,
 	})
 }
 
 func (mv *MainView) queryLogs(task *jqlpb.Row) (*jqlpb.ListRowsResponse, error) {
-	tasksTable := mv.tables[TableTasks]
+	tasksTable := mv.tables[timedb.TableTasks]
 	return mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
-		Table: TableLog,
+		Table: timedb.TableLog,
 		Conditions: []*jqlpb.Condition{
 			{
 				Requires: []*jqlpb.Filter{
 					{
-						Column: FieldTask,
-						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: task.Entries[api.IndexOfField(tasksTable.Columns, FieldDescription)].Formatted}},
+						Column: timedb.FieldTask,
+						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: task.Entries[api.IndexOfField(tasksTable.Columns, timedb.FieldDescription)].Formatted}},
 					},
 				},
 			},
 		},
-		OrderBy: FieldBegin,
+		OrderBy: timedb.FieldBegin,
 		Dec:     true,
 	})
 }
@@ -1626,18 +1627,18 @@ func (mv *MainView) retrieveAttentionCycle(table *jqlpb.TableMeta, task *jqlpb.R
 			// hit a cycle
 			return orig, nil
 		}
-		if IsAttentionCycle(table, task) {
+		if timedb.IsAttentionCycle(table, task) {
 			return task, nil
 		}
 		seen[pk] = true
-		parent := task.Entries[api.IndexOfField(table.Columns, FieldPrimaryGoal)].Formatted
+		parent := task.Entries[api.IndexOfField(table.Columns, timedb.FieldPrimaryGoal)].Formatted
 		resp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
-			Table: TableTasks,
+			Table: timedb.TableTasks,
 			Conditions: []*jqlpb.Condition{
 				{
 					Requires: []*jqlpb.Filter{
 						{
-							Column: FieldDescription,
+							Column: timedb.FieldDescription,
 							Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: parent}},
 						},
 					},
@@ -1667,13 +1668,13 @@ func (mv *MainView) switchModes(g *gocui.Gui, v *gocui.View) error {
 
 func (mv *MainView) queryActiveAndHabitualTasks() (*jqlpb.ListRowsResponse, error) {
 	return mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
-		Table: TableTasks,
+		Table: timedb.TableTasks,
 		Conditions: []*jqlpb.Condition{
 			{
 				Requires: []*jqlpb.Filter{
 					{
-						Column: FieldStatus,
-						Match:  &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: []string{StatusActive, StatusHabitual}}},
+						Column: timedb.FieldStatus,
+						Match:  &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: []string{timedb.StatusActive, timedb.StatusHabitual}}},
 					},
 				},
 			},
@@ -1687,16 +1688,16 @@ func (mv *MainView) queryPlans(taskPKs []string) (*jqlpb.ListRowsResponse, error
 		taskCols = append(taskCols, fmt.Sprintf("tasks %s", task))
 	}
 	return mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
-		Table: TableAssertions,
+		Table: timedb.TableAssertions,
 		Conditions: []*jqlpb.Condition{
 			{
 				Requires: []*jqlpb.Filter{
 					{
-						Column: FieldArg0,
+						Column: timedb.FieldArg0,
 						Match:  &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: taskCols}},
 					},
 					{
-						Column: FieldARelation,
+						Column: timedb.FieldRelation,
 						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Plan"}},
 					},
 				},
@@ -1707,30 +1708,30 @@ func (mv *MainView) queryPlans(taskPKs []string) (*jqlpb.ListRowsResponse, error
 
 func (mv *MainView) queryDayPlan() (*jqlpb.Row, error) {
 	resp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
-		Table: TableTasks,
+		Table: timedb.TableTasks,
 		Conditions: []*jqlpb.Condition{
 			{
 				Requires: []*jqlpb.Filter{
 					{
-						Column: FieldAction,
+						Column: timedb.FieldAction,
 						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: "Plan"}},
 					},
 					{
-						Column: FieldDirect,
+						Column: timedb.FieldDirect,
 						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: "today"}},
 					},
 					{
-						Column: FieldSpan,
+						Column: timedb.FieldSpan,
 						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: "Day"}},
 					},
 					{
-						Column: FieldStatus,
+						Column: timedb.FieldStatus,
 						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: "Active"}},
 					},
 				},
 			},
 		},
-		OrderBy: FieldStart,
+		OrderBy: timedb.FieldStart,
 		Dec:     true,
 	})
 
@@ -1745,26 +1746,26 @@ func (mv *MainView) queryDayPlan() (*jqlpb.Row, error) {
 
 func (mv *MainView) queryYesterday() (*jqlpb.Row, error) {
 	resp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
-		Table: TableTasks,
+		Table: timedb.TableTasks,
 		Conditions: []*jqlpb.Condition{
 			{
 				Requires: []*jqlpb.Filter{
 					{
-						Column: FieldAction,
+						Column: timedb.FieldAction,
 						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: "Plan"}},
 					},
 					{
-						Column: FieldDirect,
+						Column: timedb.FieldDirect,
 						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: "today"}},
 					},
 					{
-						Column: FieldSpan,
+						Column: timedb.FieldSpan,
 						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: "Day"}},
 					},
 				},
 			},
 		},
-		OrderBy: FieldStart,
+		OrderBy: timedb.FieldStart,
 		Dec:     true,
 	})
 	if err != nil {
@@ -1778,14 +1779,14 @@ func (mv *MainView) queryYesterday() (*jqlpb.Row, error) {
 
 // TODO: queryExistingTasks can be deleted once all flows migrate to the new assertion-based reminder model.
 func (mv *MainView) queryExistingTasks(planPK string) (map[string]bool, error) {
-	assnTable := mv.tables[TableAssertions]
+	assnTable := mv.tables[timedb.TableAssertions]
 	resp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
-		Table: TableAssertions,
+		Table: timedb.TableAssertions,
 		Conditions: []*jqlpb.Condition{
 			{
 				Requires: []*jqlpb.Filter{
 					{
-						Column: FieldArg0,
+						Column: timedb.FieldArg0,
 						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: fmt.Sprintf("tasks %s", planPK)}},
 					},
 				},
@@ -1797,7 +1798,7 @@ func (mv *MainView) queryExistingTasks(planPK string) (map[string]bool, error) {
 	}
 	existing := map[string]bool{}
 	for _, row := range resp.Rows {
-		task := row.Entries[api.IndexOfField(assnTable.Columns, FieldArg1)].Formatted
+		task := row.Entries[api.IndexOfField(assnTable.Columns, timedb.FieldArg1)].Formatted
 		if !isAssertionDayPlan(task) {
 			continue
 		}
@@ -1808,8 +1809,8 @@ func (mv *MainView) queryExistingTasks(planPK string) (map[string]bool, error) {
 
 // TODO: copyOldTasks can be deleted once all flows migrate to the new assertion-based reminder model.
 func (mv *MainView) copyOldTasks() error {
-	tasksTable := mv.tables[TableTasks]
-	assnTable := mv.tables[TableAssertions]
+	tasksTable := mv.tables[timedb.TableTasks]
+	assnTable := mv.tables[timedb.TableAssertions]
 
 	yesterday, err := mv.queryYesterday()
 	if err != nil {
@@ -1827,12 +1828,12 @@ func (mv *MainView) copyOldTasks() error {
 	yesterdayPK := yesterday.Entries[api.GetPrimary(tasksTable.Columns)].Formatted
 
 	todayBullets, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
-		Table: TableAssertions,
+		Table: timedb.TableAssertions,
 		Conditions: []*jqlpb.Condition{
 			{
 				Requires: []*jqlpb.Filter{
 					{
-						Column: FieldArg0,
+						Column: timedb.FieldArg0,
 						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: fmt.Sprintf("tasks %s", todayPK)}},
 					},
 				},
@@ -1848,12 +1849,12 @@ func (mv *MainView) copyOldTasks() error {
 	}
 
 	oldBullets, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
-		Table: TableAssertions,
+		Table: timedb.TableAssertions,
 		Conditions: []*jqlpb.Condition{
 			{
 				Requires: []*jqlpb.Filter{
 					{
-						Column: FieldArg0,
+						Column: timedb.FieldArg0,
 						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: fmt.Sprintf("tasks %s", yesterdayPK)}},
 					},
 				},
@@ -1865,9 +1866,9 @@ func (mv *MainView) copyOldTasks() error {
 	}
 
 	for _, oldBullet := range oldBullets.Rows {
-		rel := oldBullet.Entries[api.IndexOfField(assnTable.Columns, FieldARelation)].Formatted
-		val := oldBullet.Entries[api.IndexOfField(assnTable.Columns, FieldArg1)].Formatted
-		order := oldBullet.Entries[api.IndexOfField(assnTable.Columns, FieldOrder)].Formatted
+		rel := oldBullet.Entries[api.IndexOfField(assnTable.Columns, timedb.FieldRelation)].Formatted
+		val := oldBullet.Entries[api.IndexOfField(assnTable.Columns, timedb.FieldArg1)].Formatted
+		order := oldBullet.Entries[api.IndexOfField(assnTable.Columns, timedb.FieldOrder)].Formatted
 
 		if isDayTaskDone(val) {
 			continue
@@ -1875,13 +1876,13 @@ func (mv *MainView) copyOldTasks() error {
 		// pk doesn't really matter here so using a random integer
 		pk := fmt.Sprintf("%d", rand.Int63())
 		fields := map[string]string{
-			FieldArg0:      fmt.Sprintf("tasks %s", todayPK),
-			FieldArg1:      val,
-			FieldARelation: rel,
-			FieldOrder:     order,
+			timedb.FieldArg0:      fmt.Sprintf("tasks %s", todayPK),
+			timedb.FieldArg1:      val,
+			timedb.FieldRelation: rel,
+			timedb.FieldOrder:     order,
 		}
 		_, err := mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
-			Table:  TableAssertions,
+			Table:  timedb.TableAssertions,
 			Pk:     pk,
 			Fields: fields,
 		})
@@ -1900,7 +1901,7 @@ func (mv *MainView) refreshToday2Item() error {
 		return err
 	}
 	for _, task := range activeAndHabitual.Rows {
-		possibleTaskPKs = append(possibleTaskPKs, task.Entries[api.IndexOfField(activeAndHabitual.Columns, FieldDescription)].Formatted)
+		possibleTaskPKs = append(possibleTaskPKs, task.Entries[api.IndexOfField(activeAndHabitual.Columns, timedb.FieldDescription)].Formatted)
 	}
 
 	// In addition to active and habitual tasks we query tasks that were closed
@@ -1911,12 +1912,12 @@ func (mv *MainView) refreshToday2Item() error {
 		possibleTaskPKs = append(possibleTaskPKs, stripDayPlanPrefix(item.Description))
 	}
 	matchingTasks, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
-		Table: TableTasks,
+		Table: timedb.TableTasks,
 		Conditions: []*jqlpb.Condition{
 			{
 				Requires: []*jqlpb.Filter{
 					{
-						Column: FieldDescription,
+						Column: timedb.FieldDescription,
 						Match:  &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: possibleTaskPKs}},
 					},
 				},
@@ -1930,23 +1931,23 @@ func (mv *MainView) refreshToday2Item() error {
 	mv.today2item = map[string]DayItemMeta{}
 	arg0s := []string{}
 	for _, matchingTask := range matchingTasks.Rows {
-		taskPK := matchingTask.Entries[api.IndexOfField(matchingTasks.Columns, FieldDescription)].Formatted
-		arg0s = append(arg0s, api.ConstructPolyForeign(TableTasks, taskPK))
+		taskPK := matchingTask.Entries[api.IndexOfField(matchingTasks.Columns, timedb.FieldDescription)].Formatted
+		arg0s = append(arg0s, api.ConstructPolyForeign(timedb.TableTasks, taskPK))
 		mv.today2item[taskPK] = DayItemMeta{
 			TaskPK: taskPK,
 		}
 	}
 	matchingAssertions, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
-		Table: TableAssertions,
+		Table: timedb.TableAssertions,
 		Conditions: []*jqlpb.Condition{
 			{
 				Requires: []*jqlpb.Filter{
 					{
-						Column: FieldARelation,
+						Column: timedb.FieldRelation,
 						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Plan"}},
 					},
 					{
-						Column: FieldArg0,
+						Column: timedb.FieldArg0,
 						Match:  &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: arg0s}},
 					},
 				},
@@ -1957,9 +1958,9 @@ func (mv *MainView) refreshToday2Item() error {
 		return err
 	}
 	for _, matchingAssertion := range matchingAssertions.Rows {
-		assnPK := matchingAssertion.Entries[api.IndexOfField(matchingAssertions.Columns, FieldDescription)].Formatted
-		arg0 := matchingAssertion.Entries[api.IndexOfField(matchingAssertions.Columns, FieldArg0)]
-		arg1 := matchingAssertion.Entries[api.IndexOfField(matchingAssertions.Columns, FieldArg1)].Formatted
+		assnPK := matchingAssertion.Entries[api.IndexOfField(matchingAssertions.Columns, timedb.FieldDescription)].Formatted
+		arg0 := matchingAssertion.Entries[api.IndexOfField(matchingAssertions.Columns, timedb.FieldArg0)]
+		arg1 := matchingAssertion.Entries[api.IndexOfField(matchingAssertions.Columns, timedb.FieldArg1)].Formatted
 		_, taskPKs := api.ParsePolyforeign(arg0)
 		mv.today2item[stripDayPlanPrefix(arg1)] = DayItemMeta{
 			AssertionPK: assnPK,
@@ -1971,8 +1972,8 @@ func (mv *MainView) refreshToday2Item() error {
 
 // TODO: queryPossibleDayPlanAdditions can be deleted once all flows migrate to the new assertion-based reminder model.
 func (mv *MainView) queryPossibleDayPlanAdditions() ([]string, error) {
-	tasksTable := mv.tables[TableTasks]
-	assnTable := mv.tables[TableAssertions]
+	tasksTable := mv.tables[timedb.TableTasks]
+	assnTable := mv.tables[timedb.TableAssertions]
 	tasks, err := mv.queryActiveAndHabitualTasks()
 	if err != nil {
 		return nil, err
@@ -1984,7 +1985,7 @@ func (mv *MainView) queryPossibleDayPlanAdditions() ([]string, error) {
 
 	for _, task := range tasks.Rows {
 		allTasks = append(allTasks, task.Entries[api.GetPrimary(tasksTable.Columns)].Formatted)
-		parent := task.Entries[api.IndexOfField(tasksTable.Columns, FieldPrimaryGoal)].Formatted
+		parent := task.Entries[api.IndexOfField(tasksTable.Columns, timedb.FieldPrimaryGoal)].Formatted
 		task2children[parent] = append(task2children[parent], task)
 	}
 
@@ -1994,16 +1995,16 @@ func (mv *MainView) queryPossibleDayPlanAdditions() ([]string, error) {
 	}
 	descriptions := []string{}
 	for _, plan := range plans.Rows {
-		planString := plan.Entries[api.IndexOfField(assnTable.Columns, FieldArg1)].Formatted
+		planString := plan.Entries[api.IndexOfField(assnTable.Columns, timedb.FieldArg1)].Formatted
 		if isAssertionDayPlan(planString) && !isDayTaskDone(planString) {
 			descriptions = append(descriptions, planString)
 		}
-		task := plan.Entries[api.IndexOfField(assnTable.Columns, FieldArg0)].Formatted[len("tasks "):]
+		task := plan.Entries[api.IndexOfField(assnTable.Columns, timedb.FieldArg0)].Formatted[len("tasks "):]
 		task2plans[task] = append(task2plans[task], planString)
 	}
 	for _, task := range tasks.Rows {
 		pk := task.Entries[api.GetPrimary(tasksTable.Columns)].Formatted
-		status := task.Entries[api.IndexOfField(tasksTable.Columns, FieldStatus)].Formatted
+		status := task.Entries[api.IndexOfField(tasksTable.Columns, timedb.FieldStatus)].Formatted
 		if status != "Active" || len(task2children[pk]) != 0 || len(task2plans[pk]) != 0 {
 			continue
 		}
@@ -2027,11 +2028,11 @@ func (mv *MainView) buildCandidatesForTasks(allPKs []string, activePKs map[strin
 	var err error
 	if len(arg0s) > 0 {
 		checksResp, err = mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
-			Table: TableAssertions,
+			Table: timedb.TableAssertions,
 			Conditions: []*jqlpb.Condition{{
 				Requires: []*jqlpb.Filter{
-					{Column: FieldArg0, Match: &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: arg0s}}},
-					{Column: FieldARelation, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Check"}}},
+					{Column: timedb.FieldArg0, Match: &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: arg0s}}},
+					{Column: timedb.FieldRelation, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Check"}}},
 				},
 			}},
 		})
@@ -2053,8 +2054,8 @@ func (mv *MainView) buildCandidatesForTasks(allPKs []string, activePKs map[strin
 	}
 	if checksResp != nil {
 		for _, row := range checksResp.Rows {
-			arg0 := row.Entries[api.IndexOfField(checksResp.Columns, FieldArg0)].Formatted
-			checkText := row.Entries[api.IndexOfField(checksResp.Columns, FieldArg1)].Formatted
+			arg0 := row.Entries[api.IndexOfField(checksResp.Columns, timedb.FieldArg0)].Formatted
+			checkText := row.Entries[api.IndexOfField(checksResp.Columns, timedb.FieldArg1)].Formatted
 			taskPK := strings.TrimPrefix(arg0, "tasks ")
 			if len(checkText) >= 4 && checkText[0] == '[' && checkText[2] == ']' && checkText[3] == ' ' {
 				continue
@@ -2099,9 +2100,9 @@ func (mv *MainView) placeRemindersAtPosition(
 		if e.order > insertAfterOrder {
 			_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
 				UpdateOnly: true,
-				Table:      TableAssertions,
+				Table:      timedb.TableAssertions,
 				Pk:         e.pk,
-				Fields:     map[string]string{FieldOrder: fmt.Sprintf("%d", e.order+totalToAdd)},
+				Fields:     map[string]string{timedb.FieldOrder: fmt.Sprintf("%d", e.order+totalToAdd)},
 			})
 			if err != nil {
 				return 0, err
@@ -2112,14 +2113,14 @@ func (mv *MainView) placeRemindersAtPosition(
 	for _, bareID := range filteredExisting {
 		newPK := fmt.Sprintf("%d", rand.Int63())
 		_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
-			Table:      TableAssertions,
+			Table:      timedb.TableAssertions,
 			Pk:         newPK,
 			InsertOnly: true,
 			Fields: map[string]string{
-				FieldARelation: ".Entry",
-				FieldArg0:      fmt.Sprintf("tasks %s", dayPlanPK),
-				FieldArg1:      fmt.Sprintf("@{vt.reminders %s}", bareID),
-				FieldOrder:     fmt.Sprintf("%d", nextOrder),
+				timedb.FieldRelation: ".Entry",
+				timedb.FieldArg0:      fmt.Sprintf("tasks %s", dayPlanPK),
+				timedb.FieldArg1:      fmt.Sprintf("@{vt.reminders %s}", bareID),
+				timedb.FieldOrder:     fmt.Sprintf("%d", nextOrder),
 			},
 		})
 		if err != nil {
@@ -2160,11 +2161,11 @@ func (mv *MainView) createMissingReminders(candidates []reminderToPlace, todaySt
 // whose TargetDate is at or before todayStr.
 func (mv *MainView) queryDueReminderBareIDs(todayStr string) ([]string, error) {
 	statusResp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
-		Table: TableAssertions,
+		Table: timedb.TableAssertions,
 		Conditions: []*jqlpb.Condition{{
 			Requires: []*jqlpb.Filter{
-				{Column: FieldARelation, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Status"}}},
-				{Column: FieldArg1, Match: &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: []string{"Awaiting", "Ready"}}}},
+				{Column: timedb.FieldRelation, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Status"}}},
+				{Column: timedb.FieldArg1, Match: &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: []string{"Awaiting", "Ready"}}}},
 			},
 		}},
 	})
@@ -2174,7 +2175,7 @@ func (mv *MainView) queryDueReminderBareIDs(todayStr string) ([]string, error) {
 	var bareIDs []string
 	var arg0s []string
 	for _, row := range statusResp.Rows {
-		arg0 := row.Entries[api.IndexOfField(statusResp.Columns, FieldArg0)].Formatted
+		arg0 := row.Entries[api.IndexOfField(statusResp.Columns, timedb.FieldArg0)].Formatted
 		if !strings.HasPrefix(arg0, "vt.reminders ") {
 			continue
 		}
@@ -2185,11 +2186,11 @@ func (mv *MainView) queryDueReminderBareIDs(todayStr string) ([]string, error) {
 		return nil, nil
 	}
 	tdResp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
-		Table: TableAssertions,
+		Table: timedb.TableAssertions,
 		Conditions: []*jqlpb.Condition{{
 			Requires: []*jqlpb.Filter{
-				{Column: FieldArg0, Match: &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: arg0s}}},
-				{Column: FieldARelation, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".TargetDate"}}},
+				{Column: timedb.FieldArg0, Match: &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: arg0s}}},
+				{Column: timedb.FieldRelation, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".TargetDate"}}},
 			},
 		}},
 	})
@@ -2198,8 +2199,8 @@ func (mv *MainView) queryDueReminderBareIDs(todayStr string) ([]string, error) {
 	}
 	targetDates := map[string]string{}
 	for _, row := range tdResp.Rows {
-		arg0 := row.Entries[api.IndexOfField(tdResp.Columns, FieldArg0)].Formatted
-		arg1 := row.Entries[api.IndexOfField(tdResp.Columns, FieldArg1)].Formatted
+		arg0 := row.Entries[api.IndexOfField(tdResp.Columns, timedb.FieldArg0)].Formatted
+		arg1 := row.Entries[api.IndexOfField(tdResp.Columns, timedb.FieldArg1)].Formatted
 		_, dateStr := api.ParseForeignKey(arg1)
 		targetDates[strings.TrimPrefix(arg0, "vt.reminders ")] = dateStr
 	}
@@ -2237,11 +2238,11 @@ func (mv *MainView) addDueRemindersToDay(dayPlanPK string, entries []dayPlanEntr
 		arg0s[i] = fmt.Sprintf("vt.reminders %s", id)
 	}
 	taskResp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
-		Table: TableAssertions,
+		Table: timedb.TableAssertions,
 		Conditions: []*jqlpb.Condition{{
 			Requires: []*jqlpb.Filter{
-				{Column: FieldArg0, Match: &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: arg0s}}},
-				{Column: FieldARelation, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Task"}}},
+				{Column: timedb.FieldArg0, Match: &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: arg0s}}},
+				{Column: timedb.FieldRelation, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Task"}}},
 			},
 		}},
 	})
@@ -2250,8 +2251,8 @@ func (mv *MainView) addDueRemindersToDay(dayPlanPK string, entries []dayPlanEntr
 	}
 	taskByBareID := map[string]string{}
 	for _, row := range taskResp.Rows {
-		arg0 := row.Entries[api.IndexOfField(taskResp.Columns, FieldArg0)].Formatted
-		arg1 := row.Entries[api.IndexOfField(taskResp.Columns, FieldArg1)].Formatted
+		arg0 := row.Entries[api.IndexOfField(taskResp.Columns, timedb.FieldArg0)].Formatted
+		arg1 := row.Entries[api.IndexOfField(taskResp.Columns, timedb.FieldArg1)].Formatted
 		_, taskPK := api.ParseForeignKey(arg1)
 		taskByBareID[strings.TrimPrefix(arg0, "vt.reminders ")] = taskPK
 	}
@@ -2286,14 +2287,14 @@ func (mv *MainView) addDueRemindersToDay(dayPlanPK string, entries []dayPlanEntr
 	for i, bareID := range toAdd {
 		newPK := fmt.Sprintf("%d", rand.Int63())
 		_, err := mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
-			Table:      TableAssertions,
+			Table:      timedb.TableAssertions,
 			Pk:         newPK,
 			InsertOnly: true,
 			Fields: map[string]string{
-				FieldARelation: ".Entry",
-				FieldArg0:      fmt.Sprintf("tasks %s", dayPlanPK),
-				FieldArg1:      fmt.Sprintf("@{vt.reminders %s}", bareID),
-				FieldOrder:     fmt.Sprintf("%d", reminderOrders[i]),
+				timedb.FieldRelation: ".Entry",
+				timedb.FieldArg0:      fmt.Sprintf("tasks %s", dayPlanPK),
+				timedb.FieldArg1:      fmt.Sprintf("@{vt.reminders %s}", bareID),
+				timedb.FieldOrder:     fmt.Sprintf("%d", reminderOrders[i]),
 			},
 		})
 		if err != nil {
@@ -2308,7 +2309,7 @@ func (mv *MainView) insertNewReminders() error {
 	if err != nil || dayPlan == nil {
 		return err
 	}
-	tasksTable := mv.tables[TableTasks]
+	tasksTable := mv.tables[timedb.TableTasks]
 	dayPlanPK := dayPlan.Entries[api.GetPrimary(tasksTable.Columns)].Formatted
 
 	entries, err := mv.queryDayPlanEntries(dayPlanPK)
@@ -2333,9 +2334,9 @@ func (mv *MainView) insertNewReminders() error {
 			continue
 		}
 		pk := task.Entries[api.GetPrimary(tasksTable.Columns)].Formatted
-		status := task.Entries[api.IndexOfField(tasksTable.Columns, FieldStatus)].Formatted
+		status := task.Entries[api.IndexOfField(tasksTable.Columns, timedb.FieldStatus)].Formatted
 		allPKs = append(allPKs, pk)
-		if status == StatusActive {
+		if status == timedb.StatusActive {
 			activePKs[pk] = true
 		}
 	}
@@ -2358,24 +2359,24 @@ func (mv *MainView) insertNewReminders() error {
 // queryDayPlanEntries returns all .Entry assertions on the day plan in order.
 func (mv *MainView) queryDayPlanEntries(dayPlanPK string) ([]dayPlanEntry, error) {
 	resp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
-		Table: TableAssertions,
+		Table: timedb.TableAssertions,
 		Conditions: []*jqlpb.Condition{{
 			Requires: []*jqlpb.Filter{
-				{Column: FieldArg0, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: fmt.Sprintf("tasks %s", dayPlanPK)}}},
-				{Column: FieldARelation, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Entry"}}},
+				{Column: timedb.FieldArg0, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: fmt.Sprintf("tasks %s", dayPlanPK)}}},
+				{Column: timedb.FieldRelation, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Entry"}}},
 			},
 		}},
-		OrderBy: FieldOrder,
+		OrderBy: timedb.FieldOrder,
 	})
 	if err != nil {
 		return nil, err
 	}
 	entries := make([]dayPlanEntry, 0, len(resp.Rows))
 	for _, row := range resp.Rows {
-		order, _ := strconv.Atoi(row.Entries[api.IndexOfField(resp.Columns, FieldOrder)].Formatted)
+		order, _ := strconv.Atoi(row.Entries[api.IndexOfField(resp.Columns, timedb.FieldOrder)].Formatted)
 		entries = append(entries, dayPlanEntry{
 			pk:    row.Entries[api.GetPrimary(resp.Columns)].Formatted,
-			arg1:  row.Entries[api.IndexOfField(resp.Columns, FieldArg1)].Formatted,
+			arg1:  row.Entries[api.IndexOfField(resp.Columns, timedb.FieldArg1)].Formatted,
 			order: order,
 		})
 	}
@@ -2394,11 +2395,11 @@ func (mv *MainView) fetchHabitPlacementMeta(taskPKs []string) (map[string]habitP
 		taskArg0s[i] = fmt.Sprintf("tasks %s", pk)
 	}
 	habitResp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
-		Table: TableAssertions,
+		Table: timedb.TableAssertions,
 		Conditions: []*jqlpb.Condition{{
 			Requires: []*jqlpb.Filter{
-				{Column: FieldArg0, Match: &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: taskArg0s}}},
-				{Column: FieldARelation, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Habit"}}},
+				{Column: timedb.FieldArg0, Match: &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: taskArg0s}}},
+				{Column: timedb.FieldRelation, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Habit"}}},
 			},
 		}},
 	})
@@ -2409,8 +2410,8 @@ func (mv *MainView) fetchHabitPlacementMeta(taskPKs []string) (map[string]habitP
 	habitSeen := map[string]bool{}
 	var habitArg0s []string
 	for _, row := range habitResp.Rows {
-		arg0 := row.Entries[api.IndexOfField(habitResp.Columns, FieldArg0)].Formatted
-		arg1 := row.Entries[api.IndexOfField(habitResp.Columns, FieldArg1)].Formatted
+		arg0 := row.Entries[api.IndexOfField(habitResp.Columns, timedb.FieldArg0)].Formatted
+		arg1 := row.Entries[api.IndexOfField(habitResp.Columns, timedb.FieldArg1)].Formatted
 		taskPK := strings.TrimPrefix(arg0, "tasks ")
 		_, habitPK := api.ParseForeignKey(arg1)
 		if habitPK == "" {
@@ -2430,11 +2431,11 @@ func (mv *MainView) fetchHabitPlacementMeta(taskPKs []string) (map[string]habitP
 		sort.Strings(habitToTasks[habitPK])
 	}
 	attrResp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
-		Table: TableAssertions,
+		Table: timedb.TableAssertions,
 		Conditions: []*jqlpb.Condition{{
 			Requires: []*jqlpb.Filter{
-				{Column: FieldArg0, Match: &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: habitArg0s}}},
-				{Column: FieldARelation, Match: &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: []string{".DayPlanOrder", ".DayPlanGroup"}}}},
+				{Column: timedb.FieldArg0, Match: &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: habitArg0s}}},
+				{Column: timedb.FieldRelation, Match: &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: []string{".DayPlanOrder", ".DayPlanGroup"}}}},
 			},
 		}},
 	})
@@ -2448,10 +2449,10 @@ func (mv *MainView) fetchHabitPlacementMeta(taskPKs []string) (map[string]habitP
 	habitGroups := map[string][]ordVal{}
 	habitOrders := map[string][]ordVal{}
 	for _, row := range attrResp.Rows {
-		habitPK := strings.TrimPrefix(row.Entries[api.IndexOfField(attrResp.Columns, FieldArg0)].Formatted, "tasks ")
-		rel := strings.TrimPrefix(row.Entries[api.IndexOfField(attrResp.Columns, FieldARelation)].Formatted, ".")
-		val := row.Entries[api.IndexOfField(attrResp.Columns, FieldArg1)].Formatted
-		ord, _ := strconv.Atoi(row.Entries[api.IndexOfField(attrResp.Columns, FieldOrder)].Formatted)
+		habitPK := strings.TrimPrefix(row.Entries[api.IndexOfField(attrResp.Columns, timedb.FieldArg0)].Formatted, "tasks ")
+		rel := strings.TrimPrefix(row.Entries[api.IndexOfField(attrResp.Columns, timedb.FieldRelation)].Formatted, ".")
+		val := row.Entries[api.IndexOfField(attrResp.Columns, timedb.FieldArg1)].Formatted
+		ord, _ := strconv.Atoi(row.Entries[api.IndexOfField(attrResp.Columns, timedb.FieldOrder)].Formatted)
 		switch rel {
 		case "DayPlanGroup":
 			habitGroups[habitPK] = append(habitGroups[habitPK], ordVal{ord, val})
@@ -2541,9 +2542,9 @@ func (mv *MainView) applyOrderUpdates(orderChanges map[string]int) error {
 	for pk, newOrder := range orderChanges {
 		_, err := mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
 			UpdateOnly: true,
-			Table:      TableAssertions,
+			Table:      timedb.TableAssertions,
 			Pk:         pk,
-			Fields:     map[string]string{FieldOrder: fmt.Sprintf("%d", newOrder)},
+			Fields:     map[string]string{timedb.FieldOrder: fmt.Sprintf("%d", newOrder)},
 		})
 		if err != nil {
 			return err
@@ -2572,10 +2573,10 @@ func (mv *MainView) resolveReminderPlacements(candidates []reminderToPlace) (toC
 		arg1Values = append(arg1Values, v)
 	}
 	resp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
-		Table: TableAssertions,
+		Table: timedb.TableAssertions,
 		Conditions: []*jqlpb.Condition{{
 			Requires: []*jqlpb.Filter{
-				{Column: FieldArg1, Match: &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: arg1Values}}},
+				{Column: timedb.FieldArg1, Match: &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: arg1Values}}},
 			},
 		}},
 	})
@@ -2585,11 +2586,11 @@ func (mv *MainView) resolveReminderPlacements(candidates []reminderToPlace) (toC
 	// Group Arg1 values by reminder ID (Arg0 prefixed "vt.reminders ").
 	reminderArg1s := map[string]map[string]bool{}
 	for _, row := range resp.Rows {
-		arg0 := row.Entries[api.IndexOfField(resp.Columns, FieldArg0)].Formatted
+		arg0 := row.Entries[api.IndexOfField(resp.Columns, timedb.FieldArg0)].Formatted
 		if !strings.HasPrefix(arg0, "vt.reminders ") {
 			continue
 		}
-		arg1 := row.Entries[api.IndexOfField(resp.Columns, FieldArg1)].Formatted
+		arg1 := row.Entries[api.IndexOfField(resp.Columns, timedb.FieldArg1)].Formatted
 		if reminderArg1s[arg0] == nil {
 			reminderArg1s[arg0] = map[string]bool{}
 		}
@@ -2628,11 +2629,11 @@ func (mv *MainView) resolveReminderPlacements(candidates []reminderToPlace) (toC
 	reminderTargetDate := map[string]string{} // reminderID → "YYYY-MM-DD" or ""
 	if len(matchedIDs) > 0 {
 		tdResp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
-			Table: TableAssertions,
+			Table: timedb.TableAssertions,
 			Conditions: []*jqlpb.Condition{{
 				Requires: []*jqlpb.Filter{
-					{Column: FieldArg0, Match: &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: matchedIDs}}},
-					{Column: FieldARelation, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".TargetDate"}}},
+					{Column: timedb.FieldArg0, Match: &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: matchedIDs}}},
+					{Column: timedb.FieldRelation, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".TargetDate"}}},
 				},
 			}},
 		})
@@ -2640,8 +2641,8 @@ func (mv *MainView) resolveReminderPlacements(candidates []reminderToPlace) (toC
 			return nil, nil, err
 		}
 		for _, row := range tdResp.Rows {
-			arg0 := row.Entries[api.IndexOfField(tdResp.Columns, FieldArg0)].Formatted
-			val := row.Entries[api.IndexOfField(tdResp.Columns, FieldArg1)].Formatted
+			arg0 := row.Entries[api.IndexOfField(tdResp.Columns, timedb.FieldArg0)].Formatted
+			val := row.Entries[api.IndexOfField(tdResp.Columns, timedb.FieldArg1)].Formatted
 			_, dateStr := api.ParseForeignKey(val)
 			reminderTargetDate[arg0] = dateStr
 		}
@@ -2673,17 +2674,17 @@ func (mv *MainView) createReminder(taskPK, checkText, targetDate string) (string
 	bareID := fmt.Sprintf("%d", rand.Int63())
 	reminderRef := fmt.Sprintf("vt.reminders %s", bareID)
 	assns := []map[string]string{
-		{FieldARelation: ".Status", FieldArg0: reminderRef, FieldArg1: "Awaiting"},
-		{FieldARelation: ".Task", FieldArg0: reminderRef, FieldArg1: fmt.Sprintf("@{tasks %s}", taskPK)},
-		{FieldARelation: ".TargetDate", FieldArg0: reminderRef, FieldArg1: fmt.Sprintf("@{dates %s}", targetDate)},
+		{timedb.FieldRelation: ".Status", timedb.FieldArg0: reminderRef, timedb.FieldArg1: "Awaiting"},
+		{timedb.FieldRelation: ".Task", timedb.FieldArg0: reminderRef, timedb.FieldArg1: fmt.Sprintf("@{tasks %s}", taskPK)},
+		{timedb.FieldRelation: ".TargetDate", timedb.FieldArg0: reminderRef, timedb.FieldArg1: fmt.Sprintf("@{dates %s}", targetDate)},
 	}
 	if checkText != "" {
-		assns = append(assns, map[string]string{FieldARelation: ".Check", FieldArg0: reminderRef, FieldArg1: checkText})
+		assns = append(assns, map[string]string{timedb.FieldRelation: ".Check", timedb.FieldArg0: reminderRef, timedb.FieldArg1: checkText})
 	}
 	for _, fields := range assns {
 		pk := fmt.Sprintf("%d", rand.Int63())
 		_, err := mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
-			Table:      TableAssertions,
+			Table:      timedb.TableAssertions,
 			Pk:         pk,
 			InsertOnly: true,
 			Fields:     fields,
@@ -2702,14 +2703,14 @@ func (mv *MainView) createReminderEntity(dayPlanPK, taskPK, checkText, targetDat
 	}
 	entryPK := fmt.Sprintf("%d", rand.Int63())
 	_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
-		Table:      TableAssertions,
+		Table:      timedb.TableAssertions,
 		Pk:         entryPK,
 		InsertOnly: true,
 		Fields: map[string]string{
-			FieldARelation: ".Entry",
-			FieldArg0:      fmt.Sprintf("tasks %s", dayPlanPK),
-			FieldArg1:      fmt.Sprintf("@{vt.reminders %s}", bareID),
-			FieldOrder:     fmt.Sprintf("%d", entryOrder),
+			timedb.FieldRelation: ".Entry",
+			timedb.FieldArg0:      fmt.Sprintf("tasks %s", dayPlanPK),
+			timedb.FieldArg1:      fmt.Sprintf("@{vt.reminders %s}", bareID),
+			timedb.FieldOrder:     fmt.Sprintf("%d", entryOrder),
 		},
 	})
 	return err
@@ -2722,8 +2723,8 @@ func (mv *MainView) maybeMarkPreviousDayPlanSatisfied() error {
 	if err != nil || dayPlan == nil {
 		return err
 	}
-	tasksTable := mv.tables[TableTasks]
-	startStr := dayPlan.Entries[api.IndexOfField(tasksTable.Columns, FieldStart)].Formatted
+	tasksTable := mv.tables[timedb.TableTasks]
+	startStr := dayPlan.Entries[api.IndexOfField(tasksTable.Columns, timedb.FieldStart)].Formatted
 	startDate, err := api.ParseFormattedDate(startStr)
 	if err != nil {
 		return nil // unparseable date — skip rather than error
@@ -2735,9 +2736,9 @@ func (mv *MainView) maybeMarkPreviousDayPlanSatisfied() error {
 	pk := dayPlan.Entries[api.GetPrimary(tasksTable.Columns)].Formatted
 	_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
 		UpdateOnly: true,
-		Table:      TableTasks,
+		Table:      timedb.TableTasks,
 		Pk:         pk,
-		Fields:     map[string]string{FieldStatus: StatusSatisfied},
+		Fields:     map[string]string{timedb.FieldStatus: timedb.StatusSatisfied},
 	})
 	return err
 }
@@ -2766,7 +2767,7 @@ func (mv *MainView) refreshTasks(g *gocui.Gui, v *gocui.View) error {
 // carryForwardEntries copies .Entry assertions from yesterday's day plan to today's,
 // skipping any reminder references whose status is Done, Failed, or Elided.
 func (mv *MainView) carryForwardEntries() error {
-	tasksTable := mv.tables[TableTasks]
+	tasksTable := mv.tables[timedb.TableTasks]
 
 	yesterday, err := mv.queryYesterday()
 	if err != nil {
@@ -2810,11 +2811,11 @@ func (mv *MainView) carryForwardEntries() error {
 	skipReminders := map[string]bool{}
 	if len(reminderPKs) > 0 {
 		statusResp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
-			Table: TableAssertions,
+			Table: timedb.TableAssertions,
 			Conditions: []*jqlpb.Condition{{
 				Requires: []*jqlpb.Filter{
-					{Column: FieldArg0, Match: &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: reminderPKs}}},
-					{Column: FieldARelation, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Status"}}},
+					{Column: timedb.FieldArg0, Match: &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: reminderPKs}}},
+					{Column: timedb.FieldRelation, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Status"}}},
 				},
 			}},
 		})
@@ -2822,8 +2823,8 @@ func (mv *MainView) carryForwardEntries() error {
 			return err
 		}
 		for _, row := range statusResp.Rows {
-			arg0 := row.Entries[api.IndexOfField(statusResp.Columns, FieldArg0)].Formatted
-			status := row.Entries[api.IndexOfField(statusResp.Columns, FieldArg1)].Formatted
+			arg0 := row.Entries[api.IndexOfField(statusResp.Columns, timedb.FieldArg0)].Formatted
+			status := row.Entries[api.IndexOfField(statusResp.Columns, timedb.FieldArg1)].Formatted
 			switch status {
 			case "Done", "Failed", "Elided":
 				skipReminders[arg0] = true
@@ -2840,14 +2841,14 @@ func (mv *MainView) carryForwardEntries() error {
 		}
 		newPK := fmt.Sprintf("%d", rand.Int63())
 		_, err := mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
-			Table:      TableAssertions,
+			Table:      timedb.TableAssertions,
 			Pk:         newPK,
 			InsertOnly: true,
 			Fields: map[string]string{
-				FieldARelation: ".Entry",
-				FieldArg0:      fmt.Sprintf("tasks %s", todayPK),
-				FieldArg1:      e.arg1,
-				FieldOrder:     fmt.Sprintf("%d", e.order),
+				timedb.FieldRelation: ".Entry",
+				timedb.FieldArg0:      fmt.Sprintf("tasks %s", todayPK),
+				timedb.FieldArg1:      e.arg1,
+				timedb.FieldOrder:     fmt.Sprintf("%d", e.order),
 			},
 		})
 		if err != nil {
@@ -2864,10 +2865,10 @@ func (mv *MainView) taskMarker(status string) func(g *gocui.Gui, v *gocui.View) 
 }
 
 func (mv *MainView) markTask(g *gocui.Gui, v *gocui.View, status string) error {
-	if mv.span != Today {
+	if mv.span != timedb.Today {
 		return nil
 	}
-	tasksView, err := g.View(TasksView)
+	tasksView, err := g.View(timedb.TasksView)
 	if err != nil {
 		return err
 	}
@@ -2886,28 +2887,28 @@ func (mv *MainView) markTask(g *gocui.Gui, v *gocui.View, status string) error {
 		return nil
 	}
 	reminderStatus := "Awaiting"
-	if status == StatusSatisfied {
+	if status == timedb.StatusSatisfied {
 		reminderStatus = "Done"
-	} else if status == StatusFailed || status == StatusAbandoned {
+	} else if status == timedb.StatusFailed || status == timedb.StatusAbandoned {
 		reminderStatus = "Failed"
 	}
 	if info.statusAssnPK != "" {
 		_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
 			UpdateOnly: true,
-			Table:      TableAssertions,
+			Table:      timedb.TableAssertions,
 			Pk:         info.statusAssnPK,
-			Fields:     map[string]string{FieldArg1: reminderStatus},
+			Fields:     map[string]string{timedb.FieldArg1: reminderStatus},
 		})
 	} else {
 		pk := fmt.Sprintf("%d", rand.Int63())
 		_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
 			InsertOnly: true,
-			Table:      TableAssertions,
+			Table:      timedb.TableAssertions,
 			Pk:         pk,
 			Fields: map[string]string{
-				FieldARelation: ".Status",
-				FieldArg0:      fmt.Sprintf("vt.reminders %s", item.ReminderArg0),
-				FieldArg1:      reminderStatus,
+				timedb.FieldRelation: ".Status",
+				timedb.FieldArg0:      fmt.Sprintf("vt.reminders %s", item.ReminderArg0),
+				timedb.FieldArg1:      reminderStatus,
 			},
 		})
 	}
@@ -2917,9 +2918,9 @@ func (mv *MainView) markTask(g *gocui.Gui, v *gocui.View, status string) error {
 	if info.taskPK != "" && status != "" {
 		_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
 			UpdateOnly: true,
-			Table:      TableTasks,
+			Table:      timedb.TableTasks,
 			Pk:         info.taskPK,
-			Fields:     map[string]string{FieldStatus: status},
+			Fields:     map[string]string{timedb.FieldStatus: status},
 		})
 		if err != nil {
 			return err
@@ -2946,15 +2947,15 @@ func (mv *MainView) markTask(g *gocui.Gui, v *gocui.View, status string) error {
 
 func (mv *MainView) possiblyPromptForNextNounState(taskPK string) error {
 	task, err := mv.dbms.GetRow(ctx, &jqlpb.GetRowRequest{
-		Table: TableTasks,
+		Table: timedb.TableTasks,
 		Pk:    taskPK,
 	})
 	if err != nil {
 		return err
 	}
-	nounPK := task.Row.Entries[api.IndexOfField(task.Columns, FieldDirect)].Formatted
+	nounPK := task.Row.Entries[api.IndexOfField(task.Columns, timedb.FieldDirect)].Formatted
 	noun, err := mv.dbms.GetRow(ctx, &jqlpb.GetRowRequest{
-		Table: TableNouns,
+		Table: timedb.TableNouns,
 		Pk:    nounPK,
 	})
 	if err != nil {
@@ -2963,7 +2964,7 @@ func (mv *MainView) possiblyPromptForNextNounState(taskPK string) error {
 		}
 		return err
 	}
-	status := noun.Row.Entries[api.IndexOfField(noun.Columns, FieldStatus)].Formatted
+	status := noun.Row.Entries[api.IndexOfField(noun.Columns, timedb.FieldStatus)].Formatted
 	nextStates := getNextNounStates()
 	next, ok := nextStates[status]
 	if ok {
@@ -2976,18 +2977,18 @@ func (mv *MainView) possiblyPromptForNextNounState(taskPK string) error {
 
 func getNextNounStates() map[string]string {
 	return map[string]string{
-		StatusIdea:         StatusExploring,
-		StatusExploring:    StatusPlanning,
-		StatusPlanning:     StatusImplementing,
-		StatusImplementing: StatusRevisit,
+		timedb.StatusIdea:         timedb.StatusExploring,
+		timedb.StatusExploring:    timedb.StatusPlanning,
+		timedb.StatusPlanning:     timedb.StatusImplementing,
+		timedb.StatusImplementing: timedb.StatusRevisit,
 	}
 }
 
 func (mv *MainView) deleteDayPlan(g *gocui.Gui, v *gocui.View) error {
-	if mv.span != Today {
+	if mv.span != timedb.Today {
 		return nil
 	}
-	tasksView, err := g.View(TasksView)
+	tasksView, err := g.View(timedb.TasksView)
 	if err != nil {
 		return err
 	}
@@ -2996,7 +2997,7 @@ func (mv *MainView) deleteDayPlan(g *gocui.Gui, v *gocui.View) error {
 	ix := oy + cy
 	item := mv.ix2item[ix]
 	_, err = mv.dbms.DeleteRow(ctx, &jqlpb.DeleteRowRequest{
-		Table: TableAssertions,
+		Table: timedb.TableAssertions,
 		Pk:    item.PK,
 	})
 	if err != nil {
@@ -3018,30 +3019,30 @@ type CurrentDomainInfo struct {
 }
 
 func (mv *MainView) GetCurrentDomain(g *gocui.Gui, v *gocui.View) (CurrentDomainInfo, error) {
-	tasksTable := mv.tables[TableTasks]
+	tasksTable := mv.tables[timedb.TableTasks]
 	taskPk, err := mv.ResolveSelectedPK(g)
 	if err != nil {
 		return CurrentDomainInfo{}, err
 	}
 	resp, err := mv.dbms.GetRow(ctx, &jqlpb.GetRowRequest{
-		Table: TableTasks,
+		Table: timedb.TableTasks,
 		Pk:    taskPk,
 	})
 	if err != nil {
 		return CurrentDomainInfo{}, err
 	}
-	action := resp.Row.Entries[api.IndexOfField(tasksTable.Columns, FieldAction)].Formatted
-	direct := resp.Row.Entries[api.IndexOfField(tasksTable.Columns, FieldDirect)].Formatted
-	indirect := resp.Row.Entries[api.IndexOfField(tasksTable.Columns, FieldIndirect)].Formatted
+	action := resp.Row.Entries[api.IndexOfField(tasksTable.Columns, timedb.FieldAction)].Formatted
+	direct := resp.Row.Entries[api.IndexOfField(tasksTable.Columns, timedb.FieldDirect)].Formatted
+	indirect := resp.Row.Entries[api.IndexOfField(tasksTable.Columns, timedb.FieldIndirect)].Formatted
 	isPrepareTask := (direct == "" && indirect == "")
-	isWarmup := resp.Row.Entries[api.IndexOfField(tasksTable.Columns, FieldAction)].Formatted == "Warm-up"
+	isWarmup := resp.Row.Entries[api.IndexOfField(tasksTable.Columns, timedb.FieldAction)].Formatted == "Warm-up"
 	skillset := direct
 	if action != "Practice" {
 		cycle, err := mv.retrieveAttentionCycle(tasksTable, resp.Row)
 		if err != nil {
 			return CurrentDomainInfo{}, err
 		}
-		skillset = cycle.Entries[api.IndexOfField(tasksTable.Columns, FieldIndirect)].Formatted
+		skillset = cycle.Entries[api.IndexOfField(tasksTable.Columns, timedb.FieldIndirect)].Formatted
 	}
 	return CurrentDomainInfo{
 		IsPrepTask: isPrepareTask,
@@ -3055,20 +3056,20 @@ func (mv *MainView) GetCurrentDomain(g *gocui.Gui, v *gocui.View) (CurrentDomain
 func (mv *MainView) InjectTaskWithAllMatching(g *gocui.Gui, v *gocui.View, matchAttentionCycle bool) (int, error) {
 	// Return the count of added items so that a higher level caller can decide to redirect
 	// the user to populate new items or not
-	tasksTable := mv.tables[TableTasks]
+	tasksTable := mv.tables[timedb.TableTasks]
 	taskPk, err := mv.ResolveSelectedPK(g)
 	if err != nil {
 		return 0, err
 	}
 	filters := []*jqlpb.Filter{
 		{
-			Column: FieldStatus,
-			Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: StatusActive}},
+			Column: timedb.FieldStatus,
+			Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: timedb.StatusActive}},
 		},
 	}
 	if matchAttentionCycle {
 		resp, err := mv.dbms.GetRow(ctx, &jqlpb.GetRowRequest{
-			Table: TableTasks,
+			Table: timedb.TableTasks,
 			Pk:    taskPk,
 		})
 		if err != nil {
@@ -3078,15 +3079,15 @@ func (mv *MainView) InjectTaskWithAllMatching(g *gocui.Gui, v *gocui.View, match
 		if err != nil {
 			return 0, err
 		}
-		cycleName := cycle.Entries[api.GetPrimary(mv.tables[TableTasks].Columns)].Formatted
+		cycleName := cycle.Entries[api.GetPrimary(mv.tables[timedb.TableTasks].Columns)].Formatted
 		filters = append(filters, &jqlpb.Filter{
-			Column: FieldPrimaryGoal,
+			Column: timedb.FieldPrimaryGoal,
 			Match:  &jqlpb.Filter_PathToMatch{&jqlpb.PathToMatch{Value: cycleName}},
 		})
 	}
 
 	activeDescendants, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
-		Table: TableTasks,
+		Table: timedb.TableTasks,
 		Conditions: []*jqlpb.Condition{
 			{
 				Requires: filters,
@@ -3099,13 +3100,13 @@ func (mv *MainView) InjectTaskWithAllMatching(g *gocui.Gui, v *gocui.View, match
 	allPKs := []string{}
 	activePKs := map[string]bool{}
 	for _, row := range activeDescendants.Rows {
-		action := row.Entries[api.IndexOfField(mv.tables[TableTasks].Columns, FieldAction)].Formatted
-		direct := row.Entries[api.IndexOfField(mv.tables[TableTasks].Columns, FieldDirect)].Formatted
-		indirect := row.Entries[api.IndexOfField(mv.tables[TableTasks].Columns, FieldIndirect)].Formatted
+		action := row.Entries[api.IndexOfField(mv.tables[timedb.TableTasks].Columns, timedb.FieldAction)].Formatted
+		direct := row.Entries[api.IndexOfField(mv.tables[timedb.TableTasks].Columns, timedb.FieldDirect)].Formatted
+		indirect := row.Entries[api.IndexOfField(mv.tables[timedb.TableTasks].Columns, timedb.FieldIndirect)].Formatted
 		if action == "Plan" && direct == "today" && indirect == "" {
 			continue
 		}
-		pk := row.Entries[api.GetPrimary(mv.tables[TableTasks].Columns)].Formatted
+		pk := row.Entries[api.GetPrimary(mv.tables[timedb.TableTasks].Columns)].Formatted
 		allPKs = append(allPKs, pk)
 		activePKs[pk] = true
 	}
@@ -3130,7 +3131,7 @@ func (mv *MainView) InjectTaskWithAllMatching(g *gocui.Gui, v *gocui.View, match
 
 	// Find the order of the entry under the cursor to use as insertion point.
 	var cursorEntryPK string
-	if tasksView, viewErr := g.View(TasksView); viewErr == nil {
+	if tasksView, viewErr := g.View(timedb.TasksView); viewErr == nil {
 		_, oy := tasksView.Origin()
 		_, cy := tasksView.Cursor()
 		if item, ok := mv.ix2item[oy+cy]; ok {
@@ -3171,28 +3172,28 @@ func (mv *MainView) queryPresentAndFutureDayPlanNames() (map[string]bool, error)
 	if err != nil {
 		return nil, err
 	}
-	assnTable := mv.tables[TableAssertions]
-	tasksTable := mv.tables[TableTasks]
+	assnTable := mv.tables[timedb.TableAssertions]
+	tasksTable := mv.tables[timedb.TableTasks]
 	resp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
-		Table: TableAssertions,
+		Table: timedb.TableAssertions,
 		Conditions: []*jqlpb.Condition{
 			{
 				Requires: []*jqlpb.Filter{
 					{
-						Column: FieldArg0,
+						Column: timedb.FieldArg0,
 						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: fmt.Sprintf("tasks %s", today.Entries[api.GetPrimary(tasksTable.Columns)].Formatted)}},
 					},
 				},
 			},
 		},
-		OrderBy: FieldOrder,
+		OrderBy: timedb.FieldOrder,
 	})
 	if err != nil {
 		return nil, err
 	}
 	names := map[string]bool{}
 	for _, row := range resp.Rows {
-		arg1 := row.Entries[api.IndexOfField(assnTable.Columns, FieldArg1)].Formatted
+		arg1 := row.Entries[api.IndexOfField(assnTable.Columns, timedb.FieldArg1)].Formatted
 		if !isAssertionDayPlan(arg1) {
 			continue
 		}
@@ -3202,7 +3203,7 @@ func (mv *MainView) queryPresentAndFutureDayPlanNames() (map[string]bool, error)
 }
 
 func (mv *MainView) substituteTaskWithPrompt(g *gocui.Gui, v *gocui.View) error {
-	if mv.span != Today {
+	if mv.span != timedb.Today {
 		return nil
 	}
 	_, oy := v.Origin()
@@ -3219,34 +3220,34 @@ func (mv *MainView) substituteTaskWithPrompt(g *gocui.Gui, v *gocui.View) error 
 
 func (mv *MainView) substituteTaskWithPlans(g *gocui.Gui, taskPK string) error {
 	mv.substitutingPlan = false
-	assnTable := mv.tables[TableAssertions]
-	tasksTable := mv.tables[TableTasks]
+	assnTable := mv.tables[timedb.TableAssertions]
+	tasksTable := mv.tables[timedb.TableTasks]
 	task, err := mv.dbms.GetRow(ctx, &jqlpb.GetRowRequest{
-		Table: TableTasks,
+		Table: timedb.TableTasks,
 		Pk:    taskPK,
 	})
 	if err != nil {
 		return err
 	}
-	direct := task.Row.Entries[api.IndexOfField(tasksTable.Columns, FieldDirect)].Formatted
-	action := task.Row.Entries[api.IndexOfField(tasksTable.Columns, FieldAction)].Formatted
+	direct := task.Row.Entries[api.IndexOfField(tasksTable.Columns, timedb.FieldDirect)].Formatted
+	action := task.Row.Entries[api.IndexOfField(tasksTable.Columns, timedb.FieldAction)].Formatted
 	procedures, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
-		Table: TableAssertions,
+		Table: timedb.TableAssertions,
 		Conditions: []*jqlpb.Condition{
 			{
 				Requires: []*jqlpb.Filter{
 					{
-						Column: FieldArg0,
+						Column: timedb.FieldArg0,
 						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: "nouns " + direct}},
 					},
 					{
-						Column: FieldARelation,
+						Column: timedb.FieldRelation,
 						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Procedure"}},
 					},
 				},
 			},
 		},
-		OrderBy: FieldOrder,
+		OrderBy: timedb.FieldOrder,
 	})
 	if err != nil {
 		return err
@@ -3256,7 +3257,7 @@ func (mv *MainView) substituteTaskWithPlans(g *gocui.Gui, taskPK string) error {
 	procedure := ""
 	prefix := fmt.Sprintf("### %s\n", action)
 	for _, proc := range procedures.Rows {
-		procText := proc.Entries[api.IndexOfField(assnTable.Columns, FieldArg1)].Formatted
+		procText := proc.Entries[api.IndexOfField(assnTable.Columns, timedb.FieldArg1)].Formatted
 		if strings.HasPrefix(procText, prefix) {
 			procedure = strings.TrimSpace(procText[len(prefix):])
 			break
@@ -3279,9 +3280,9 @@ func (mv *MainView) substituteTaskWithPlans(g *gocui.Gui, taskPK string) error {
 
 func (mv *MainView) substitutePlanWithImplementation(g *gocui.Gui, plan string) error {
 	mv.substitutingPlan = true
-	assnTable := mv.tables[TableAssertions]
-	tasksTable := mv.tables[TableTasks]
-	candidates, err := mv.queryAllTasks(StatusActive, StatusHabitual, StatusPlanned, StatusPending)
+	assnTable := mv.tables[timedb.TableAssertions]
+	tasksTable := mv.tables[timedb.TableTasks]
+	candidates, err := mv.queryAllTasks(timedb.StatusActive, timedb.StatusHabitual, timedb.StatusPlanned, timedb.StatusPending)
 	if err != nil {
 		return err
 	}
@@ -3290,29 +3291,29 @@ func (mv *MainView) substitutePlanWithImplementation(g *gocui.Gui, plan string) 
 		candidatePKs[candidate.Entries[api.GetPrimary(tasksTable.Columns)].Formatted] = true
 	}
 	implementations, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
-		Table: TableAssertions,
+		Table: timedb.TableAssertions,
 		Conditions: []*jqlpb.Condition{
 			{
 				Requires: []*jqlpb.Filter{
 					{
-						Column: FieldArg1,
+						Column: timedb.FieldArg1,
 						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: plan}},
 					},
 					{
-						Column: FieldARelation,
+						Column: timedb.FieldRelation,
 						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Implements"}},
 					},
 				},
 			},
 		},
-		OrderBy: FieldOrder,
+		OrderBy: timedb.FieldOrder,
 	})
 	if err != nil {
 		return err
 	}
 	items := []PlanSelectionItem{}
 	for _, row := range implementations.Rows {
-		pk := row.Entries[api.IndexOfField(assnTable.Columns, FieldArg0)].Formatted[len("tasks "):]
+		pk := row.Entries[api.IndexOfField(assnTable.Columns, timedb.FieldArg0)].Formatted[len("tasks "):]
 		if !candidatePKs[pk] {
 			continue
 		}
@@ -3328,7 +3329,7 @@ func (mv *MainView) substitutePlanWithImplementation(g *gocui.Gui, plan string) 
 
 func (mv *MainView) queryForPlanSubsetLayout(g *gocui.Gui) error {
 	maxX, _ := g.Size()
-	newPlansView, err := g.SetView(NewPlansView, 4, 5, maxX-4, len(mv.planSelections)+8)
+	newPlansView, err := g.SetView(timedb.NewPlansView, 4, 5, maxX-4, len(mv.planSelections)+8)
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	}
@@ -3337,7 +3338,7 @@ func (mv *MainView) queryForPlanSubsetLayout(g *gocui.Gui) error {
 	newPlansView.SelBgColor = gocui.ColorWhite
 	newPlansView.SelFgColor = gocui.ColorBlack
 	newPlansView.Editor = mv
-	g.SetCurrentView(NewPlansView)
+	g.SetCurrentView(timedb.NewPlansView)
 	newPlansView.Clear()
 	newPlansView.Write([]byte("Select your plans\n"))
 	for _, item := range mv.planSelections {
@@ -3353,19 +3354,19 @@ func (mv *MainView) queryForPlanSubsetLayout(g *gocui.Gui) error {
 
 func (mv *MainView) queryForNounNextStateLayout(g *gocui.Gui) error {
 	maxX, _ := g.Size()
-	nextStateView, err := g.SetView(NextStateView, 4, 5, maxX-4, 12)
+	nextStateView, err := g.SetView(timedb.NextStateView, 4, 5, maxX-4, 12)
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	}
 	nextStateView.Highlight = true
 	nextStateView.SelBgColor = gocui.ColorWhite
 	nextStateView.SelFgColor = gocui.ColorBlack
-	g.SetCurrentView(NextStateView)
+	g.SetCurrentView(timedb.NextStateView)
 	nextStateView.Clear()
 	nextStateView.Write([]byte(fmt.Sprintf("Keep %q as is\n", mv.nounSwitchingStatePK)))
 	nextStateView.Write([]byte(fmt.Sprintf("Mark %q\n", mv.nounStateNextState)))
-	nextStateView.Write([]byte(fmt.Sprintf("Mark %q\n", StatusSatisfied)))
-	nextStateView.Write([]byte(fmt.Sprintf("Mark %q", StatusHabitual)))
+	nextStateView.Write([]byte(fmt.Sprintf("Mark %q\n", timedb.StatusSatisfied)))
+	nextStateView.Write([]byte(fmt.Sprintf("Mark %q", timedb.StatusHabitual)))
 	return nil
 }
 
@@ -3377,11 +3378,11 @@ func (mv *MainView) selectNextNounState(g *gocui.Gui, v *gocui.View) error {
 	case 1:
 		nextState = mv.nounStateNextState
 	case 2:
-		nextState = StatusSatisfied
+		nextState = timedb.StatusSatisfied
 	case 3:
-		nextState = StatusHabitual
+		nextState = timedb.StatusHabitual
 	}
-	err := g.DeleteView(NextStateView)
+	err := g.DeleteView(timedb.NextStateView)
 	if err != nil {
 		return err
 	}
@@ -3390,10 +3391,10 @@ func (mv *MainView) selectNextNounState(g *gocui.Gui, v *gocui.View) error {
 		return nil
 	}
 	_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
-		Table: TableNouns,
+		Table: timedb.TableNouns,
 		Pk:    mv.nounSwitchingStatePK,
 		Fields: map[string]string{
-			FieldStatus: nextState,
+			timedb.FieldStatus: nextState,
 		},
 		UpdateOnly: true,
 	})
@@ -3404,7 +3405,7 @@ func (mv *MainView) selectNextNounState(g *gocui.Gui, v *gocui.View) error {
 }
 
 func (mv *MainView) wrapTaskInRamps(g *gocui.Gui, v *gocui.View) error {
-	if mv.span != Today || mv.MainViewMode != MainViewModeListBar {
+	if mv.span != timedb.Today || mv.MainViewMode != MainViewModeListBar {
 		return nil
 	}
 	pk, err := mv.ResolveSelectedPK(g)
@@ -3413,13 +3414,13 @@ func (mv *MainView) wrapTaskInRamps(g *gocui.Gui, v *gocui.View) error {
 	}
 	for _, action := range []string{"Prepare", "Wrap-up"} {
 		fields := map[string]string{
-			FieldAction:      action,
-			FieldPrimaryGoal: pk,
-			FieldStart:       "",
-			FieldStatus:      StatusActive,
+			timedb.FieldAction:      action,
+			timedb.FieldPrimaryGoal: pk,
+			timedb.FieldStart:       "",
+			timedb.FieldStatus:      timedb.StatusActive,
 		}
 		_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
-			Table:  TableTasks,
+			Table:  timedb.TableTasks,
 			Pk:     "",
 			Fields: fields,
 		})
@@ -3427,7 +3428,7 @@ func (mv *MainView) wrapTaskInRamps(g *gocui.Gui, v *gocui.View) error {
 			return err
 		}
 		view := api.MacroCurrentView{
-			Table:            TableTasks,
+			Table:            timedb.TableTasks,
 			PrimarySelection: "",
 		}
 		_, err = api.RunMacro(ctx, mv.dbms, "jql-timedb-setpk --v2", view, true)
@@ -3436,26 +3437,26 @@ func (mv *MainView) wrapTaskInRamps(g *gocui.Gui, v *gocui.View) error {
 		}
 	}
 	created, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
-		Table: TableTasks,
+		Table: timedb.TableTasks,
 		Conditions: []*jqlpb.Condition{
 			{
 				Requires: []*jqlpb.Filter{
 					{
-						Column: FieldPrimaryGoal,
+						Column: timedb.FieldPrimaryGoal,
 						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: pk}},
 					},
 					{
-						Column: FieldDirect,
+						Column: timedb.FieldDirect,
 						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ""}},
 					},
 					{
-						Column: FieldIndirect,
+						Column: timedb.FieldIndirect,
 						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ""}},
 					},
 				},
 			},
 		},
-		OrderBy: FieldAction,
+		OrderBy: timedb.FieldAction,
 		Dec:     true,
 	})
 	if err != nil {
@@ -3506,7 +3507,7 @@ func (mv *MainView) substitutePlanSelections(g *gocui.Gui, v *gocui.View) error 
 }
 
 func (mv *MainView) substitutePlanSelectionsForPlan(g *gocui.Gui, v *gocui.View) error {
-	err := g.DeleteView(NewPlansView)
+	err := g.DeleteView(timedb.NewPlansView)
 	if err != nil {
 		return err
 	}
@@ -3520,12 +3521,12 @@ func (mv *MainView) substitutePlanSelectionsForPlan(g *gocui.Gui, v *gocui.View)
 		inserted = true
 		taskPK := item.Plan
 		_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
-			Table: TableTasks,
+			Table: timedb.TableTasks,
 			Pk:    taskPK,
 			Fields: map[string]string{
-				FieldSpan:   "Day",
-				FieldStart:  "",
-				FieldStatus: "Active",
+				timedb.FieldSpan:   "Day",
+				timedb.FieldStart:  "",
+				timedb.FieldStatus: "Active",
 			},
 			UpdateOnly: true,
 		})
@@ -3543,11 +3544,11 @@ func (mv *MainView) substitutePlanSelectionsForPlan(g *gocui.Gui, v *gocui.View)
 		return nil
 	}
 	// NOTE we rely on markTask to also save our changes
-	err = mv.markTask(g, v, StatusSatisfied)
+	err = mv.markTask(g, v, timedb.StatusSatisfied)
 	if err != nil {
 		return err
 	}
-	err = mv.syncPKs(TableTasks, updated)
+	err = mv.syncPKs(timedb.TableTasks, updated)
 	if err != nil {
 		return err
 	}
@@ -3560,7 +3561,7 @@ func (mv *MainView) substitutePlanSelectionsForPlan(g *gocui.Gui, v *gocui.View)
 }
 
 func (mv *MainView) substitutePlanSelectionsForTask(g *gocui.Gui, v *gocui.View) error {
-	tasksView, err := g.View(TasksView)
+	tasksView, err := g.View(timedb.TasksView)
 	if err != nil {
 		return err
 	}
@@ -3579,7 +3580,7 @@ func (mv *MainView) substitutePlanSelectionsForTask(g *gocui.Gui, v *gocui.View)
 			}
 		}
 	}
-	err = g.DeleteView(NewPlansView)
+	err = g.DeleteView(timedb.NewPlansView)
 	if err != nil {
 		return err
 	}
@@ -3598,9 +3599,9 @@ func (mv *MainView) toggleFocus(g *gocui.Gui, v *gocui.View) error {
 // shouldn't be shown in an overview pane and will get picked up otherwise
 // anyway.
 func (mv *MainView) queryPendingNoImplements() ([]*jqlpb.Row, error) {
-	assnTable := mv.tables[TableAssertions]
-	tasksTable := mv.tables[TableTasks]
-	pending, err := mv.queryAllTasks(StatusPending)
+	assnTable := mv.tables[timedb.TableAssertions]
+	tasksTable := mv.tables[timedb.TableTasks]
+	pending, err := mv.queryAllTasks(timedb.StatusPending)
 	if err != nil {
 		return nil, err
 	}
@@ -3609,24 +3610,24 @@ func (mv *MainView) queryPendingNoImplements() ([]*jqlpb.Row, error) {
 		pk2task[task.Entries[api.GetPrimary(tasksTable.Columns)].Formatted] = task
 	}
 	implementations, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
-		Table: TableAssertions,
+		Table: timedb.TableAssertions,
 		Conditions: []*jqlpb.Condition{
 			{
 				Requires: []*jqlpb.Filter{
 					{
-						Column: FieldARelation,
+						Column: timedb.FieldRelation,
 						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Implements"}},
 					},
 				},
 			},
 		},
-		OrderBy: FieldOrder,
+		OrderBy: timedb.FieldOrder,
 	})
 	if err != nil {
 		return nil, err
 	}
 	for _, assn := range implementations.Rows {
-		obj := assn.Entries[api.IndexOfField(assnTable.Columns, FieldArg0)]
+		obj := assn.Entries[api.IndexOfField(assnTable.Columns, timedb.FieldArg0)]
 		if !strings.HasPrefix(obj.Formatted, "tasks ") {
 			continue
 		}
@@ -3666,9 +3667,9 @@ func stripDayPlanPrefix(s string) string {
 }
 
 func (mv *MainView) isTaskDayPlan(task *jqlpb.Row) bool {
-	tasksTable := mv.tables[TableTasks]
-	action := task.Entries[api.IndexOfField(tasksTable.Columns, FieldAction)].Formatted
-	direct := task.Entries[api.IndexOfField(tasksTable.Columns, FieldDirect)].Formatted
-	indirect := task.Entries[api.IndexOfField(tasksTable.Columns, FieldIndirect)].Formatted
+	tasksTable := mv.tables[timedb.TableTasks]
+	action := task.Entries[api.IndexOfField(tasksTable.Columns, timedb.FieldAction)].Formatted
+	direct := task.Entries[api.IndexOfField(tasksTable.Columns, timedb.FieldDirect)].Formatted
+	indirect := task.Entries[api.IndexOfField(tasksTable.Columns, timedb.FieldIndirect)].Formatted
 	return action == "Plan" && direct == "today" && indirect == ""
 }

@@ -6,6 +6,7 @@ import (
 	"github.com/jroimartin/gocui"
 	"github.com/spf13/cobra"
 	"github.com/ulmenhaus/env/img/feed/ui"
+	"github.com/ulmenhaus/env/img/lib/timedb"
 	"github.com/ulmenhaus/env/img/jql/cli"
 	"github.com/ulmenhaus/env/proto/jql/jqlpb"
 )
@@ -86,7 +87,7 @@ func runFeed() error {
 		if err != nil {
 			return err
 		}
-		cfg.Table = ui.TableNouns
+		cfg.Table = timedb.TableNouns
 		_, err = dbms.Persist(context.Background(), &jqlpb.PersistRequest{})
 		if err != nil {
 			return err

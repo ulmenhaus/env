@@ -12,6 +12,7 @@ import (
 
 	"github.com/jroimartin/gocui"
 	"github.com/ulmenhaus/env/img/jql/api"
+	"github.com/ulmenhaus/env/img/lib/timedb"
 	"github.com/ulmenhaus/env/proto/jql/jqlpb"
 )
 
@@ -70,7 +71,7 @@ type MainView struct {
 
 // NewMainView returns a MainView initialized with a given Table
 func NewMainView(g *gocui.Gui, dbms api.JQL_DBMS, jqlBinDir, initResource, initQuery, initType string) (*MainView, error) {
-	rootTopic := RootTopic
+	rootTopic := timedb.RootTopic
 	recursive := true
 	if initResource != "" {
 		rootTopic = initResource
@@ -164,7 +165,7 @@ func (mv *MainView) setTopics() error {
 
 func (mv *MainView) searchTopicsLayout(g *gocui.Gui) error {
 	maxX, maxY := g.Size()
-	topics, err := g.SetView(TopicsView, 4, 5, maxX-4, maxY-7)
+	topics, err := g.SetView(timedb.TopicsView, 4, 5, maxX-4, maxY-7)
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	}
@@ -174,7 +175,7 @@ func (mv *MainView) searchTopicsLayout(g *gocui.Gui) error {
 	topics.Editable = true
 	topics.Editor = mv
 	topics.Clear()
-	g.SetCurrentView(TopicsView)
+	g.SetCurrentView(timedb.TopicsView)
 	for _, topic := range mv.topics {
 		var buffer string
 		spaces := maxX - len(topic)
@@ -183,7 +184,7 @@ func (mv *MainView) searchTopicsLayout(g *gocui.Gui) error {
 		}
 		topics.Write([]byte(topic + buffer + "\n"))
 	}
-	query, err := g.SetView(TopicsQueryView, 4, maxY-7, maxX-4, maxY-5)
+	query, err := g.SetView(timedb.TopicsQueryView, 4, maxY-7, maxX-4, maxY-5)
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	}
@@ -194,7 +195,7 @@ func (mv *MainView) searchTopicsLayout(g *gocui.Gui) error {
 
 func (mv *MainView) filterResourcesLayout(g *gocui.Gui) error {
 	maxX, maxY := g.Size()
-	filters, err := g.SetView(FilterView, 4, 5, maxX-4, maxY-7)
+	filters, err := g.SetView(timedb.FilterView, 4, 5, maxX-4, maxY-7)
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	}
@@ -204,7 +205,7 @@ func (mv *MainView) filterResourcesLayout(g *gocui.Gui) error {
 	filters.Editable = true
 	filters.Editor = mv
 	filters.Clear()
-	g.SetCurrentView(FilterView)
+	g.SetCurrentView(timedb.FilterView)
 	for _, filter := range mv.filters {
 		if len(filter) == 1 {
 			key := filter[0]
@@ -228,7 +229,7 @@ func (mv *MainView) listResourcesLayout(g *gocui.Gui) error {
 	for i, t := range types {
 		width := maxX / len(types)
 		startX := i * width
-		view, err := g.SetView(fmt.Sprintf("%s-%s", TypeView, t), startX, 2, startX+width, 4)
+		view, err := g.SetView(fmt.Sprintf("%s-%s", timedb.TypeView, t), startX, 2, startX+width, 4)
 		if err != nil && err != gocui.ErrUnknownView {
 			return err
 		}
@@ -245,7 +246,7 @@ func (mv *MainView) listResourcesLayout(g *gocui.Gui) error {
 		view.Write([]byte(strings.Repeat(" ", spaces) + string(t)))
 	}
 
-	topic, err := g.SetView(TopicView, 0, 0, maxX-1, 2)
+	topic, err := g.SetView(timedb.TopicView, 0, 0, maxX-1, 2)
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	}
@@ -256,7 +257,7 @@ func (mv *MainView) listResourcesLayout(g *gocui.Gui) error {
 	}
 	topic.Write([]byte(fmt.Sprintf(" (%d items)", len(mv.resources))))
 
-	resources, err := g.SetView(ResourceView, 0, 4, maxX-1, maxY-4)
+	resources, err := g.SetView(timedb.ResourceView, 0, 4, maxX-1, maxY-4)
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	}
@@ -272,8 +273,8 @@ func (mv *MainView) listResourcesLayout(g *gocui.Gui) error {
 		}
 		resources.Write([]byte(desc + strings.Repeat(" ", spaces) + "\n"))
 	}
-	g.SetCurrentView(ResourceView)
-	meta, err := g.SetView(MetaView, 0, maxY-3, maxX-1, maxY-1)
+	g.SetCurrentView(timedb.ResourceView)
+	meta, err := g.SetView(timedb.MetaView, 0, maxY-3, maxX-1, maxY-1)
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	}
@@ -294,79 +295,79 @@ func (mv *MainView) listResourcesLayout(g *gocui.Gui) error {
 		meta.Write([]byte(mv.resourceQ))
 		meta.Editable = true
 		meta.Editor = mv
-		g.SetCurrentView(MetaView)
+		g.SetCurrentView(timedb.MetaView)
 	}
 	return nil
 }
 
 func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
-	err := g.SetKeybinding(ResourceView, 'l', gocui.ModNone, mv.incrementType)
+	err := g.SetKeybinding(timedb.ResourceView, 'l', gocui.ModNone, mv.incrementType)
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(ResourceView, 'h', gocui.ModNone, mv.decrementType)
+	err = g.SetKeybinding(timedb.ResourceView, 'h', gocui.ModNone, mv.decrementType)
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(ResourceView, 'j', gocui.ModNone, mv.incrementCursor)
+	err = g.SetKeybinding(timedb.ResourceView, 'j', gocui.ModNone, mv.incrementCursor)
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(ResourceView, 'k', gocui.ModNone, mv.decrementCursor)
+	err = g.SetKeybinding(timedb.ResourceView, 'k', gocui.ModNone, mv.decrementCursor)
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(ResourceView, 'f', gocui.ModNone, mv.enterSearchMode)
+	err = g.SetKeybinding(timedb.ResourceView, 'f', gocui.ModNone, mv.enterSearchMode)
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(ResourceView, 'd', gocui.ModNone, mv.enterFilterMode)
+	err = g.SetKeybinding(timedb.ResourceView, 'd', gocui.ModNone, mv.enterFilterMode)
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(ResourceView, 'q', gocui.ModNone, mv.restoreDefault)
+	err = g.SetKeybinding(timedb.ResourceView, 'q', gocui.ModNone, mv.restoreDefault)
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(ResourceView, 'r', gocui.ModNone, mv.toggleRecursive)
+	err = g.SetKeybinding(timedb.ResourceView, 'r', gocui.ModNone, mv.toggleRecursive)
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(ResourceView, '/', gocui.ModNone, mv.toggleSearch)
+	err = g.SetKeybinding(timedb.ResourceView, '/', gocui.ModNone, mv.toggleSearch)
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(TopicsView, gocui.KeyArrowDown, gocui.ModNone, mv.incrementCursor)
+	err = g.SetKeybinding(timedb.TopicsView, gocui.KeyArrowDown, gocui.ModNone, mv.incrementCursor)
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(TopicsView, gocui.KeyArrowUp, gocui.ModNone, mv.decrementCursor)
+	err = g.SetKeybinding(timedb.TopicsView, gocui.KeyArrowUp, gocui.ModNone, mv.decrementCursor)
 	if err != nil {
 		return err
 	}
-	if err := g.SetKeybinding(ResourceView, gocui.KeyEnter, gocui.ModNone, mv.selectItem); err != nil {
+	if err := g.SetKeybinding(timedb.ResourceView, gocui.KeyEnter, gocui.ModNone, mv.selectItem); err != nil {
 		return err
 	}
-	if err := g.SetKeybinding(TopicsView, gocui.KeyEnter, gocui.ModNone, mv.selectItem); err != nil {
+	if err := g.SetKeybinding(timedb.TopicsView, gocui.KeyEnter, gocui.ModNone, mv.selectItem); err != nil {
 		return err
 	}
-	err = g.SetKeybinding(FilterView, 'j', gocui.ModNone, mv.incrementCursor)
+	err = g.SetKeybinding(timedb.FilterView, 'j', gocui.ModNone, mv.incrementCursor)
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(FilterView, 'k', gocui.ModNone, mv.decrementCursor)
+	err = g.SetKeybinding(timedb.FilterView, 'k', gocui.ModNone, mv.decrementCursor)
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(FilterView, 'q', gocui.ModNone, mv.quitFilterView)
+	err = g.SetKeybinding(timedb.FilterView, 'q', gocui.ModNone, mv.quitFilterView)
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(ResourceView, 'C', gocui.ModNone, mv.copyAllProcedures)
+	err = g.SetKeybinding(timedb.ResourceView, 'C', gocui.ModNone, mv.copyAllProcedures)
 	if err != nil {
 		return err
 	}
-	if err := g.SetKeybinding(FilterView, gocui.KeyEnter, gocui.ModNone, mv.selectFilter); err != nil {
+	if err := g.SetKeybinding(timedb.FilterView, gocui.KeyEnter, gocui.ModNone, mv.selectFilter); err != nil {
 		return err
 	}
 	return nil
@@ -390,9 +391,9 @@ func (mv *MainView) incrementCursor(g *gocui.Gui, v *gocui.View) error {
 	ox, oy := v.Origin()
 	cap := len(mv.resources)
 	view := v.Name()
-	if view == TopicView {
+	if view == timedb.TopicView {
 		cap = len(mv.topics)
-	} else if view == FilterView {
+	} else if view == timedb.FilterView {
 		cap = len(mv.filters)
 	}
 	if cy+oy == cap-1 {
@@ -471,7 +472,7 @@ func (mv *MainView) gatherResources() error {
 	}
 	recType := ListResourcesTypes[mv.TypeIX]
 	filter := &jqlpb.Filter{
-		Column: FieldRelation,
+		Column: timedb.FieldRelation,
 	}
 	if recType == ResourceTypeResources {
 		filter.Match = &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Resource"}}
@@ -485,18 +486,18 @@ func (mv *MainView) gatherResources() error {
 		arg0s = append(arg0s, fmt.Sprintf("nouns %s", noun))
 	}
 	resp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
-		Table:   TableAssertions,
-		OrderBy: FieldArg1,
+		Table:   timedb.TableAssertions,
+		OrderBy: timedb.FieldArg1,
 		Conditions: []*jqlpb.Condition{
 			{
 				Requires: []*jqlpb.Filter{
 					{
-						Column: FieldArg0,
+						Column: timedb.FieldArg0,
 						Match:  &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: arg0s}},
 					},
 					// TODO since we include arg0 in procedures this search can give false negatives
 					{
-						Column: FieldArg1,
+						Column: timedb.FieldArg1,
 						Match:  &jqlpb.Filter_ContainsMatch{&jqlpb.ContainsMatch{Value: mv.resourceQ}},
 					},
 					filter,
@@ -508,7 +509,7 @@ func (mv *MainView) gatherResources() error {
 		return err
 	}
 	for _, row := range resp.Rows {
-		entry := row.Entries[api.IndexOfField(resp.Columns, FieldArg1)].Formatted
+		entry := row.Entries[api.IndexOfField(resp.Columns, timedb.FieldArg1)].Formatted
 		if recType == ResourceTypeResources {
 			if !(strings.HasPrefix(entry, "[") && strings.Contains(entry, "](") && strings.HasSuffix(entry, ")")) {
 				continue
@@ -589,7 +590,7 @@ func (mv *MainView) gatherResources() error {
 			if indirect != "" {
 				shortDescComponents = append([]string{strings.Title(indirect)}, shortDescComponents...)
 			}
-			object := strings.SplitN(row.Entries[api.IndexOfField(resp.Columns, FieldArg0)].Formatted, " ", 2)[1]
+			object := strings.SplitN(row.Entries[api.IndexOfField(resp.Columns, timedb.FieldArg0)].Formatted, " ", 2)[1]
 			mv.resources = append(mv.resources, Resource{
 				Description: fmt.Sprintf("%s %s%s%s", verb, object, indirectExp, paramsS),
 				Meta:        content,
@@ -612,12 +613,12 @@ func (mv *MainView) gatherFilteredNouns(recursive bool) (map[string]bool, error)
 		return filtered, nil
 	}
 	node2children := map[string]([]string){}
-	resp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{Table: TableNouns})
+	resp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{Table: timedb.TableNouns})
 	if err != nil {
 		return nil, err
 	}
-	descCol := api.IndexOfField(resp.Columns, FieldNounIdentifier)
-	parCol := api.IndexOfField(resp.Columns, FieldParent)
+	descCol := api.IndexOfField(resp.Columns, timedb.FieldIdentifier)
+	parCol := api.IndexOfField(resp.Columns, timedb.FieldParent)
 	for _, row := range resp.Rows {
 		desc := row.Entries[descCol].Formatted
 		parent := row.Entries[parCol].Formatted
@@ -649,7 +650,7 @@ func (mv *MainView) selectItem(g *gocui.Gui, v *gocui.View) error {
 }
 
 func (mv *MainView) selectTopic(g *gocui.Gui) error {
-	v, err := g.View(TopicsView)
+	v, err := g.View(timedb.TopicsView)
 	if err != nil {
 		return err
 	}
@@ -658,15 +659,15 @@ func (mv *MainView) selectTopic(g *gocui.Gui) error {
 	ix := oy + cy
 	topic := mv.topics[ix]
 	mv.topic = topic
-	err = g.DeleteView(TopicsView)
+	err = g.DeleteView(timedb.TopicsView)
 	if err != nil {
 		return err
 	}
-	err = g.DeleteView(TopicsQueryView)
+	err = g.DeleteView(timedb.TopicsQueryView)
 	if err != nil {
 		return err
 	}
-	main, err := g.View(ResourceView)
+	main, err := g.View(timedb.ResourceView)
 	if err != nil {
 		return err
 	}
@@ -755,7 +756,7 @@ func (mv *MainView) enterFilterMode(g *gocui.Gui, v *gocui.View) error {
 }
 
 func (mv *MainView) restoreDefault(g *gocui.Gui, v *gocui.View) error {
-	mv.topic = RootTopic
+	mv.topic = timedb.RootTopic
 	mv.resourceQ = ""
 	mv.recursive = true
 	return mv.refreshResources()
@@ -772,7 +773,7 @@ func (mv *MainView) toggleSearch(g *gocui.Gui, v *gocui.View) error {
 }
 
 func (mv *MainView) quitFilterView(g *gocui.Gui, v *gocui.View) error {
-	err := g.DeleteView(FilterView)
+	err := g.DeleteView(timedb.FilterView)
 	if err != nil {
 		return err
 	}

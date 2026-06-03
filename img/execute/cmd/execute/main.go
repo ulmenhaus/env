@@ -8,6 +8,7 @@ import (
 	"github.com/jroimartin/gocui"
 	"github.com/spf13/cobra"
 	"github.com/ulmenhaus/env/img/execute/ui"
+	"github.com/ulmenhaus/env/img/lib/timedb"
 	"github.com/ulmenhaus/env/img/jql/cli"
 	"github.com/ulmenhaus/env/proto/jql/jqlpb"
 	"google.golang.org/protobuf/proto"
@@ -90,7 +91,7 @@ func runExecute() error {
 			return err
 		}
 		req := &jqlpb.ListRowsRequest{
-			Table:   ui.TableActiveReminders,
+			Table:   timedb.TableActiveReminders,
 			OrderBy: "A Order",
 		}
 		data, err := proto.Marshal(req)
@@ -99,7 +100,7 @@ func runExecute() error {
 		}
 		cfg.Table = ""
 		cfg.Query = base64.StdEncoding.EncodeToString(data)
-		cfg.SelectPK = fmt.Sprintf("%s %s", ui.TableReminders, reminderID)
+		cfg.SelectPK = fmt.Sprintf("%s %s", timedb.TableReminders, reminderID)
 		return cfg.SwitchTool("jql", "")
 	}
 	err = g.SetKeybinding("", 'a', gocui.ModNone, goToActiveReminder)
@@ -117,7 +118,7 @@ func runExecute() error {
 			return err
 		}
 		req := &jqlpb.ListRowsRequest{
-			Table:   ui.TableReminders,
+			Table:   timedb.TableReminders,
 			OrderBy: "A Order",
 			Conditions: []*jqlpb.Condition{
 				{
@@ -138,7 +139,7 @@ func runExecute() error {
 		}
 		cfg.Table = ""
 		cfg.Query = base64.StdEncoding.EncodeToString(data)
-		cfg.SelectPK = fmt.Sprintf("%s %s", ui.TableReminders, reminderID)
+		cfg.SelectPK = fmt.Sprintf("%s %s", timedb.TableReminders, reminderID)
 		return cfg.SwitchTool("jql", "")
 	}
 	err = g.SetKeybinding("", 'A', gocui.ModNone, goToReminders)
@@ -155,7 +156,7 @@ func runExecute() error {
 		if err != nil {
 			return err
 		}
-		cfg.Table = ui.TableTasks
+		cfg.Table = timedb.TableTasks
 		return cfg.SwitchTool("jql", pk)
 	}
 	err = g.SetKeybinding("", 'g', gocui.ModNone, goToSelectedPK)
@@ -169,7 +170,7 @@ func runExecute() error {
 			return nil
 		}
 		return mv.SelectTask(g, v, func(taskPK string) error {
-			cfg.Table = ui.TableTasks
+			cfg.Table = timedb.TableTasks
 			return cfg.SwitchTool("jql", taskPK)
 		})
 	}
@@ -198,13 +199,13 @@ func runExecute() error {
 			return err
 		}
 		if info.IsPrepTask {
-			cfg.Table = ui.TableKits
+			cfg.Table = timedb.TableKits
 			return cfg.SwitchTool("jql", "", cli.Filter{
 				Key:   "Parent",
 				Value: info.TaskPK,
 			})
 		} else if info.IsWarmup {
-			cfg.Table = ui.TableTools
+			cfg.Table = timedb.TableTools
 			return cfg.SwitchTool(
 				"jql",
 				"",
@@ -218,15 +219,15 @@ func runExecute() error {
 				},
 			)
 		} else {
-			cfg.Table = ui.TablePractices
+			cfg.Table = timedb.TablePractices
 			return cfg.SwitchTool("jql", "", cli.Filter{
-				Key:   ui.FieldSkillset,
+				Key:   timedb.FieldSkillset,
 				Value: fmt.Sprintf("@{nouns %s}", info.Skillset),
 			})
 		}
 		return nil
 	}
-	err = g.SetKeybinding(ui.TasksView, 'S', gocui.ModNone, substituteOrGoSelect)
+	err = g.SetKeybinding(timedb.TasksView, 'S', gocui.ModNone, substituteOrGoSelect)
 	if err != nil {
 		return err
 	}

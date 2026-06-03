@@ -13,6 +13,7 @@ import (
 
 	"github.com/jroimartin/gocui"
 	"github.com/ulmenhaus/env/img/jql/api"
+	"github.com/ulmenhaus/env/img/lib/timedb"
 	"github.com/ulmenhaus/env/img/jql/cli"
 	"github.com/ulmenhaus/env/proto/jql/jqlpb"
 )
@@ -103,7 +104,7 @@ func NewMainView(g *gocui.Gui, projectName, jqlBinDir string) (*MainView, error)
 	cfg := &cli.JQLConfig{
 		Path:  projectsPath,
 		Mode:  cli.ModeStandalone,
-		Table: ProjectsTable,
+		Table: timedb.ProjectsTable,
 	}
 	dbms, err := cfg.InitDBMS()
 	if err != nil {
@@ -126,7 +127,7 @@ func NewMainView(g *gocui.Gui, projectName, jqlBinDir string) (*MainView, error)
 	codeCfg := &cli.JQLConfig{
 		Path:  codePath,
 		Mode:  cli.ModeStandalone,
-		Table: ComponentsTable,
+		Table: timedb.ComponentsTable,
 	}
 	codeDB, err := codeCfg.InitDBMS()
 	if err != nil && !os.IsNotExist(err) {
@@ -168,7 +169,7 @@ func (mv *MainView) listResourcesLayout(g *gocui.Gui) error {
 		return err
 	}
 	maxX, maxY := g.Size()
-	view, err := g.SetView(ResourceView, 0, 3, maxX-1, maxY-3)
+	view, err := g.SetView(timedb.ResourcesView, 0, 3, maxX-1, maxY-3)
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	}
@@ -183,7 +184,7 @@ func (mv *MainView) listResourcesLayout(g *gocui.Gui) error {
 		}
 	}
 
-	subDisplay, err := g.SetView(SubDisplayView, 0, maxY-3, maxX-1, maxY-1)
+	subDisplay, err := g.SetView(timedb.SubDisplayView, 0, maxY-3, maxX-1, maxY-1)
 	if err != nil && err != gocui.ErrUnknownView {
 		return err
 	}
@@ -201,9 +202,9 @@ func (mv *MainView) listResourcesLayout(g *gocui.Gui) error {
 		subDisplay.Write([]byte(mv.resourceQ))
 	}
 	if mv.Mode == MainViewModeListResources {
-		g.SetCurrentView(ResourceView)
+		g.SetCurrentView(timedb.ResourcesView)
 	} else if mv.Mode == MainViewModeQueryResources {
-		g.SetCurrentView(SubDisplayView)
+		g.SetCurrentView(timedb.SubDisplayView)
 	}
 	return nil
 }
@@ -213,7 +214,7 @@ func (mv *MainView) titleBar(g *gocui.Gui) error {
 	for i, t := range types {
 		width := maxX / len(types)
 		startX := i * width
-		view, err := g.SetView(fmt.Sprintf("%s-%s", TypeView, t), startX, 0, startX+width, 2)
+		view, err := g.SetView(fmt.Sprintf("%s-%s", timedb.TypesView, t), startX, 0, startX+width, 2)
 		if err != nil && err != gocui.ErrUnknownView {
 			return err
 		}
@@ -233,39 +234,39 @@ func (mv *MainView) titleBar(g *gocui.Gui) error {
 }
 
 func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
-	err := g.SetKeybinding(ResourceView, 'l', gocui.ModNone, mv.incrementType)
+	err := g.SetKeybinding(timedb.ResourcesView, 'l', gocui.ModNone, mv.incrementType)
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(ResourceView, 'h', gocui.ModNone, mv.decrementType)
+	err = g.SetKeybinding(timedb.ResourcesView, 'h', gocui.ModNone, mv.decrementType)
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(ResourceView, 'j', gocui.ModNone, mv.incrementCursor)
+	err = g.SetKeybinding(timedb.ResourcesView, 'j', gocui.ModNone, mv.incrementCursor)
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(ResourceView, 'k', gocui.ModNone, mv.decrementCursor)
+	err = g.SetKeybinding(timedb.ResourcesView, 'k', gocui.ModNone, mv.decrementCursor)
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(ResourceView, 'f', gocui.ModNone, mv.enterSearchMode)
+	err = g.SetKeybinding(timedb.ResourcesView, 'f', gocui.ModNone, mv.enterSearchMode)
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(ResourceView, 'c', gocui.ModNone, mv.changeDirectory)
+	err = g.SetKeybinding(timedb.ResourcesView, 'c', gocui.ModNone, mv.changeDirectory)
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(ResourceView, '/', gocui.ModNone, mv.toggleSearch)
+	err = g.SetKeybinding(timedb.ResourcesView, '/', gocui.ModNone, mv.toggleSearch)
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(ResourceView, 'q', gocui.ModNone, mv.clearSearch)
+	err = g.SetKeybinding(timedb.ResourcesView, 'q', gocui.ModNone, mv.clearSearch)
 	if err != nil {
 		return err
 	}
-	if err := g.SetKeybinding(ResourceView, gocui.KeyEnter, gocui.ModNone, mv.selectItem); err != nil {
+	if err := g.SetKeybinding(timedb.ResourcesView, gocui.KeyEnter, gocui.ModNone, mv.selectItem); err != nil {
 		return err
 	}
 	return nil
@@ -384,18 +385,18 @@ func (mv *MainView) refreshActiveResources() error {
 
 func (mv *MainView) gatherJumps() error {
 	jumps, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
-		Table: JumpsTable,
+		Table: timedb.JumpsTable,
 		Conditions: []*jqlpb.Condition{
 			{
 				Requires: []*jqlpb.Filter{
 					{
-						Column: FieldProject,
+						Column: timedb.FieldProject,
 						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: mv.projectName}},
 					},
 				},
 			},
 		},
-		OrderBy: FieldOrder,
+		OrderBy: timedb.FieldOrder,
 	})
 	if err != nil {
 		return err
@@ -404,7 +405,7 @@ func (mv *MainView) gatherJumps() error {
 	for _, jump := range jumps.Rows {
 		description := jump.Entries[api.GetPrimary(jumps.Columns)].Formatted
 		source := NewLocation(description)
-		tgt := NewLocation(jump.Entries[api.IndexOfField(jumps.Columns, FieldTarget)].Formatted)
+		tgt := NewLocation(jump.Entries[api.IndexOfField(jumps.Columns, timedb.FieldTarget)].Formatted)
 		// NOTE a bisect would probably be more efficient here but this is good enough
 		for _, res := range mv.componentLookup[source.Path] {
 			if res.Location.Point > source.Point {
@@ -433,8 +434,8 @@ func (mv *MainView) gatherComponents() error {
 		return nil
 	}
 	components, err := mv.codeDB.ListRows(ctx, &jqlpb.ListRowsRequest{
-		Table:   ComponentsTable,
-		OrderBy: FieldDisplayName,
+		Table:   timedb.ComponentsTable,
+		OrderBy: timedb.FieldDisplayName,
 	})
 	if err != nil {
 		return err
@@ -442,8 +443,8 @@ func (mv *MainView) gatherComponents() error {
 
 	for _, component := range components.Rows {
 		mv.allResources = append(mv.allResources, Resource{
-			Description: component.Entries[api.IndexOfField(components.Columns, FieldDisplayName)].Formatted,
-			Location:    NewLocation(component.Entries[api.IndexOfField(components.Columns, FieldSrcLocation)].Formatted),
+			Description: component.Entries[api.IndexOfField(components.Columns, timedb.FieldDisplayName)].Formatted,
+			Location:    NewLocation(component.Entries[api.IndexOfField(components.Columns, timedb.FieldSrcLocation)].Formatted),
 		})
 	}
 	return nil
@@ -451,18 +452,18 @@ func (mv *MainView) gatherComponents() error {
 
 func (mv *MainView) gatherBookmarks() error {
 	bookmarks, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
-		Table: BookmarksTable,
+		Table: timedb.BookmarksTable,
 		Conditions: []*jqlpb.Condition{
 			{
 				Requires: []*jqlpb.Filter{
 					{
-						Column: FieldProject,
+						Column: timedb.FieldProject,
 						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: mv.projectName}},
 					},
 				},
 			},
 		},
-		OrderBy: FieldOrder,
+		OrderBy: timedb.FieldOrder,
 	})
 	if err != nil {
 		return err
@@ -470,7 +471,7 @@ func (mv *MainView) gatherBookmarks() error {
 
 	for _, bookmark := range bookmarks.Rows {
 		mv.allResources = append(mv.allResources, Resource{
-			Description: bookmark.Entries[api.IndexOfField(bookmarks.Columns, FieldDescription)].Formatted,
+			Description: bookmark.Entries[api.IndexOfField(bookmarks.Columns, timedb.FieldNounDescription)].Formatted,
 			Location:    NewLocation(bookmark.Entries[api.GetPrimary(bookmarks.Columns)].Formatted),
 		})
 	}
@@ -536,13 +537,13 @@ func (mv *MainView) toggleSearch(g *gocui.Gui, v *gocui.View) error {
 
 func (mv *MainView) getProjectWorkdir() (string, error) {
 	project, err := mv.dbms.GetRow(ctx, &jqlpb.GetRowRequest{
-		Table: ProjectsTable,
+		Table: timedb.ProjectsTable,
 		Pk:    mv.projectName,
 	})
 	if err != nil {
 		return "", err
 	}
-	workdir := project.Row.Entries[api.IndexOfField(project.Columns, FieldWorkdir)].Formatted
+	workdir := project.Row.Entries[api.IndexOfField(project.Columns, timedb.FieldWorkdir)].Formatted
 	homedir, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
