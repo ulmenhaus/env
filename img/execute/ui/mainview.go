@@ -2915,7 +2915,7 @@ func (mv *MainView) markTask(g *gocui.Gui, v *gocui.View, status string) error {
 	if err != nil {
 		return err
 	}
-	if info.taskPK != "" && status != "" {
+	if info.taskPK != "" && status != "" && info.checkText == "" {
 		_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
 			UpdateOnly: true,
 			Table:      timedb.TableTasks,
