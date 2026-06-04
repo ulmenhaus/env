@@ -7,7 +7,7 @@ import sys
 from jql import jql_pb2, macro
 from timedb import cycles, schema
 from timedb.pks import pk_for_assertion, pk_for_task
-from timedb.virtual_gateway.common import list_rows_meta
+from timedb.client_utils import list_rows_meta
 
 
 def _days_to_date_str(days):

@@ -2,6 +2,7 @@ import json
 
 from timedb import schema
 from timedb.virtual_gateway import common
+from timedb import client_utils
 
 from jql import jql_pb2, jql_pb2_grpc
 
@@ -37,7 +38,7 @@ class HabitualsBackend(jql_pb2_grpc.JQLServicer):
             ],
         )
         habituals_response = self.client.ListRows(habituals_request)
-        primary, cmap = common.list_rows_meta(habituals_response)
+        primary, cmap = client_utils.list_rows_meta(habituals_response)
         noun_pks = sorted(
             set([
                 row.entries[primary].formatted
@@ -55,7 +56,7 @@ class HabitualsBackend(jql_pb2_grpc.JQLServicer):
         entries = {}
         for habitual in noun_pks:
             info = habitual2info.get(habitual, common.TimingInfo("", "", "", "", None))
-            pk = common.encode_pk(habitual, info.cadence_pk)
+            pk = client_utils.encode_pk(habitual, info.cadence_pk)
             entries[pk] = {
                 "Parent": [parents[habitual]],
                 "Habitual": [f"@{{nouns {habitual}}}"],
@@ -67,7 +68,7 @@ class HabitualsBackend(jql_pb2_grpc.JQLServicer):
         return common.list_rows('vt.habituals', entries, request, VALUES)
 
     def IncrementEntry(self, request, context):
-        noun_pk, pk_map = common.decode_pk(request.pk)
+        noun_pk, pk_map = client_utils.decode_pk(request.pk)
         if request.column == 'Habitual':
             # If it's the habitual itself we're incrementing/decrementing that corresponds
             # to the status
@@ -82,8 +83,8 @@ class HabitualsBackend(jql_pb2_grpc.JQLServicer):
             return jql_pb2.IncrementEntryResponse()
         elif request.column in pk_map:
             assn_pk, current = pk_map[request.column][0]
-            if common.is_date_foreign(current):
-                new_value = common.increment_date_foreign(current, request.amount)
+            if client_utils.is_date_foreign(current):
+                new_value = client_utils.increment_date_foreign(current, request.amount)
                 self.client.WriteRow(jql_pb2.WriteRowRequest(
                     table=schema.Tables.Assertions,
                     pk=assn_pk,
@@ -120,7 +121,7 @@ class HabitualsBackend(jql_pb2_grpc.JQLServicer):
             raise ValueError("Unknown column", request.column)
 
     def WriteRow(self, request, context):
-        noun_pk, pk_map = common.decode_pk(request.pk)
+        noun_pk, pk_map = client_utils.decode_pk(request.pk)
         for field, value in request.fields.items():
             if field in pk_map:
                 assn_pk, current = pk_map[field][0]
@@ -149,7 +150,7 @@ class HabitualsBackend(jql_pb2_grpc.JQLServicer):
 
     def GetRow(self, request, context):
         resp = self.ListRows(jql_pb2.ListRowsRequest(), context)
-        primary, _ = common.list_rows_meta(resp)
+        primary, _ = client_utils.list_rows_meta(resp)
         for row in resp.rows:
             if row.entries[primary].formatted == request.pk:
                 return jql_pb2.GetRowResponse(

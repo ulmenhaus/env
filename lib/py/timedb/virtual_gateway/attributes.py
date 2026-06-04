@@ -3,6 +3,7 @@ import json
 
 from timedb import pks, schema
 from timedb.virtual_gateway import common
+from timedb import client_utils
 
 from jql import jql_pb2, jql_pb2_grpc
 
@@ -14,7 +15,7 @@ class AttributesBackend(jql_pb2_grpc.JQLServicer):
         self.client = client
 
     def ListRows(self, request, context):
-        selected_target = common.selected_target(request)
+        selected_target = client_utils.selected_target(request)
         if not selected_target:
             return common.possible_targets(self.client, request,
                                            'vt.attributes')
@@ -41,7 +42,7 @@ class AttributesBackend(jql_pb2_grpc.JQLServicer):
         )
         assertions = self.client.ListRows(rel_request)
         cmap = {c.name: i for i, c in enumerate(assertions.columns)}
-        primary = common.get_primary(assertions)
+        primary = client_utils.get_primary(assertions)
         attributes = {}
         for row in assertions.rows:
             attrs = {
@@ -55,12 +56,12 @@ class AttributesBackend(jql_pb2_grpc.JQLServicer):
                 ],  # added so that duplicated items still show up in the filter
                 "Order": [row.entries[cmap[schema.Fields.Order]].formatted],
             }
-            pk = common.encode_pk(row.entries[primary].formatted, attrs)
+            pk = client_utils.encode_pk(row.entries[primary].formatted, attrs)
             attributes[pk] = self._create_row_mapping(pk, attrs)
         return attributes
 
     def GetRow(self, request, context):
-        _assn_pk, attrs = common.decode_pk(request.pk)
+        _assn_pk, attrs = client_utils.decode_pk(request.pk)
         mapping = self._create_row_mapping(request.pk, attrs)
         return common.return_row('vt.attributes', mapping)
 
@@ -75,7 +76,7 @@ class AttributesBackend(jql_pb2_grpc.JQLServicer):
             k: request.fields[v]
             for k, v in mapping.items() if v in request.fields
         }
-        pk, _ = common.decode_pk(request.pk)
+        pk, _ = client_utils.decode_pk(request.pk)
         update = jql_pb2.WriteRowRequest(
             table=schema.Tables.Assertions,
             pk=pk,
@@ -86,7 +87,7 @@ class AttributesBackend(jql_pb2_grpc.JQLServicer):
         return self.client.WriteRow(update)
 
     def DeleteRow(self, request, context):
-        pk, _ = common.decode_pk(request.pk)
+        pk, _ = client_utils.decode_pk(request.pk)
         return self.client.DeleteRow(
             jql_pb2.DeleteRowRequest(
                 table=schema.Tables.Assertions,

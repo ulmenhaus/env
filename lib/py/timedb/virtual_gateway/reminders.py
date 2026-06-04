@@ -2,6 +2,7 @@ import datetime
 
 from timedb import schema
 from timedb.virtual_gateway import common
+from timedb import client_utils
 
 from jql import jql_pb2, jql_pb2_grpc
 
@@ -35,7 +36,7 @@ class RemindersBackend(jql_pb2_grpc.JQLServicer):
                 ),
             ])],
         ))
-        _, cmap = common.list_rows_meta(status_response)
+        _, cmap = client_utils.list_rows_meta(status_response)
         # Deduplicate while preserving order; strip "vt.reminders " prefix to get bare PKs
         reminder_bareids = list(dict.fromkeys(
             row.entries[cmap[schema.Fields.Arg0]].formatted[len("vt.reminders "):]
@@ -46,12 +47,12 @@ class RemindersBackend(jql_pb2_grpc.JQLServicer):
             return common.list_rows("vt.reminders", {}, request, VALUES)
 
         # Query 2: get all attributes for these reminders
-        attr_map, raw_assn_pks = common.get_fields_for_items(
+        attr_map, raw_assn_pks = client_utils.get_fields_for_items(
             self.client, "vt.reminders", reminder_bareids)
 
         # Queries 3 & 4: find today's day plan and which reminders are in it
-        plan_pk = common.get_todays_day_plan(self.client)
-        entry_refs = common.get_day_plan_entry_refs(self.client, plan_pk)
+        plan_pk = client_utils.get_todays_day_plan(self.client)
+        entry_refs = client_utils.get_day_plan_entry_refs(self.client, plan_pk)
 
         entries = {}
         for bareid in reminder_bareids:
@@ -75,7 +76,7 @@ class RemindersBackend(jql_pb2_grpc.JQLServicer):
             description = check_val if check_val else task_val
 
             status_raw = fields.get("Status", [""])[0]
-            pk = common.encode_pk(f"vt.reminders {bareid}", field_assn_pks)
+            pk = client_utils.encode_pk(f"vt.reminders {bareid}", field_assn_pks)
             entries[pk] = {
                 "_pk": [pk],
                 "Active": active,
@@ -89,11 +90,11 @@ class RemindersBackend(jql_pb2_grpc.JQLServicer):
                                 display_overrides={"Status": common.colorize_status})
 
     def GetRow(self, request, context):
-        arg0, _ = common.decode_pk(request.pk)
+        arg0, _ = client_utils.decode_pk(request.pk)
         resp = self.ListRows(jql_pb2.ListRowsRequest(), context)
-        primary, _ = common.list_rows_meta(resp)
+        primary, _ = client_utils.list_rows_meta(resp)
         for row in resp.rows:
-            row_arg0, _ = common.decode_pk(row.entries[primary].formatted)
+            row_arg0, _ = client_utils.decode_pk(row.entries[primary].formatted)
             if row_arg0 == arg0:
                 return jql_pb2.GetRowResponse(
                     table="vt.reminders",
@@ -103,7 +104,7 @@ class RemindersBackend(jql_pb2_grpc.JQLServicer):
         raise ValueError(request.pk)
 
     def IncrementEntry(self, request, context):
-        arg0, pk_map = common.decode_pk(request.pk)
+        arg0, pk_map = client_utils.decode_pk(request.pk)
 
         if request.column == "Active":
             current = "Today" if "Active" in pk_map else "Later"
@@ -111,7 +112,7 @@ class RemindersBackend(jql_pb2_grpc.JQLServicer):
             next_value = values[(values.index(current) + request.amount) % len(values)]
             if next_value == current:
                 return jql_pb2.IncrementEntryResponse()
-            plan_pk = common.get_todays_day_plan(self.client)
+            plan_pk = client_utils.get_todays_day_plan(self.client)
             if plan_pk is None:
                 raise ValueError("No active day plan found for today")
             if next_value == "Today":
@@ -162,8 +163,8 @@ class RemindersBackend(jql_pb2_grpc.JQLServicer):
             new_value = f"@{{{schema.Tables.Dates} {today}}}"
             if "Target Date" in pk_map:
                 assn_pk, current = pk_map["Target Date"][0]
-                if common.is_date_foreign(current):
-                    new_value = common.increment_date_foreign(current, request.amount)
+                if client_utils.is_date_foreign(current):
+                    new_value = client_utils.increment_date_foreign(current, request.amount)
                 self.client.WriteRow(jql_pb2.WriteRowRequest(
                     table=schema.Tables.Assertions,
                     pk=assn_pk,

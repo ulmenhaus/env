@@ -8,7 +8,7 @@ import (
 	"github.com/jroimartin/gocui"
 	"github.com/spf13/cobra"
 	"github.com/ulmenhaus/env/img/execute/ui"
-	"github.com/ulmenhaus/env/img/lib/timedb"
+	"github.com/ulmenhaus/env/lib/go/timedb"
 	"github.com/ulmenhaus/env/img/jql/cli"
 	"github.com/ulmenhaus/env/proto/jql/jqlpb"
 	"google.golang.org/protobuf/proto"

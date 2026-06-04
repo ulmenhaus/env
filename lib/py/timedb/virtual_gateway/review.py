@@ -3,6 +3,7 @@ import json
 
 from timedb import pks, schema
 from timedb.virtual_gateway import common
+from timedb import client_utils
 from timedb.virtual_gateway.practices import PracticesBackend
 
 from jql import jql_pb2, jql_pb2_grpc
@@ -20,9 +21,9 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
         # TODO all entries need attention cycles
         ancestor_pk = self._query_active_cycle_pk()
         descendants = self._query_descendants(ancestor_pk)
-        primary, cmap = common.list_rows_meta(descendants)
+        primary, cmap = client_utils.list_rows_meta(descendants)
         task_pks = [row.entries[primary].formatted for row in descendants.rows]
-        fields, _ = common.get_fields_for_items(self.client,
+        fields, _ = client_utils.get_fields_for_items(self.client,
                                                 schema.Tables.Tasks, task_pks)
         rows = {}
         progresses, plan2workstreams = self._breakdown_progress(descendants)
@@ -34,7 +35,7 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
         return common.list_rows('vt.review', rows, request)
 
     def _stat_entries(self, tasks, fields):
-        primary, cmap = common.list_rows_meta(tasks)
+        primary, cmap = client_utils.list_rows_meta(tasks)
         captured_fields = [
             "Motivation", "Source", "Towards", "Area", "Genre", "Attendee"
         ]
@@ -57,8 +58,8 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
             initiative_pk = initiative.entries[primary].formatted
             attrs = fields[initiative_pk]
             for skillset in attrs["Skillset"]:
-                if common.is_foreign(skillset):
-                    skillset = common.parse_foreign(skillset)[1]
+                if client_utils.is_foreign(skillset):
+                    skillset = client_utils.parse_foreign(skillset)[1]
                 stats = skillset2stats[skillset]
                 count = 1
                 for field in captured_fields:
@@ -75,7 +76,7 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
             for foreign_skillset in practice['Skillset']:
                 if not foreign_skillset:
                     continue
-                _, skillset = common.parse_foreign(foreign_skillset)
+                _, skillset = client_utils.parse_foreign(foreign_skillset)
                 stats = skillset2stats[skillset]
                 for field in captured_fields + task_fields:
                     for value in practice.get(field, []):
@@ -103,7 +104,7 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
         return rows
 
     def _habit_entries(self, tasks):
-        primary, cmap = common.list_rows_meta(tasks)
+        primary, cmap = client_utils.list_rows_meta(tasks)
         habit_tasks = [
             task for task in tasks.rows if task.entries[cmap[
                 schema.Fields.Indirect]].formatted == 'regularity'
@@ -145,7 +146,7 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
         return rows
 
     def _projects_and_goals(self, tasks, progresses, fields, plan2workstreams):
-        primary, cmap = common.list_rows_meta(tasks)
+        primary, cmap = client_utils.list_rows_meta(tasks)
         project2workstreams = collections.defaultdict(list)
         goal2projects = collections.defaultdict(list)
         pk2task = {row.entries[primary].formatted: row for row in tasks.rows}
@@ -159,14 +160,14 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
                     project2workstreams[pk] = plan2workstreams[direct]
 
                 for workstream in fields[pk]['Workstream']:
-                    if common.is_foreign(workstream) and common.parse_foreign(
+                    if client_utils.is_foreign(workstream) and client_utils.parse_foreign(
                             workstream)[0] == schema.Tables.Tasks:
                         project2workstreams[pk].append(
-                            common.parse_foreign(workstream)[1])
+                            client_utils.parse_foreign(workstream)[1])
                 for goal in fields[pk]['Goal']:
-                    if common.is_foreign(goal) and common.parse_foreign(
+                    if client_utils.is_foreign(goal) and client_utils.parse_foreign(
                             goal)[0] == schema.Tables.Tasks:
-                        goal2projects[common.parse_foreign(goal)[1]].append(pk)
+                        goal2projects[client_utils.parse_foreign(goal)[1]].append(pk)
             elif schema.ProjectManagementValues.is_goal_action(action):
                 goal2projects[pk]
         entries = {}
@@ -212,7 +213,7 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
     def _workstream_entries(self, tasks, progresses):
         entries = {}
         pk2task = {}
-        primary, cmap = common.list_rows_meta(tasks)
+        primary, cmap = client_utils.list_rows_meta(tasks)
         for task in tasks.rows:
             pk2task[task.entries[primary].formatted] = task
         for workstream, progress in progresses.items():
@@ -240,7 +241,7 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
         return entries
 
     def _breakdown_progress(self, tasks):
-        primary, cmap = common.list_rows_meta(tasks)
+        primary, cmap = client_utils.list_rows_meta(tasks)
         task2children = collections.defaultdict(list)
         pk2task = {}
         for task in tasks.rows:
@@ -269,7 +270,7 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
             plan = pk2task[plan_task].entries[cmap[
                 schema.Fields.Direct]].formatted
             resp = self._query_plan_workstreams(plan)
-            primary = common.get_primary(resp)
+            primary = client_utils.get_primary(resp)
             for row in resp.rows:
                 workstream = row.entries[primary].formatted
                 plan_workstreams.append(workstream)
@@ -280,7 +281,7 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
             breakdown: ProgressAmount()
             for breakdown in breakdowns
         }
-        noun_primary, noun_cmap = common.list_rows_meta(all_children)
+        noun_primary, noun_cmap = client_utils.list_rows_meta(all_children)
         for child in all_children.rows:
             parent = child.entries[noun_cmap[schema.Fields.Parent]].formatted
             status = child.entries[noun_cmap[schema.Fields.Status]].formatted
@@ -308,7 +309,7 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
         return progresses, plan2workstreams
 
     def _incremental_progress(self, tasks):
-        primary, cmap = common.list_rows_meta(tasks)
+        primary, cmap = client_utils.list_rows_meta(tasks)
         incrementals = [
             task.entries[primary].formatted for task in tasks.rows
             if task.entries[cmap[schema.Fields.Indirect]].formatted ==
@@ -419,7 +420,7 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
                     ])
                 ],
             ))
-        primary = common.get_primary(tasks)
+        primary = client_utils.get_primary(tasks)
         return tasks.rows[0].entries[primary].formatted
 
 

@@ -1,5 +1,6 @@
 from timedb import schema
 from timedb.virtual_gateway import common, relative_utils
+from timedb import client_utils
 
 from jql import jql_pb2, jql_pb2_grpc
 
@@ -23,29 +24,29 @@ class ActiveRemindersBackend(jql_pb2_grpc.JQLServicer):
 
     def ListRows(self, request, context):
         # Query 1: find today's day plan
-        plan_pk = common.get_todays_day_plan(self.client)
+        plan_pk = client_utils.get_todays_day_plan(self.client)
         # Query 2: get reminder arg0s that are in the day plan
-        entry_refs = common.get_day_plan_entry_refs(self.client, plan_pk)
+        entry_refs = client_utils.get_day_plan_entry_refs(self.client, plan_pk)
         reminder_bareids = list(entry_refs.keys())
         if not reminder_bareids:
             return common.list_rows("vt.active_reminders", {}, request, VALUES)
 
         # Query 3: get all reminder attributes
-        attr_map, raw_assn_pks = common.get_fields_for_items(
+        attr_map, raw_assn_pks = client_utils.get_fields_for_items(
             self.client, "vt.reminders", reminder_bareids)
 
         # Collect task PKs so we can batch-query their notes
         task_pks = []
         for bareid in reminder_bareids:
             task_val = attr_map.get(bareid, {}).get("Task", [""])[0]
-            if task_val and common.is_foreign(task_val):
-                _, task_pk = common.parse_foreign(task_val)
+            if task_val and client_utils.is_foreign(task_val):
+                _, task_pk = client_utils.parse_foreign(task_val)
                 task_pks.append(task_pk)
 
         # Query 4: get .Note attributes for all referenced tasks
         task_assn_pks = {}
         if task_pks:
-            _, task_assn_pks = common.get_fields_for_items(
+            _, task_assn_pks = client_utils.get_fields_for_items(
                 self.client, "tasks", task_pks, fields=("Note",))
 
         entries = {}
@@ -68,8 +69,8 @@ class ActiveRemindersBackend(jql_pb2_grpc.JQLServicer):
             # Gather task notes and encode references for WriteRow
             notes_pairs = []
             task_pk = ""
-            if task_val and common.is_foreign(task_val):
-                _, task_pk = common.parse_foreign(task_val)
+            if task_val and client_utils.is_foreign(task_val):
+                _, task_pk = client_utils.parse_foreign(task_val)
                 notes_pairs = list(task_assn_pks.get(task_pk, {}).get("Note", []))
 
             note_values = [v for _, v in notes_pairs]
@@ -86,7 +87,7 @@ class ActiveRemindersBackend(jql_pb2_grpc.JQLServicer):
                 field_assn_pks["Task"] = [["", f"tasks {task_pk}"]]
 
             status_raw = fields.get("Status", [""])[0]
-            pk = common.encode_pk(f"vt.reminders {bareid}", field_assn_pks)
+            pk = client_utils.encode_pk(f"vt.reminders {bareid}", field_assn_pks)
             entries[pk] = {
                 "_pk": [pk],
                 "Description": [description] if description else [],
@@ -100,11 +101,11 @@ class ActiveRemindersBackend(jql_pb2_grpc.JQLServicer):
         return common.list_rows("vt.active_reminders", entries, request, VALUES)
 
     def GetRow(self, request, context):
-        arg0, _ = common.decode_pk(request.pk)
+        arg0, _ = client_utils.decode_pk(request.pk)
         resp = self.ListRows(jql_pb2.ListRowsRequest(), context)
-        primary, _ = common.list_rows_meta(resp)
+        primary, _ = client_utils.list_rows_meta(resp)
         for row in resp.rows:
-            row_arg0, _ = common.decode_pk(row.entries[primary].formatted)
+            row_arg0, _ = client_utils.decode_pk(row.entries[primary].formatted)
             if row_arg0 == arg0:
                 return jql_pb2.GetRowResponse(
                     table="vt.active_reminders",
@@ -114,7 +115,7 @@ class ActiveRemindersBackend(jql_pb2_grpc.JQLServicer):
         raise ValueError(request.pk)
 
     def IncrementEntry(self, request, context):
-        arg0, pk_map = common.decode_pk(request.pk)
+        arg0, pk_map = client_utils.decode_pk(request.pk)
 
         if request.column == "Status":
             if "Status" in pk_map:
@@ -158,7 +159,7 @@ class ActiveRemindersBackend(jql_pb2_grpc.JQLServicer):
         return jql_pb2.IncrementEntryResponse()
 
     def WriteRow(self, request, context):
-        arg0, pk_map = common.decode_pk(request.pk)
+        arg0, pk_map = client_utils.decode_pk(request.pk)
 
         for field, value in request.fields.items():
             if field == "Parent Notes":

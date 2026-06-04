@@ -3,6 +3,7 @@ import json
 
 from timedb import pks, schema
 from timedb.virtual_gateway import common
+from timedb import client_utils
 from timedb.virtual_gateway import relative_utils
 
 from jql import jql_pb2, jql_pb2_grpc
@@ -15,18 +16,18 @@ class ProfilesBackend(jql_pb2_grpc.JQLServicer):
         self.client = client
 
     def ListRows(self, request, context):
-        targets = common.selected_targets(request, column='_target')
+        targets = client_utils.selected_targets(request, column='_target')
         if targets is None:
             # The first call from the client just gets meta-data
             return common.list_rows('vt.profiles', {}, request)
-        profiles = common.find_matching_auxiliaries(self.client, targets,
+        profiles = client_utils.find_matching_auxiliaries(self.client, targets,
                                                     "Schema")
         distinct_profiles = list(set().union(*profiles.values()))
-        profile_fields, _ = common.get_fields_for_items(self.client,
+        profile_fields, _ = client_utils.get_fields_for_items(self.client,
                                                         "",
                                                         distinct_profiles,
                                                         fields=['Dimension'])
-        target_fields, target_assn_pks = common.get_fields_for_items(
+        target_fields, target_assn_pks = client_utils.get_fields_for_items(
             self.client, "", targets)
         rows = {}
         schema_values = self._get_values_for_schemas(profile_fields)
@@ -52,7 +53,7 @@ class ProfilesBackend(jql_pb2_grpc.JQLServicer):
                     if field in dimensions or field in invariant_attrs:
                         attrs[field] = values
                 row_id = _encode_row_id(target, profile)
-                pk = common.encode_pk(row_id, target_assn_pks[target])
+                pk = client_utils.encode_pk(row_id, target_assn_pks[target])
                 attrs["_pk"] = [pk]
                 rows[pk] = attrs
         return common.list_rows(
@@ -68,11 +69,11 @@ class ProfilesBackend(jql_pb2_grpc.JQLServicer):
         distinct_schemas = list(set().union(*(field['Dimension']
                                               for field in fields.values())))
         schema_full_pks = [
-            common.strip_foreign(ds) for ds in distinct_schemas
-            if common.is_foreign(ds)
-            and common.parse_foreign(ds)[0] == schema.Tables.Nouns
+            client_utils.strip_foreign(ds) for ds in distinct_schemas
+            if client_utils.is_foreign(ds)
+            and client_utils.parse_foreign(ds)[0] == schema.Tables.Nouns
         ]
-        schema_attrs, _ = common.get_fields_for_items(self.client,
+        schema_attrs, _ = client_utils.get_fields_for_items(self.client,
                                                       "",
                                                       schema_full_pks,
                                                       fields=['ValueSet'])
@@ -89,7 +90,7 @@ class ProfilesBackend(jql_pb2_grpc.JQLServicer):
         return schema2values
 
     def _get_schema_values(self, schema_value_def):
-        table, pk = common.parse_foreign(schema_value_def)
+        table, pk = client_utils.parse_foreign(schema_value_def)
         if table == "ratings":
             total = int(pk)
             return [f"@{{ratings {i} {total}}}" for i in range(total + 1)]
@@ -108,7 +109,7 @@ class ProfilesBackend(jql_pb2_grpc.JQLServicer):
                 ],
             )
             nouns_response = self.client.ListRows(nouns_request)
-            primary, _ = common.list_rows_meta(nouns_response)
+            primary, _ = client_utils.list_rows_meta(nouns_response)
             noun_pks = [
                 noun.entries[primary].formatted for noun in nouns_response.rows
             ]
@@ -117,10 +118,10 @@ class ProfilesBackend(jql_pb2_grpc.JQLServicer):
             ]
             # Merge the results with the members of the noun
             #
-            # NOTE once we implement include_children=True for common.get_fields_for_items
+            # NOTE once we implement include_children=True for client_utils.get_fields_for_items
             # we won't need to do this merging manually. To do this though we may need
             # to audit direct children to ensure they have a parent relation set.
-            profile_fields, _ = common.get_fields_for_items(self.client,
+            profile_fields, _ = client_utils.get_fields_for_items(self.client,
                                                             schema.Tables.Nouns,
                                                             [pk],
                                                             fields=['Member'])
@@ -128,14 +129,14 @@ class ProfilesBackend(jql_pb2_grpc.JQLServicer):
             return noun_references
 
     def GetRow(self, request, context):
-        row_id, assn_pks = common.decode_pk(request.pk)
+        row_id, assn_pks = client_utils.decode_pk(request.pk)
         target, profile = _decode_row_id(row_id)
-        pk, pk_map = common.decode_pk(request.pk)
+        pk, pk_map = client_utils.decode_pk(request.pk)
         mapping = relative_utils.get_mapping_of_attrs(target, assn_pks)
         return common.return_row('vt.profiles', mapping)
 
     def WriteRow(self, request, context):
-        row_id, pk_map = common.decode_pk(request.pk)
+        row_id, pk_map = client_utils.decode_pk(request.pk)
         target, _ = _decode_row_id(row_id)
         relative_utils.update_attrs(self.client, target, pk_map,
                                     request.fields)

@@ -15,7 +15,7 @@ import click
 from jql import jql_pb2, macro
 from timedb import cycles, pks, schema, llm_utils
 
-from timedb.virtual_gateway import common
+from timedb import client_utils
 
 
 def _generate_prompt_for_claimset(iface, learn=False, site=""):
@@ -23,7 +23,7 @@ def _generate_prompt_for_claimset(iface, learn=False, site=""):
     request = iface.get_request()
     request.limit = 0
     response = dbms.ListRows(request)
-    primary, cmap = common.list_rows_meta(response)
+    primary, cmap = client_utils.list_rows_meta(response)
     excluded_headers = [
         schema.Fields.AttributeRelation,
         schema.Fields.Class,

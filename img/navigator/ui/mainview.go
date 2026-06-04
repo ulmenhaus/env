@@ -13,7 +13,7 @@ import (
 
 	"github.com/jroimartin/gocui"
 	"github.com/ulmenhaus/env/img/jql/api"
-	"github.com/ulmenhaus/env/img/lib/timedb"
+	"github.com/ulmenhaus/env/lib/go/timedb"
 	"github.com/ulmenhaus/env/img/jql/cli"
 	"github.com/ulmenhaus/env/proto/jql/jqlpb"
 )

@@ -6,7 +6,7 @@ from PIL import Image, ImageOps
 from selenium import webdriver
 
 from timedb import schema
-from timedb.virtual_gateway import common
+from timedb import client_utils
 
 from jql import jql_pb2
 
@@ -56,7 +56,7 @@ class Watcher(object):
         )
         assertions = self.client.ListRows(rel_request)
         cmap = {c.name: i for i, c in enumerate(assertions.columns)}
-        primary = common.get_primary(assertions)
+        primary = client_utils.get_primary(assertions)
         attributes = []
         for row in assertions.rows:
             attribute = row.entries[cmap[schema.Fields.Arg1]].formatted

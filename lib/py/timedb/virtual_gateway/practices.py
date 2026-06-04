@@ -3,6 +3,7 @@ import json
 
 from timedb import pks, schema
 from timedb.virtual_gateway import common
+from timedb import client_utils
 
 from jql import jql_pb2, jql_pb2_grpc
 
@@ -35,9 +36,9 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
         return self.client.ListRows(nouns_request)
 
     def _query_actionable_children(self, feeds_resp, hide_active):
-        primary = common.get_primary(feeds_resp)
+        primary = client_utils.get_primary(feeds_resp)
         feeds = {row.entries[primary].formatted for row in feeds_resp.rows}
-        feed_attrs, _ = common.get_fields_for_items(self.client,
+        feed_attrs, _ = client_utils.get_fields_for_items(self.client,
                                                     schema.Tables.Nouns, feeds)
         cmap = {c.name: i for i, c in enumerate(feeds_resp.columns)}
         action_map = {
@@ -70,7 +71,7 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
             ],
         )
         nouns = self.client.ListRows(nouns_request)
-        primary = common.get_primary(nouns)
+        primary = client_utils.get_primary(nouns)
         noun_pks = [row.entries[primary].formatted for row in nouns.rows]
         children = {}
         # TODO active_actions is now available on TimingInfo so we don't have
@@ -97,7 +98,7 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
              task.entries[tasks_cmap[schema.Fields.Direct]].formatted)
             for task in active_tasks.rows
         }
-        row_attrs, _ = common.get_fields_for_items(self.client,
+        row_attrs, _ = client_utils.get_fields_for_items(self.client,
                                                    schema.Tables.Nouns,
                                                    noun_pks)
         pk2row = {}

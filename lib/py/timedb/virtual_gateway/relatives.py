@@ -3,6 +3,7 @@ import json
 
 from timedb import schema, pks
 from timedb.virtual_gateway import common
+from timedb import client_utils
 from timedb.virtual_gateway import relative_utils
 
 from jql import jql_pb2, jql_pb2_grpc
@@ -18,7 +19,7 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
         self.extra_columns_target = None
 
     def ListRows(self, request, context):
-        selected_target = common.selected_target(request)
+        selected_target = client_utils.selected_target(request)
         if not selected_target:
             return common.possible_targets(self.client, request,
                                            'vt.relatives')
@@ -110,10 +111,10 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
             row.entries[assn_cmap[schema.Fields.Arg0]].formatted
             for row in relatives_response.rows
         }
-        relatives, assn_pks = common.get_fields_for_items(
+        relatives, assn_pks = client_utils.get_fields_for_items(
             self.client, "", arg0s)
         for pk, relative in relatives.items():
-            relative["_pk"] = [common.encode_pk(pk, assn_pks[pk])]
+            relative["_pk"] = [client_utils.encode_pk(pk, assn_pks[pk])]
             relative["Display Name"] = [f"@{{{pk}}}"]
             relative["-> Item"] = [f"{schema.Tables.Nouns} {selected_item}"]
             exact_matches = [k for k, v in relative.items() if arg1 in v]
@@ -131,7 +132,7 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
     def _query_explicit_task_relatives(self, selected_item):
         actions = self.client.ListRows(
             jql_pb2.ListRowsRequest(table=schema.Tables.Actions))
-        action_primary, action_cmap = common.list_rows_meta(actions)
+        action_primary, action_cmap = client_utils.list_rows_meta(actions)
         actions_by_primary = {
             action.entries[action_primary].formatted: action
             for action in actions.rows
@@ -153,10 +154,10 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
                 ],
             )
             response = self.client.ListRows(relatives_request)
-            primary, cmap = common.list_rows_meta(response)
+            primary, cmap = client_utils.list_rows_meta(response)
             for row in response.rows:
                 tasks[row.entries[primary].formatted] = row
-        relatives, assn_pks = common.get_fields_for_items(
+        relatives, assn_pks = client_utils.get_fields_for_items(
             self.client, "tasks", list(tasks))
         for pk, relative in relatives.items():
             relation = "w/ Unknown"
@@ -174,7 +175,7 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
                     ps = action.entries[action_cmap[
                         schema.Fields.Indirect]].formatted
                     relation = f"w/ {schema.relation_from_parameter_schema(ps)}"
-            relative["_pk"] = [common.encode_pk(f"tasks {pk}", assn_pks[pk])]
+            relative["_pk"] = [client_utils.encode_pk(f"tasks {pk}", assn_pks[pk])]
             relative["Display Name"] = [f"@{{tasks {pk}}}"]
             relative["-> Item"] = [f"{schema.Tables.Nouns} {selected_item}"]
             relative["Relation"] = [relation]
@@ -207,31 +208,31 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
             ],
         )
         rel_response = self.client.ListRows(rel_request)
-        primary = common.get_primary(rel_response)
+        primary = client_utils.get_primary(rel_response)
         arg0s = {
             f"{table} {row.entries[primary].formatted}"
             for row in rel_response.rows
         }
-        relatives, assn_pks = common.get_fields_for_items(
+        relatives, assn_pks = client_utils.get_fields_for_items(
             self.client, "", arg0s)
         for pk, relative in relatives.items():
-            relative["_pk"] = [common.encode_pk(pk, assn_pks[pk])]
+            relative["_pk"] = [client_utils.encode_pk(pk, assn_pks[pk])]
             relative["Display Name"] = [f"@{{{pk}}}"]
             relative["-> Item"] = [f"{table} {selected_item}"]
             relative["Relation"] = [relation]
         return relatives
 
     def WriteRow(self, request, context):
-        if not common.is_encoded_pk(request.pk):
+        if not client_utils.is_encoded_pk(request.pk):
             # This pk was provided by the user to add a column to the UI
             self.extra_columns.add(request.pk)
             return jql_pb2.WriteRowResponse()
-        pk, pk_map = common.decode_pk(request.pk)
+        pk, pk_map = client_utils.decode_pk(request.pk)
         relative_utils.update_attrs(self.client, pk, pk_map, request.fields)
         return jql_pb2.WriteRowResponse()
 
     def DeleteRow(self, request, context):
-        entry_pk, assn_pks = common.decode_pk(request.pk)
+        entry_pk, assn_pks = client_utils.decode_pk(request.pk)
         for assns in assn_pks.values():
             for assn_pk, _ in assns:
                 self.client.DeleteRow(
@@ -242,20 +243,20 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
         return jql_pb2.DeleteRowResponse()
 
     def GetRow(self, request, context):
-        pk, pk_map = common.decode_pk(request.pk)
+        pk, pk_map = client_utils.decode_pk(request.pk)
         mapping = relative_utils.get_mapping_of_attrs(pk, pk_map)
         return common.return_row('vt.relatives', mapping)
 
     def IncrementEntry(self, request, context):
-        _, pk_map = common.decode_pk(request.pk)
+        _, pk_map = client_utils.decode_pk(request.pk)
         assn_pairs = pk_map[request.column]
         if len(assn_pairs) != 1:
             raise ValueError("Can only increment/decrement a column with exactly one attribute")
         assn_pk, value = assn_pairs[0]
-        if common.is_foreign(value):
-            table, pk = common.parse_foreign(value)
+        if client_utils.is_foreign(value):
+            table, pk = client_utils.parse_foreign(value)
             if table == schema.Tables.Ratings:
-                num, denom = common.parse_rating(pk)
+                num, denom = client_utils.parse_rating(pk)
                 num = (num + request.amount) % (denom + 1)
                 self.client.WriteRow(
                     jql_pb2.WriteRowRequest(
@@ -267,7 +268,7 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
                         update_only=True,
                     ))
             elif table == schema.Tables.Dates:
-                new_value = common.increment_date_foreign(value, request.amount)
+                new_value = client_utils.increment_date_foreign(value, request.amount)
                 self.client.WriteRow(
                     jql_pb2.WriteRowRequest(
                         table=schema.Tables.Assertions,

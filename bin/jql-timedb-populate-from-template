@@ -13,14 +13,14 @@ import tempfile
 from jql import jql_pb2, macro
 from timedb import cycles, pks, schema
 
-from timedb.virtual_gateway import common
+from timedb import client_utils
 
 
 def _fill_template(dbms, full_pk):
-    table, pk = common.parse_full_pk(full_pk)
+    table, pk = client_utils.parse_full_pk(full_pk)
     if table != schema.Tables.Tasks:
         raise ValueError("Table should be tasks", table)
-    templates = common.find_matching_auxiliaries(dbms, [full_pk], 'Template')
+    templates = client_utils.find_matching_auxiliaries(dbms, [full_pk], 'Template')
     if full_pk not in templates:
         raise ValueError(
             "Did not find task pk in response while looking for auxiliary templates"
@@ -30,7 +30,7 @@ def _fill_template(dbms, full_pk):
         raise ValueError(
             "Expected to find exactly 1 matching template but found: " +
             len(matching_templates))
-    template_table, template_path = common.parse_full_pk(matching_templates[0])
+    template_table, template_path = client_utils.parse_full_pk(matching_templates[0])
     if template_table != schema.Tables.Files:
         raise ValueError("Template expected to be in files table but found" +
                          template_table)
@@ -39,7 +39,7 @@ def _fill_template(dbms, full_pk):
 
 
 def _fill_attributes(dbms, pk, attributes):
-    existing, _ = common.get_fields_for_items(dbms, schema.Tables.Tasks, [pk])
+    existing, _ = client_utils.get_fields_for_items(dbms, schema.Tables.Tasks, [pk])
     attrs, = existing.values()
     common_keys = set(attributes) & set(attrs)
     if common_keys:
@@ -84,7 +84,7 @@ def main():
         dbms = iface.get_dbms()
         table, pk = iface.get_primary_selection()
         if table in [schema.Tables.Relatives, schema.Tables.Assertions]:
-            arg0_pk, _ = common.decode_pk(pk)
+            arg0_pk, _ = client_utils.decode_pk(pk)
             _fill_template(dbms, arg0_pk)
         else:
             pass

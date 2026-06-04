@@ -3,6 +3,7 @@ import json
 
 from timedb import pks, schema
 from timedb.virtual_gateway import common
+from timedb import client_utils
 
 from jql import jql_pb2, jql_pb2_grpc
 
@@ -75,7 +76,7 @@ class KitsBackend(jql_pb2_grpc.JQLServicer):
                         equal_match=jql_pb2.EqualMatch(value=parent)),
                 ], ),
             ], ), context)
-        primary = common.get_primary(resp)
+        primary = client_utils.get_primary(resp)
         for row in resp.rows:
             if row.entries[primary].formatted == request.pk:
                 return jql_pb2.GetRowResponse(

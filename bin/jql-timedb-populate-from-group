@@ -13,13 +13,13 @@ import tempfile
 from jql import jql_pb2, macro
 from timedb import cycles, pks, schema
 
-from timedb.virtual_gateway import common
+from timedb import client_utils
 
 
 def _populate_from_group(dbms, task_pk):
     task = dbms.GetRow(
         jql_pb2.GetRowRequest(table=schema.Tables.Tasks, pk=task_pk))
-    primary, cmap = common.list_rows_meta(task)
+    primary, cmap = client_utils.list_rows_meta(task)
     indirect = task.row.entries[cmap[schema.Fields.Indirect]].formatted
     members = dbms.ListRows(
         jql_pb2.ListRowsRequest(
@@ -38,7 +38,7 @@ def _populate_from_group(dbms, task_pk):
                 ]),
             ],
         ))
-    assn_primary, assn_cmap = common.list_rows_meta(members)
+    assn_primary, assn_cmap = client_utils.list_rows_meta(members)
     for i, assn in enumerate(members.rows):
         fields = {
             schema.Fields.Arg0: f"tasks {task_pk}",
@@ -61,8 +61,8 @@ def main():
         dbms = iface.get_dbms()
         table, pk = iface.get_primary_selection()
         if table == schema.Tables.Relatives:
-            arg0_pk, _ = common.decode_pk(pk)
-            ref_table, ref_pk = common.parse_full_pk(arg0_pk)
+            arg0_pk, _ = client_utils.decode_pk(pk)
+            ref_table, ref_pk = client_utils.parse_full_pk(arg0_pk)
             if ref_table != schema.Tables.Tasks:
                 raise ValueError("Macro only works for tasks table", ref_table)
             _populate_from_group(dbms, ref_pk)

@@ -18,7 +18,7 @@ from jql import jql_pb2, macro
 from timedb import schema
 from timedb.cycles import CycleManager
 from timedb.pks import pk_for_assertion, pk_for_task
-from timedb.virtual_gateway import common
+from timedb import client_utils
 
 
 def _parse_table(raw):
@@ -105,7 +105,7 @@ def _find_track_task(dbms):
     ))
     if not resp.rows:
         raise ValueError("Track my habits task not found")
-    primary, cmap = common.list_rows_meta(resp)
+    primary, cmap = client_utils.list_rows_meta(resp)
     row = resp.rows[0]
     return (
         row.entries[primary].formatted,
@@ -127,12 +127,12 @@ def main_v2():
                 jql_pb2.Filter(column=schema.Fields.Parent, equal_match=jql_pb2.EqualMatch(value=noun_pk)),
             ])],
         ))
-        children_primary, _ = common.list_rows_meta(children_resp)
+        children_primary, _ = client_utils.list_rows_meta(children_resp)
         child_pks = [row.entries[children_primary].formatted for row in children_resp.rows]
         if not child_pks:
             return
 
-        fields, _ = common.get_fields_for_items(dbms, schema.Tables.Nouns, child_pks)
+        fields, _ = client_utils.get_fields_for_items(dbms, schema.Tables.Nouns, child_pks)
 
         actions = _get_actions(dbms)
         track_pk, track_span, track_start = _find_track_task(dbms)

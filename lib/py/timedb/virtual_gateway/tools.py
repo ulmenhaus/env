@@ -3,6 +3,7 @@ import json
 
 from timedb import pks, schema
 from timedb.virtual_gateway import common
+from timedb import client_utils
 
 from jql import jql_pb2, jql_pb2_grpc
 
@@ -14,7 +15,7 @@ class ToolsBackend(jql_pb2_grpc.JQLServicer):
         self.client = client
 
     def ListRows(self, request, context):
-        selected_target = common.selected_target(request)
+        selected_target = client_utils.selected_target(request)
         selected_parent = _extract_selected_parent(request)
         exercises = self._query_exercises(selected_target, selected_parent)
         return common.list_rows('vt.tools', exercises, request)
@@ -33,14 +34,14 @@ class ToolsBackend(jql_pb2_grpc.JQLServicer):
         )
         assertions = self.client.ListRows(rel_request)
         cmap = {c.name: i for i, c in enumerate(assertions.columns)}
-        primary = common.get_primary(assertions)
+        primary = client_utils.get_primary(assertions)
         attributes = {}
         target2relation = {}
         for row in assertions.rows:
             target = row.entries[cmap[schema.Fields.Arg1]].formatted
-            if not common.is_foreign(target):
+            if not client_utils.is_foreign(target):
                 continue
-            target_pk = common.strip_foreign_noun(target)
+            target_pk = client_utils.strip_foreign_noun(target)
             relation = row.entries[cmap[schema.Fields.Relation]].formatted
             target2relation[target_pk] = relation
 
@@ -67,12 +68,12 @@ class ToolsBackend(jql_pb2_grpc.JQLServicer):
             ])
         children = self.client.ListRows(child_request)
         cmap = {c.name: i for i, c in enumerate(children.columns)}
-        primary = common.get_primary(children)
+        primary = client_utils.get_primary(children)
         for child in children.rows:
             target2relation[child.entries[primary].formatted] = child.entries[
                 cmap[schema.Fields.NounRelation]].formatted or "Item"
 
-        fields, _ = common.get_fields_for_items(self.client,
+        fields, _ = client_utils.get_fields_for_items(self.client,
                                                 schema.Tables.Nouns,
                                                 list(target2relation.keys()))
         taxonomies = set([
@@ -102,7 +103,7 @@ class ToolsBackend(jql_pb2_grpc.JQLServicer):
             actions = tool_attrs.get("Feed.Action", class2actions.get(tool_class, default_actions))
             subsets = ['']
             for taxonomy in fields.get(tool, {}).get("Taxonomy", []):
-                subsets += all_subsets[common.strip_foreign_noun(taxonomy)]
+                subsets += all_subsets[client_utils.strip_foreign_noun(taxonomy)]
             for action in actions:
                 for subset in subsets:
                     # NOTE we take advantage of the fact here that the subset becomes the
@@ -144,7 +145,7 @@ class ToolsBackend(jql_pb2_grpc.JQLServicer):
         return attributes
 
     def _query_subsets(self, taxonomies):
-        tax_list = list(map(common.strip_foreign_noun, taxonomies))
+        tax_list = list(map(client_utils.strip_foreign_noun, taxonomies))
         request = jql_pb2.ListRowsRequest(
             table=schema.Tables.Nouns,
             conditions=[
@@ -159,7 +160,7 @@ class ToolsBackend(jql_pb2_grpc.JQLServicer):
         )
         children = self.client.ListRows(request)
         cmap = {c.name: i for i, c in enumerate(children.columns)}
-        primary = common.get_primary(children)
+        primary = client_utils.get_primary(children)
         subsets = collections.defaultdict(list)
         for row in children.rows:
             subsets[row.entries[cmap[schema.Fields.Parent]].formatted].append(
@@ -179,7 +180,7 @@ class ToolsBackend(jql_pb2_grpc.JQLServicer):
                         equal_match=jql_pb2.EqualMatch(value=target)),
                 ], ),
             ], ), context)
-        primary = common.get_primary(resp)
+        primary = client_utils.get_primary(resp)
         for row in resp.rows:
             if row.entries[primary].formatted == request.pk:
                 return jql_pb2.GetRowResponse(

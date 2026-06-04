@@ -13,7 +13,7 @@ import tempfile
 from jql import jql_pb2, macro
 from timedb import cycles, pks, schema, llm_utils
 
-from timedb.virtual_gateway import common
+from timedb import client_utils
 
 
 def _parse_markdown_table(table):
@@ -28,7 +28,7 @@ def _parse_markdown_table(table):
     return rows
 
 def _insert_table(dbms, parent, table):
-    parent_table, parent_pk = common.parse_full_pk(parent)
+    parent_table, parent_pk = client_utils.parse_full_pk(parent)
     if parent_table != schema.Tables.Nouns:
         raise ValueError("Inserting table only supported for nouns table")
     header, *rows = table
@@ -66,7 +66,7 @@ def _insert_table(dbms, parent, table):
 def main():
     with macro.macro_interface(sys.stdin, sys.stdout) as iface:
         dbms = iface.get_dbms()
-        selected_target = common.selected_target(iface.get_request())
+        selected_target = client_utils.selected_target(iface.get_request())
         table = _parse_markdown_table(subprocess.check_output("txtpaste").decode("utf-8"))
         _insert_table(dbms, selected_target, table)
 

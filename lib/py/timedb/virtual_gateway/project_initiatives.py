@@ -2,6 +2,7 @@ import json
 
 from timedb import schema
 from timedb.virtual_gateway import common
+from timedb import client_utils
 
 from jql import jql_pb2, jql_pb2_grpc
 
@@ -28,17 +29,17 @@ class NounsBackend(jql_pb2_grpc.JQLServicer):
             ],
         )
         tasks_resp = self.client.ListRows(project_tasks)
-        primary, cmap = common.list_rows_meta(tasks_resp)
+        primary, cmap = client_utils.list_rows_meta(tasks_resp)
         keys = [row.entries[primary].formatted for row in tasks_resp.rows]
-        fields, _ = common.get_fields_for_items(self.client,
+        fields, _ = client_utils.get_fields_for_items(self.client,
                                                 schema.Tables.Nouns, keys)
 
         for task in tasks_resp.rows:
             pk = task.entries[primary].formatted
             areas = fields[pk]["Area"]
-            if not areas or not common.is_foreign(areas[0]):
+            if not areas or not client_utils.is_foreign(areas[0]):
                 continue
-            area = common.strip_foreign_noun(areas[0])
+            area = client_utils.strip_foreign_noun(areas[0])
             plan = task.entries[cmap[schema.Fields.Parent]].formatted
             plan2areas[plan].add(area)
             entry = {
@@ -88,7 +89,7 @@ class NounsBackend(jql_pb2_grpc.JQLServicer):
         parent_pk = request.fields[schema.Fields.Parent]
         parent_resp = common.get_row(
             self.ListRows(jql_pb2.ListRowsRequest(), context), parent_pk)
-        primary, cmap = common.list_rows_meta(parent_resp)
+        primary, cmap = client_utils.list_rows_meta(parent_resp)
         area = parent_resp.row.entries[cmap[
             schema.Fields.Description]].formatted
         project = parent_resp.row.entries[cmap[
@@ -160,7 +161,7 @@ def _query_project_plans(client):
     )
 
     active_resp = client.ListRows(active_projects_req)
-    primary, cmap = common.list_rows_meta(active_resp)
+    primary, cmap = client_utils.list_rows_meta(active_resp)
     return {
         row.entries[primary].formatted:
         row.entries[cmap[schema.Fields.Description]].formatted
@@ -171,12 +172,12 @@ def _query_project_plans(client):
 def _query_areas_for_plans(client, plans):
     taxonomies = set()
     plan2tax = {plan: [] for plan in plans}
-    fields, _ = common.get_fields_for_items(client, schema.Tables.Nouns, list(plans))
+    fields, _ = client_utils.get_fields_for_items(client, schema.Tables.Nouns, list(plans))
     for plan, attr_set in fields.items():
         for taxonomy in attr_set['Taxonomy']:
-            if common.is_foreign(taxonomy):
-                taxonomies.add(common.strip_foreign_noun(taxonomy))
-                plan2tax[plan].append(common.strip_foreign_noun(taxonomy))
+            if client_utils.is_foreign(taxonomy):
+                taxonomies.add(client_utils.strip_foreign_noun(taxonomy))
+                plan2tax[plan].append(client_utils.strip_foreign_noun(taxonomy))
     children_req = jql_pb2.ListRowsRequest(
         table=schema.Tables.Nouns,
         conditions=[
@@ -189,7 +190,7 @@ def _query_areas_for_plans(client, plans):
         ],
     )
     children_resp = client.ListRows(children_req)
-    primary, cmap = common.list_rows_meta(children_resp)
+    primary, cmap = client_utils.list_rows_meta(children_resp)
     tax2areas = {tax: [] for tax in taxonomies}
     for row in children_resp.rows:
         tax2areas[row.entries[cmap[schema.Fields.Parent]].formatted].append(

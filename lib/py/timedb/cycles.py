@@ -2,7 +2,7 @@ import collections
 
 from jql import jql_pb2
 from timedb import pks, schema
-from timedb.virtual_gateway import common
+from timedb import client_utils
 
 class CycleManager(object):
     def __init__(self, db):
@@ -142,7 +142,7 @@ class CycleManager(object):
 
 def _add_plan_for_task(dbms, table, pk):
     resp = dbms.GetRow(jql_pb2.GetRowRequest(table=table, pk=pk))
-    _, habituals_cmap = common.list_rows_meta(resp)
+    _, habituals_cmap = client_utils.list_rows_meta(resp)
     habituals_cmap = {c.name: i for i, c in enumerate(resp.columns)}
     parent_resp = dbms.ListRows(jql_pb2.ListRowsRequest(
         table=schema.Tables.Tasks,
@@ -156,11 +156,11 @@ def _add_plan_for_task(dbms, table, pk):
             ]),
         ],
     ))
-    tasks_primary, _ = common.list_rows_meta(parent_resp)
+    tasks_primary, _ = client_utils.list_rows_meta(parent_resp)
     if len(parent_resp.rows) != 1:
         raise ValueError("Expected there to be an attention cycle for wellness")
     parent = parent_resp.rows[0].entries[tasks_primary].formatted
-    _, habitual = common.parse_foreign(resp.row.entries[habituals_cmap[schema.Fields.Habitual]].formatted)
+    _, habitual = client_utils.parse_foreign(resp.row.entries[habituals_cmap[schema.Fields.Habitual]].formatted)
     fields = {
         schema.Fields.Action: "Plan",
         schema.Fields.Direct: habitual,

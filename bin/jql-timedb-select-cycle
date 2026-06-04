@@ -14,7 +14,7 @@ import sys
 
 from jql import jql_pb2
 from timedb import pks, schema
-from timedb.virtual_gateway import common
+from timedb import client_utils
 
 
 def find_active_root_cycle(snapshot):
@@ -78,7 +78,7 @@ def _go_to_profiles(iface):
     if table == 'tasks':
         pks = ["tasks " + iface['current_view']['primary_selection']]
     elif table == 'vt.relatives':
-        pks = [common.decode_pk(pk)[0] for pk in iface['current_view']['pks']]
+        pks = [client_utils.decode_pk(pk)[0] for pk in iface['current_view']['pks']]
     else:
         raise ValueError(
             "Profiles view only supported from tasks and relatives tables")
@@ -133,11 +133,11 @@ def main():
         iface['current_view']['group_by'] = schema.Fields.AttributeRelation
         iface['current_view']['group_by_selected'] = ".Note"
         if current_table == schema.Tables.Attributes:
-            target = common.selected_target(request)
+            target = client_utils.selected_target(request)
             table, formatted = target.split(" ", 1)
             field = schema.primary_for_table(table)
         elif current_table == schema.Tables.Relatives:
-            formatted = common.selected_target(request)
+            formatted = client_utils.selected_target(request)
             iface['current_view'][
                 'group_by_selected'] = f".{iface['current_view']['primary_column']}"
         else:
@@ -154,12 +154,12 @@ def main():
         if current_table in ['nouns', 'tasks']:
             formatted = f"{current_table} {selection}"
         elif current_table == schema.Tables.Relatives:
-            target = common.selected_target(request)
+            target = client_utils.selected_target(request)
             table, formatted = target.split(" ", 1)
             field = schema.primary_for_table(table)
             iface['current_view']['group_by'] = ""
         elif current_table == schema.Tables.Attributes:
-            formatted = common.selected_target(request)
+            formatted = client_utils.selected_target(request)
         elif current_table.startswith('vt.'):
             formatted = selection.split("\t")[0]
     elif "--profiles" in sys.argv:

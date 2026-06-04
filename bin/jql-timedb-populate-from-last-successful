@@ -13,7 +13,7 @@ import tempfile
 from jql import jql_pb2, macro
 from timedb import cycles, pks, schema
 
-from timedb.virtual_gateway import common
+from timedb import client_utils
 
 
 def _populate_from_last_successful(dbms, task_pk):
@@ -24,7 +24,7 @@ def _populate_from_last_successful(dbms, task_pk):
 def _get_last_successful_task(dbms, task_pk):
     task = dbms.GetRow(
         jql_pb2.GetRowRequest(table=schema.Tables.Tasks, pk=task_pk))
-    primary, cmap = common.list_rows_meta(task)
+    primary, cmap = client_utils.list_rows_meta(task)
     action = task.row.entries[cmap[schema.Fields.Action]].formatted
     direct = task.row.entries[cmap[schema.Fields.Direct]].formatted
     indirect = task.row.entries[cmap[schema.Fields.Indirect]].formatted
@@ -61,9 +61,9 @@ def _get_last_successful_task(dbms, task_pk):
 
 
 def _copy_attributes(dbms, src_task, tgt_task):
-    full_src = common.full_pk(schema.Tables.Tasks, src_task)
-    full_tgt = common.full_pk(schema.Tables.Tasks, tgt_task)
-    all_attributes, _ = common.get_fields_for_items(dbms, "",
+    full_src = client_utils.full_pk(schema.Tables.Tasks, src_task)
+    full_tgt = client_utils.full_pk(schema.Tables.Tasks, tgt_task)
+    all_attributes, _ = client_utils.get_fields_for_items(dbms, "",
                                                     [full_src, full_tgt])
     src_attributes = all_attributes[full_src]
     tgt_attributes = all_attributes[full_tgt]
@@ -92,8 +92,8 @@ def main():
         dbms = iface.get_dbms()
         table, pk = iface.get_primary_selection()
         if table == schema.Tables.Relatives:
-            arg0_pk, _ = common.decode_pk(pk)
-            ref_table, ref_pk = common.parse_full_pk(arg0_pk)
+            arg0_pk, _ = client_utils.decode_pk(pk)
+            ref_table, ref_pk = client_utils.parse_full_pk(arg0_pk)
             if ref_table != schema.Tables.Tasks:
                 raise ValueError("Macro only works for tasks table", ref_table)
             _populate_from_last_successful(dbms, ref_pk)

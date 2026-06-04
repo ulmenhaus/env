@@ -2,6 +2,7 @@ import json
 
 from timedb import schema
 from timedb.virtual_gateway import common
+from timedb import client_utils
 
 from jql import jql_pb2, jql_pb2_grpc
 
@@ -59,7 +60,7 @@ class IdeasBackend(jql_pb2_grpc.JQLServicer):
             ],
         )
         ideas_response = self.client.ListRows(ideas_request)
-        primary = common.get_primary(ideas_response)
+        primary = client_utils.get_primary(ideas_response)
         ideas_cmap = {c.name: i for i, c in enumerate(ideas_response.columns)}
         noun_pks = [
             row.entries[primary].formatted for row in ideas_response.rows
@@ -68,7 +69,7 @@ class IdeasBackend(jql_pb2_grpc.JQLServicer):
         fields = [
             "Domain", "Parent", "Coordinal", "Cost", "PE", "SoB", "RoI", "Idea", "_pk"
         ]
-        noun_to_idea, assn_pks = common.get_fields_for_items(
+        noun_to_idea, assn_pks = client_utils.get_fields_for_items(
             self.client, schema.Tables.Nouns, noun_pks, fields)
         for row in ideas_response.rows:
             noun_pk = row.entries[primary].formatted
@@ -80,7 +81,7 @@ class IdeasBackend(jql_pb2_grpc.JQLServicer):
                 row.entries[ideas_cmap[schema.Fields.Coordinal]].formatted
             ]
             idea["Idea"] = [f"@{{nouns {noun_pk}}}"]
-            idea["_pk"] = [common.encode_pk(noun_pk, assn_pks[noun_pk])]
+            idea["_pk"] = [client_utils.encode_pk(noun_pk, assn_pks[noun_pk])]
             if idea["PE"] and idea["PE"][0] and idea["Cost"] and idea["Cost"][
                     0]:
                 # Entries denote orders of magnitude so determine RoI through subtraction
@@ -93,7 +94,7 @@ class IdeasBackend(jql_pb2_grpc.JQLServicer):
         parent_pks = sorted(
             {idea["Parent"][0]
              for idea in noun_to_idea.values()})
-        domains, _ = common.get_fields_for_items(self.client,
+        domains, _ = client_utils.get_fields_for_items(self.client,
                                                  schema.Tables.Nouns,
                                                  parent_pks, ["Domain"])
         for idea in noun_to_idea.values():
@@ -104,7 +105,7 @@ class IdeasBackend(jql_pb2_grpc.JQLServicer):
                                 values=VALUES)
 
     def IncrementEntry(self, request, context):
-        noun_pk, pk_map = common.decode_pk(request.pk)
+        noun_pk, pk_map = client_utils.decode_pk(request.pk)
         if request.column == 'Idea':
             # If it's the habitual itself we're incrementing/decrementing that corresponds
             # to the status
@@ -119,8 +120,8 @@ class IdeasBackend(jql_pb2_grpc.JQLServicer):
             return jql_pb2.IncrementEntryResponse()
         elif request.column in pk_map:
             assn_pk, current = pk_map[request.column][0]
-            if common.is_date_foreign(current):
-                new_value = common.increment_date_foreign(current, request.amount)
+            if client_utils.is_date_foreign(current):
+                new_value = client_utils.increment_date_foreign(current, request.amount)
                 self.client.WriteRow(jql_pb2.WriteRowRequest(
                     table=schema.Tables.Assertions,
                     pk=assn_pk,
@@ -158,7 +159,7 @@ class IdeasBackend(jql_pb2_grpc.JQLServicer):
             raise ValueError("Unknown column", request.column)
 
     def WriteRow(self, request, context):
-        noun_pk, pk_map = common.decode_pk(request.pk)
+        noun_pk, pk_map = client_utils.decode_pk(request.pk)
         for field, value in request.fields.items():
             if field in pk_map:
                 assn_pk, current = pk_map[field][0]
