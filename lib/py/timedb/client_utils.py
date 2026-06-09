@@ -271,11 +271,15 @@ def get_todays_day_plan(client):
     return response.rows[0].entries[primary].formatted
 
 
-def get_day_plan_entry_refs(client, plan_pk):
+def get_day_plan_entry_refs(client, plan_pk, include_dividers=False):
     """Returns a dict mapping reminder arg0 -> (assn_pk, order) for all
-    reminders currently referenced in today's day plan."""
+    reminders currently referenced in today's day plan.
+
+    If include_dividers is True, returns (entry_refs, dividers) where dividers
+    is a list of (assn_pk, order, text) for plain-text divider entries.
+    """
     if plan_pk is None:
-        return {}
+        return ({}, []) if include_dividers else {}
     response = client.ListRows(jql_pb2.ListRowsRequest(
         table=schema.Tables.Assertions,
         conditions=[jql_pb2.Condition(requires=[
@@ -292,15 +296,18 @@ def get_day_plan_entry_refs(client, plan_pk):
     cmap = {c.name: i for i, c in enumerate(response.columns)}
     primary = next(i for i, c in enumerate(response.columns) if c.primary)
     entry_refs = {}
+    dividers = []
     for row in response.rows:
         value = row.entries[cmap[schema.Fields.Arg1]].formatted
+        assn_pk = row.entries[primary].formatted
+        order = row.entries[cmap[schema.Fields.Order]].formatted
         if is_foreign(value):
             tbl, fk_pk = parse_foreign(value)
             if tbl == "vt.reminders":
-                assn_pk = row.entries[primary].formatted
-                order = row.entries[cmap[schema.Fields.Order]].formatted
                 entry_refs[fk_pk] = (assn_pk, order)
-    return entry_refs
+        elif include_dividers and value:
+            dividers.append((assn_pk, order, value))
+    return (entry_refs, dividers) if include_dividers else entry_refs
 
 
 def find_matching_auxiliaries(client, pks, kind):

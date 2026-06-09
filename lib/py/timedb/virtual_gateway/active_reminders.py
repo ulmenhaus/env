@@ -25,77 +25,90 @@ class ActiveRemindersBackend(jql_pb2_grpc.JQLServicer):
     def ListRows(self, request, context):
         # Query 1: find today's day plan
         plan_pk = client_utils.get_todays_day_plan(self.client)
-        # Query 2: get reminder arg0s that are in the day plan
-        entry_refs = client_utils.get_day_plan_entry_refs(self.client, plan_pk)
+        # Query 2: get reminder arg0s and dividers that are in the day plan
+        entry_refs, dividers = client_utils.get_day_plan_entry_refs(
+            self.client, plan_pk, include_dividers=True)
         reminder_bareids = list(entry_refs.keys())
-        if not reminder_bareids:
+        if not reminder_bareids and not dividers:
             return common.list_rows("vt.active_reminders", {}, request, VALUES)
 
-        # Query 3: get all reminder attributes
-        attr_map, raw_assn_pks = client_utils.get_fields_for_items(
-            self.client, "vt.reminders", reminder_bareids)
-
-        # Collect task PKs so we can batch-query their notes
-        task_pks = []
-        for bareid in reminder_bareids:
-            task_val = attr_map.get(bareid, {}).get("Task", [""])[0]
-            if task_val and client_utils.is_foreign(task_val):
-                _, task_pk = client_utils.parse_foreign(task_val)
-                task_pks.append(task_pk)
-
-        # Query 4: get .Note attributes for all referenced tasks
-        task_assn_pks = {}
-        if task_pks:
-            _, task_assn_pks = client_utils.get_fields_for_items(
-                self.client, "tasks", task_pks, fields=("Note",))
-
         entries = {}
-        for bareid in reminder_bareids:
-            fields = attr_map.get(bareid, {})
-            field_assn_pks = dict(raw_assn_pks.get(bareid, {}))
 
-            # Remap assertion relation names to display column names
-            if "NextStep" in field_assn_pks:
-                field_assn_pks["Next Step"] = field_assn_pks.pop("NextStep")
+        if reminder_bareids:
+            # Query 3: get all reminder attributes
+            attr_map, raw_assn_pks = client_utils.get_fields_for_items(
+                self.client, "vt.reminders", reminder_bareids)
 
-            # Encode entry assertion PK and order for Order column updates
-            entry_assn_pk, entry_order = entry_refs.get(bareid, ("", "0"))
-            field_assn_pks["A Order"] = [[entry_assn_pk, entry_order]]
+            # Collect task PKs so we can batch-query their notes
+            task_pks = []
+            for bareid in reminder_bareids:
+                task_val = attr_map.get(bareid, {}).get("Task", [""])[0]
+                if task_val and client_utils.is_foreign(task_val):
+                    _, task_pk = client_utils.parse_foreign(task_val)
+                    task_pks.append(task_pk)
 
-            task_val = fields.get("Task", [""])[0]
-            check_val = fields.get("Check", [""])[0]
-            description = check_val if check_val else task_val
+            # Query 4: get .Note attributes for all referenced tasks
+            task_assn_pks = {}
+            if task_pks:
+                _, task_assn_pks = client_utils.get_fields_for_items(
+                    self.client, "tasks", task_pks, fields=("Note",))
 
-            # Gather task notes and encode references for WriteRow
-            notes_pairs = []
-            task_pk = ""
-            if task_val and client_utils.is_foreign(task_val):
-                _, task_pk = client_utils.parse_foreign(task_val)
-                notes_pairs = list(task_assn_pks.get(task_pk, {}).get("Note", []))
+            for bareid in reminder_bareids:
+                fields = attr_map.get(bareid, {})
+                field_assn_pks = dict(raw_assn_pks.get(bareid, {}))
 
-            note_values = [v for _, v in notes_pairs]
-            if len(note_values) == 0:
-                parent_notes_display = []
-            elif len(note_values) == 1:
-                parent_notes_display = [note_values[0]]
-            else:
-                parent_notes_display = ["\n".join(f"* {v}" for v in note_values)]
+                # Remap assertion relation names to display column names
+                if "NextStep" in field_assn_pks:
+                    field_assn_pks["Next Step"] = field_assn_pks.pop("NextStep")
 
-            # Encode task bareid and note assn pairs into pk_map for WriteRow
-            field_assn_pks["Parent Notes"] = notes_pairs
-            if task_pk:
-                field_assn_pks["Task"] = [["", f"tasks {task_pk}"]]
+                # Encode entry assertion PK and order for Order column updates
+                entry_assn_pk, entry_order = entry_refs.get(bareid, ("", "0"))
+                field_assn_pks["A Order"] = [[entry_assn_pk, entry_order]]
 
-            status_raw = fields.get("Status", [""])[0]
-            pk = client_utils.encode_pk(f"vt.reminders {bareid}", field_assn_pks)
-            entries[pk] = {
-                "_pk": [pk],
-                "Description": [description] if description else [],
-                "Status": [common.colorize_status(status_raw)] if status_raw else [],
-                "Next Step": fields.get("NextStep", []),
-                "Link": fields.get("Link", []),
-                "Parent Notes": parent_notes_display,
-                "A Order": [entry_order],
+                task_val = fields.get("Task", [""])[0]
+                check_val = fields.get("Check", [""])[0]
+                description = check_val if check_val else task_val
+
+                # Gather task notes and encode references for WriteRow
+                notes_pairs = []
+                task_pk = ""
+                if task_val and client_utils.is_foreign(task_val):
+                    _, task_pk = client_utils.parse_foreign(task_val)
+                    notes_pairs = list(task_assn_pks.get(task_pk, {}).get("Note", []))
+
+                note_values = [v for _, v in notes_pairs]
+                if len(note_values) == 0:
+                    parent_notes_display = []
+                elif len(note_values) == 1:
+                    parent_notes_display = [note_values[0]]
+                else:
+                    parent_notes_display = ["\n".join(f"* {v}" for v in note_values)]
+
+                # Encode task bareid and note assn pairs into pk_map for WriteRow
+                field_assn_pks["Parent Notes"] = notes_pairs
+                if task_pk:
+                    field_assn_pks["Task"] = [["", f"tasks {task_pk}"]]
+
+                status_raw = fields.get("Status", [""])[0]
+                pk = client_utils.encode_pk(f"vt.reminders {bareid}", field_assn_pks)
+                entries[pk] = {
+                    "_pk": [pk],
+                    "Description": [description] if description else [],
+                    "Status": [common.colorize_status(status_raw)] if status_raw else [],
+                    "Next Step": fields.get("NextStep", []),
+                    "Link": fields.get("Link", []),
+                    "Parent Notes": parent_notes_display,
+                    "A Order": [entry_order],
+                }
+
+        for assn_pk, order, text in dividers:
+            divider_pk = client_utils.encode_pk(
+                f"divider {assn_pk}", {"A Order": [[assn_pk, order]]})
+            entries[divider_pk] = {
+                "_pk": [divider_pk],
+                "Description": [f"\033[1m{text}\033[0m"],
+                "Status": ["-"],
+                "A Order": [order],
             }
 
         return common.list_rows("vt.active_reminders", entries, request, VALUES)
@@ -116,6 +129,8 @@ class ActiveRemindersBackend(jql_pb2_grpc.JQLServicer):
 
     def IncrementEntry(self, request, context):
         arg0, pk_map = client_utils.decode_pk(request.pk)
+        if arg0.startswith("divider ") and request.column != "A Order":
+            raise ValueError("Cannot increment column", request.column)
 
         if request.column == "Status":
             if "Status" in pk_map:
@@ -160,6 +175,10 @@ class ActiveRemindersBackend(jql_pb2_grpc.JQLServicer):
 
     def WriteRow(self, request, context):
         arg0, pk_map = client_utils.decode_pk(request.pk)
+        if arg0.startswith("divider "):
+            for field in request.fields:
+                if field != "A Order":
+                    raise ValueError("Cannot write column", field)
 
         for field, value in request.fields.items():
             if field == "Parent Notes":
