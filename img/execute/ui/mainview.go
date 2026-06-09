@@ -151,6 +151,16 @@ type habitPlacementMeta struct {
 	dayPlanOrder int
 }
 
+const alphanumChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+func randPK() string {
+	b := make([]byte, 16)
+	for i := range b {
+		b[i] = alphanumChars[rand.Intn(len(alphanumChars))]
+	}
+	return string(b)
+}
+
 // NewMainView returns a MainView initialized with a given Table
 func NewMainView(g *gocui.Gui, dbms api.JQL_DBMS, preselectTask string, injectMatchingTasks bool) (*MainView, error) {
 	rand.Seed(time.Now().UnixNano())
@@ -278,7 +288,7 @@ func (mv *MainView) createNewReminder(g *gocui.Gui, taskPK, checkText string) er
 	dayPlanPK := dayPlan.Entries[api.GetPrimary(tasksTable.Columns)].Formatted
 
 	// Write .Check assertion on the task
-	checkPK := fmt.Sprintf("%d", rand.Int63())
+	checkPK := randPK()
 	_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
 		Table:      timedb.TableAssertions,
 		Pk:         checkPK,
@@ -394,7 +404,7 @@ func (mv *MainView) createNewPlan(g *gocui.Gui, taskPK, description string) erro
 	}
 
 	// pk doesn't really matter here so using a random integer
-	pk := fmt.Sprintf("%d", rand.Int63())
+	pk := randPK()
 	fields := map[string]string{
 		timedb.FieldArg0:      fmt.Sprintf("tasks %s", taskPK),
 		timedb.FieldArg1:      fmt.Sprintf("[ ] %s", description),
@@ -500,7 +510,7 @@ func (mv *MainView) insertDayPlan(g *gocui.Gui, description string, delta int) e
 		timedb.FieldRelation: ".Do timedb.Today",
 		timedb.FieldOrder:     fmt.Sprintf("%d", dayOrder+1),
 	}
-	pk := fmt.Sprintf("%d", rand.Int63())
+	pk := randPK()
 	_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
 		Table:      timedb.TableAssertions,
 		Pk:         pk,
@@ -1874,7 +1884,7 @@ func (mv *MainView) copyOldTasks() error {
 			continue
 		}
 		// pk doesn't really matter here so using a random integer
-		pk := fmt.Sprintf("%d", rand.Int63())
+		pk := randPK()
 		fields := map[string]string{
 			timedb.FieldArg0:      fmt.Sprintf("tasks %s", todayPK),
 			timedb.FieldArg1:      val,
@@ -2111,7 +2121,7 @@ func (mv *MainView) placeRemindersAtPosition(
 	}
 	nextOrder := insertAfterOrder + 1
 	for _, bareID := range filteredExisting {
-		newPK := fmt.Sprintf("%d", rand.Int63())
+		newPK := randPK()
 		_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
 			Table:      timedb.TableAssertions,
 			Pk:         newPK,
@@ -2285,7 +2295,7 @@ func (mv *MainView) addDueRemindersToDay(dayPlanPK string, entries []dayPlanEntr
 		return err
 	}
 	for i, bareID := range toAdd {
-		newPK := fmt.Sprintf("%d", rand.Int63())
+		newPK := randPK()
 		_, err := mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
 			Table:      timedb.TableAssertions,
 			Pk:         newPK,
@@ -2671,7 +2681,7 @@ func (mv *MainView) resolveReminderPlacements(candidates []reminderToPlace) (toC
 // createReminder creates the assertion cluster for a new reminder and returns its bare ID.
 // It does NOT add the reminder to any day plan; use createReminderEntity for that.
 func (mv *MainView) createReminder(taskPK, checkText, targetDate string) (string, error) {
-	bareID := fmt.Sprintf("%d", rand.Int63())
+	bareID := randPK()
 	reminderRef := fmt.Sprintf("vt.reminders %s", bareID)
 	assns := []map[string]string{
 		{timedb.FieldRelation: ".Status", timedb.FieldArg0: reminderRef, timedb.FieldArg1: "Awaiting"},
@@ -2682,7 +2692,7 @@ func (mv *MainView) createReminder(taskPK, checkText, targetDate string) (string
 		assns = append(assns, map[string]string{timedb.FieldRelation: ".Check", timedb.FieldArg0: reminderRef, timedb.FieldArg1: checkText})
 	}
 	for _, fields := range assns {
-		pk := fmt.Sprintf("%d", rand.Int63())
+		pk := randPK()
 		_, err := mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
 			Table:      timedb.TableAssertions,
 			Pk:         pk,
@@ -2701,7 +2711,7 @@ func (mv *MainView) createReminderEntity(dayPlanPK, taskPK, checkText, targetDat
 	if err != nil {
 		return err
 	}
-	entryPK := fmt.Sprintf("%d", rand.Int63())
+	entryPK := randPK()
 	_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
 		Table:      timedb.TableAssertions,
 		Pk:         entryPK,
@@ -2839,7 +2849,7 @@ func (mv *MainView) carryForwardEntries() error {
 				continue
 			}
 		}
-		newPK := fmt.Sprintf("%d", rand.Int63())
+		newPK := randPK()
 		_, err := mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
 			Table:      timedb.TableAssertions,
 			Pk:         newPK,
@@ -2900,7 +2910,7 @@ func (mv *MainView) markTask(g *gocui.Gui, v *gocui.View, status string) error {
 			Fields:     map[string]string{timedb.FieldArg1: reminderStatus},
 		})
 	} else {
-		pk := fmt.Sprintf("%d", rand.Int63())
+		pk := randPK()
 		_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
 			InsertOnly: true,
 			Table:      timedb.TableAssertions,
