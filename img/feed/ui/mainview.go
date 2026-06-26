@@ -141,7 +141,7 @@ func (mv *MainView) gatherDomains() (map[string]string, error) {
 				Requires: []*jqlpb.Filter{
 					{
 						Column: timedb.FieldRelation,
-						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Domain"}},
+						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Feed.Skillset"}},
 					},
 				},
 			},
@@ -217,7 +217,11 @@ func (mv *MainView) fetchResources() error {
 			if noun, ok := pk2noun[description]; ok {
 				nounDescription := noun.Entries[api.IndexOfField(nounColumns, timedb.FieldNounDescription)].Formatted
 				nounDisambiguator := noun.Entries[api.IndexOfField(nounColumns, timedb.FieldDisambiguator)].Formatted
-				plan2description[entryName] = fmt.Sprintf("%s %s", nounDescription, nounDisambiguator)
+				var disambiguatorSuffix string
+				if nounDisambiguator != "" {
+					disambiguatorSuffix = fmt.Sprintf(" (%s)", nounDisambiguator)
+				}
+				plan2description[entryName] = fmt.Sprintf("%s%s", nounDescription, disambiguatorSuffix)
 			} else {
 				plan2description[entryName] = description
 			}

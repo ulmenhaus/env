@@ -130,7 +130,7 @@ class AssertionsBackend(jql_pb2_grpc.JQLServicer):
             for area in areas:
                 entries[f"{project_plan}.{area}"] = {
                     "_pk": [f"{project_plan}.{area}"],
-                    schema.Fields.Relation: [".Domain"],
+                    schema.Fields.Relation: [".Feed.Skillset"],
                     schema.Fields.Arg0:
                     [f"nouns {_area_pk(area, project_plan)}"],
                     schema.Fields.Arg1: [f"@{{nouns {description}}}"],

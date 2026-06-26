@@ -8,6 +8,14 @@ from timedb import client_utils
 from jql import jql_pb2, jql_pb2_grpc
 
 
+def _parse_days_until(days_until):
+    if not days_until:
+        return float('inf')
+    if days_until.startswith('+'):
+        return int(days_until[1:])
+    return int(days_until)
+
+
 class PracticesBackend(jql_pb2_grpc.JQLServicer):
 
     def __init__(self, client):
@@ -178,6 +186,7 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
                     "Genre": [genre],
                     "Towards": ['something regular'],
                 }
+        # First pass: set Days Since and Days Until from each entry's own timing info
         all_noun_pks = set(row['Direct'][0] for row in children.values())
         noun2info = common.get_timing_info(self.client, all_noun_pks)
         for child in children.values():
@@ -187,7 +196,40 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
             info = noun2info[direct]
             child['Days Since'] = [info.days_since]
             child['Days Until'] = [info.days_until]
+        # Second pass: for Practice entries, tighten Days Until to also reflect the
+        # most urgent child belonging to that skillset — a Practice is due as soon
+        # as any of its constituent items are due
+        self._apply_practice_skillset_days_until(children)
         return children
+
+    def _apply_practice_skillset_days_until(self, children):
+        skillset_min_days_until = {}
+        for child in children.values():
+            skillset_raw = child.get("Skillset", [""])[0]
+            if not skillset_raw:
+                continue
+            if client_utils.is_foreign(skillset_raw):
+                _, skillset_pk = client_utils.parse_foreign(skillset_raw)
+            else:
+                skillset_pk = skillset_raw
+            if not skillset_pk:
+                continue
+            days_until = child.get("Days Until", [""])[0]
+            if not days_until:
+                continue
+            current = skillset_min_days_until.get(skillset_pk)
+            if current is None or _parse_days_until(days_until) < _parse_days_until(current):
+                skillset_min_days_until[skillset_pk] = days_until
+        for child in children.values():
+            if child.get("Action", [""])[0] != "Practice":
+                continue
+            direct = child.get("Direct", [""])[0]
+            if direct not in skillset_min_days_until:
+                continue
+            child_days_until = child.get("Days Until", [""])[0]
+            skillset_days_until = skillset_min_days_until[direct]
+            if not child_days_until or _parse_days_until(skillset_days_until) < _parse_days_until(child_days_until):
+                child["Days Until"] = [skillset_days_until]
 
     def GetRow(self, request, context):
         return common.get_row(
