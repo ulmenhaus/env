@@ -43,7 +43,7 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
         track_tasks = [
             task for task in tasks.rows
             if task.entries[cmap[schema.Fields.Action]].formatted == 'Track'
-            and task.entries[cmap[schema.Fields.Direct]].formatted == 'life events & practices'
+            and task.entries[cmap[schema.Fields.Direct]].formatted == 'my life events & practices'
             and task.entries[cmap[schema.Fields.Indirect]].formatted == ''
         ]
         if len(track_tasks) != 1:
@@ -58,7 +58,7 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
             initiative_pk = initiative.entries[primary].formatted
             attrs = fields[initiative_pk]
             for skillset in attrs["Skillset"]:
-                if client_utils.is_foreign(skillset):
+                if skillset and client_utils.is_foreign(skillset):
                     skillset = client_utils.parse_foreign(skillset)[1]
                 stats = skillset2stats[skillset]
                 count = 1
@@ -435,7 +435,7 @@ class ProgressAmount(object):
 
     def percentage(self):
         if self.total == 0:
-            return 100
+            return 0
         return int(self.progress * 100 / self.total)
 
     def bar(self):

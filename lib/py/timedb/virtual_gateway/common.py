@@ -85,7 +85,7 @@ def apply_grouping(rows, request):
             values=dict(
                 collections.Counter(
                     map(lambda row: row[field][0]
-                        if row[field] else "", rows))),
+                        if row.get(field, []) else "", rows))),
         )
         rows = [row for row in rows if selected in row[field]]
         groupings.append(grouping)

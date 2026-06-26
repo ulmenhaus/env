@@ -193,6 +193,10 @@ func (mv *MainView) fetchResources() error {
 	if err != nil {
 		return err
 	}
+	pk2noun, nounColumns, err := mv.fetchNounsByDescriptions(resp)
+	if err != nil {
+		return err
+	}
 	noun2domain, err := mv.gatherDomains()
 	if err != nil {
 		return err
@@ -208,7 +212,15 @@ func (mv *MainView) fetchResources() error {
 		entryName := row.Entries[api.IndexOfField(resp.Columns, timedb.FieldIdentifier)].Formatted
 		modifier := row.Entries[api.IndexOfField(resp.Columns, timedb.FieldModifier)].Formatted
 		if modifier == timedb.ValuePlanModifier {
-			plan2description[entryName] = row.Entries[api.IndexOfField(resp.Columns, timedb.FieldNounDescription)].Formatted
+			description := row.Entries[api.IndexOfField(resp.Columns, timedb.FieldNounDescription)].Formatted
+			// We omit the context code and modifier of the project to reduce clutter in the UI
+			if noun, ok := pk2noun[description]; ok {
+				nounDescription := noun.Entries[api.IndexOfField(nounColumns, timedb.FieldNounDescription)].Formatted
+				nounDisambiguator := noun.Entries[api.IndexOfField(nounColumns, timedb.FieldDisambiguator)].Formatted
+				plan2description[entryName] = fmt.Sprintf("%s %s", nounDescription, nounDisambiguator)
+			} else {
+				plan2description[entryName] = description
+			}
 		}
 	}
 	for _, row := range resp.Rows {
@@ -255,6 +267,42 @@ func (mv *MainView) fetchResources() error {
 	})
 
 	return nil
+}
+
+func (mv *MainView) fetchNounsByDescriptions(resp *jqlpb.ListRowsResponse) (map[string]*jqlpb.Row, []*jqlpb.Column, error) {
+	pks := []string{}
+	for _, row := range resp.Rows {
+		modifier := row.Entries[api.IndexOfField(resp.Columns, timedb.FieldModifier)].Formatted
+		if modifier == timedb.ValuePlanModifier {
+			description := row.Entries[api.IndexOfField(resp.Columns, timedb.FieldNounDescription)].Formatted
+			pks = append(pks, description)
+		}
+	}
+	if len(pks) == 0 {
+		return map[string]*jqlpb.Row{}, nil, nil
+	}
+	nounsResp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
+		Table: mv.renderTable(timedb.TableNouns),
+		Conditions: []*jqlpb.Condition{
+			{
+				Requires: []*jqlpb.Filter{
+					{
+						Column: timedb.FieldIdentifier,
+						Match:  &jqlpb.Filter_InMatch{InMatch: &jqlpb.InMatch{Values: pks}},
+					},
+				},
+			},
+		},
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	pk2row := map[string]*jqlpb.Row{}
+	for _, row := range nounsResp.Rows {
+		pk := row.Entries[api.IndexOfField(nounsResp.Columns, timedb.FieldIdentifier)].Formatted
+		pk2row[pk] = row
+	}
+	return pk2row, nounsResp.Columns, nil
 }
 
 func (mv *MainView) fetchNewItems(g *gocui.Gui, v *gocui.View) error {

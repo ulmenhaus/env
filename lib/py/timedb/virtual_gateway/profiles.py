@@ -44,7 +44,7 @@ class ProfilesBackend(jql_pb2_grpc.JQLServicer):
                 if profile not in matching_profiles:
                     continue
                 attrs = {
-                    "_target": target,
+                    "_target": [target],
                     "Profile": [profile],
                 }
                 for field in dimensions:

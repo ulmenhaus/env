@@ -32,6 +32,7 @@ const (
 	FieldDescription     = "_Description"
 	FieldNounDescription = "Description"
 	FieldDirect          = "Direct"
+	FieldDisambiguator   = "Disambiguator"
 	FieldDisplayName     = "DisplayName"
 	FieldDomain          = "Domain"
 	FieldEnd             = "End"
