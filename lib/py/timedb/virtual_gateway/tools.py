@@ -15,35 +15,38 @@ class ToolsBackend(jql_pb2_grpc.JQLServicer):
         self.client = client
 
     def ListRows(self, request, context):
-        selected_target = client_utils.selected_target(request)
+        targets = client_utils.selected_targets(request)
         selected_parent = _extract_selected_parent(request)
-        exercises = self._query_exercises(selected_target, selected_parent)
+        exercises = self._query_exercises(targets, selected_parent)
         return common.list_rows('vt.tools', exercises, request)
 
-    def _query_exercises(self, selected_target, selected_parent):
-        if not selected_target:
+    def _query_exercises(self, selected_targets, selected_parent):
+        if not selected_targets:
             return {}
-        requires = jql_pb2.Filter(
-            column=schema.Fields.Arg0,
-            equal_match=jql_pb2.EqualMatch(value=f"nouns {selected_target}"))
+
+        # target2relations: {kit_pk: {tool_pk: relation}}
+        target2relations = collections.defaultdict(dict)
+
+        # Collect explicit kit→tool relations from assertions
         rel_request = jql_pb2.ListRowsRequest(
             table=schema.Tables.Assertions,
-            conditions=[
-                jql_pb2.Condition(requires=[requires]),
-            ],
+            conditions=[jql_pb2.Condition(requires=[
+                jql_pb2.Filter(
+                    column=schema.Fields.Arg0,
+                    in_match=jql_pb2.InMatch(
+                        values=[f"nouns {t}" for t in selected_targets])),
+            ])],
         )
         assertions = self.client.ListRows(rel_request)
-        cmap = {c.name: i for i, c in enumerate(assertions.columns)}
-        primary = client_utils.get_primary(assertions)
-        attributes = {}
-        target2relation = {}
+        assns_cmap = {c.name: i for i, c in enumerate(assertions.columns)}
         for row in assertions.rows:
-            target = row.entries[cmap[schema.Fields.Arg1]].formatted
-            if not client_utils.is_foreign(target):
+            _, kit_pk = row.entries[assns_cmap[schema.Fields.Arg0]].formatted.split(" ", 1)
+            tool_raw = row.entries[assns_cmap[schema.Fields.Arg1]].formatted
+            if not client_utils.is_foreign(tool_raw):
                 continue
-            target_pk = client_utils.strip_foreign_noun(target)
-            relation = row.entries[cmap[schema.Fields.Relation]].formatted
-            target2relation[target_pk] = relation
+            tool_pk = client_utils.strip_foreign_noun(tool_raw)
+            relation = row.entries[assns_cmap[schema.Fields.Relation]].formatted
+            target2relations[kit_pk][tool_pk] = relation
 
         # Supplement explicit relations with the implicit relation of being
         # a child of the toolkit
@@ -51,97 +54,102 @@ class ToolsBackend(jql_pb2_grpc.JQLServicer):
         # TODO taking the union of explicit and implicit relations between
         # nouns is a common enough operation (see e.g. vt.relatives) that it
         # either should have a common library or a virtual table
-        requires = [
-            jql_pb2.Filter(
-                column=schema.Fields.Parent,
-                equal_match=jql_pb2.EqualMatch(value=selected_target)),
-            jql_pb2.Filter(
-                column=schema.Fields.Status,
-                in_match=jql_pb2.InMatch(values=[
-                    schema.Values.StatusSatisfied, schema.Values.StatusHabitual
-                ])),
-        ]
         child_request = jql_pb2.ListRowsRequest(
             table=schema.Tables.Nouns,
-            conditions=[
-                jql_pb2.Condition(requires=requires),
-            ])
+            conditions=[jql_pb2.Condition(requires=[
+                jql_pb2.Filter(
+                    column=schema.Fields.Parent,
+                    in_match=jql_pb2.InMatch(values=list(selected_targets))),
+                jql_pb2.Filter(
+                    column=schema.Fields.Status,
+                    in_match=jql_pb2.InMatch(values=[
+                        schema.Values.StatusSatisfied,
+                        schema.Values.StatusHabitual,
+                    ])),
+            ])],
+        )
         children = self.client.ListRows(child_request)
-        cmap = {c.name: i for i, c in enumerate(children.columns)}
-        primary = client_utils.get_primary(children)
+        children_cmap = {c.name: i for i, c in enumerate(children.columns)}
+        children_primary = client_utils.get_primary(children)
         for child in children.rows:
-            target2relation[child.entries[primary].formatted] = child.entries[
-                cmap[schema.Fields.NounRelation]].formatted or "Item"
+            tool_pk = child.entries[children_primary].formatted
+            kit_pk = child.entries[children_cmap[schema.Fields.Parent]].formatted
+            relation = child.entries[children_cmap[schema.Fields.NounRelation]].formatted or "Item"
+            target2relations[kit_pk][tool_pk] = relation
+
+        all_tool_pks = list({tp for d in target2relations.values() for tp in d})
+        if not all_tool_pks:
+            return {}
 
         fields, _ = client_utils.get_fields_for_items(self.client,
                                                 schema.Tables.Nouns,
-                                                list(target2relation.keys()))
-        taxonomies = set([
-            value for d in fields.values() for k, v in d.items() for value in v
-            if k == "Taxonomy"
-        ])
+                                                all_tool_pks)
+        taxonomies = set(
+            value for d in fields.values()
+            for k, vs in d.items() for value in vs if k == "Taxonomy"
+        )
         all_subsets = self._query_subsets(taxonomies)
-        tool2info = common.get_timing_info(self.client, target2relation.keys())
-        for tool, relation in target2relation.items():
-            # TODO we should only include .Item and .Resource in here but we can only
-            # do that once all existing relationships have been changed
-            excluded_rels = [".KitDomain"]
-            if relation in excluded_rels:
-                continue
-            tool_attrs = fields.get(tool, {})
-            class2actions = {
-                "@{nouns Claimset}": ["Review"],
-                "@{nouns Schema}": ["Review"],
-                "@{nouns Taxonomy}": ["Review"],
-                "@{nouns Technique}": ["Exercise"],
-                "@{nouns Theory}": ["Review"],
-            }
-            default_actions = ["Ready", "Evaluate"]
-            if relation == ".Resource":
-                default_actions = ["Consult"]
-            tool_class = tool_attrs.get("Class", [None])[0]
-            actions = tool_attrs.get("Feed.Action", class2actions.get(tool_class, default_actions))
-            subsets = ['']
-            for taxonomy in fields.get(tool, {}).get("Taxonomy", []):
-                subsets += all_subsets[client_utils.strip_foreign_noun(taxonomy)]
-            for action in actions:
-                for subset in subsets:
-                    # NOTE we take advantage of the fact here that the subset becomes the
-                    # indirect parameter of the task to see if the subset is currently active
-                    if tool in tool2info and (
-                            action, subset) in tool2info[tool].active_actions:
-                        continue
-                    exercise = f"{action} {tool}"
-                    pk = _encode_pk(exercise, selected_parent, selected_target,
-                                    subset)
-                    attributes[pk] = {
-                        "_pk": [pk],
-                        "Relation": [relation],
-                        "Action": [action],
-                        "Class": tool_attrs.get("Class", []),
-                        "Class (Secondary)": tool_attrs.get("Class (Secondary)", []),
-                        "Days Since": [""],
-                        "Days Until": [""],
-                        "Direct": [tool],
-                        "Parent": [selected_parent],
-                        "-> Item":
-                        [selected_target
-                         ],  # added to ensure the filter still matches
-                        "Motivation": ["Preparation"],
-                        "Source": [""],
-                        "Towards": [""],
-                        "Domain": [""],
-                        "Skillset": [""],
-                        "Subset": [subset],
-                    }
-                    if tool in tool2info:
-                        # NOTE for now days since/until is shared by all subsets, but
-                        # we could make it more granular in the future. The expectation is
-                        # that picking a broad exercise by its timing is good enough. If subsets
-                        # are important enough, they can show up in vt.habituals for periodic review.
-                        info = tool2info[tool]
-                        attributes[pk]['Days Since'] = [info.days_since]
-                        attributes[pk]['Days Until'] = [info.days_until]
+        tool2info = common.get_timing_info(self.client, all_tool_pks)
+
+        attributes = {}
+        for kit_pk, tool_relations in target2relations.items():
+            for tool, relation in tool_relations.items():
+                # TODO we should only include .Item and .Resource in here but we can only
+                # do that once all existing relationships have been changed
+                excluded_rels = [".KitDomain"]
+                if relation in excluded_rels:
+                    continue
+                tool_attrs = fields.get(tool, {})
+                class2actions = {
+                    "@{nouns Claimset}": ["Review"],
+                    "@{nouns Schema}": ["Review"],
+                    "@{nouns Taxonomy}": ["Review"],
+                    "@{nouns Technique}": ["Exercise"],
+                    "@{nouns Theory}": ["Review"],
+                }
+                default_actions = ["Ready", "Evaluate"]
+                if relation == ".Resource":
+                    default_actions = ["Consult"]
+                tool_class = tool_attrs.get("Class", [None])[0]
+                actions = tool_attrs.get("Feed.Action", class2actions.get(tool_class, default_actions))
+                subsets = ['']
+                for taxonomy in fields.get(tool, {}).get("Taxonomy", []):
+                    subsets += all_subsets[client_utils.strip_foreign_noun(taxonomy)]
+                for action in actions:
+                    for subset in subsets:
+                        # NOTE we take advantage of the fact here that the subset becomes the
+                        # indirect parameter of the task to see if the subset is currently active
+                        if tool in tool2info and (
+                                action, subset) in tool2info[tool].active_actions:
+                            continue
+                        exercise = f"{action} {tool}"
+                        pk = _encode_pk(exercise, selected_parent, kit_pk, subset)
+                        attributes[pk] = {
+                            "_pk": [pk],
+                            "Relation": [relation],
+                            "Action": [action],
+                            "Class": tool_attrs.get("Class", []),
+                            "Class (Secondary)": tool_attrs.get("Class (Secondary)", []),
+                            "Days Since": [""],
+                            "Days Until": [""],
+                            "Direct": [tool],
+                            "Parent": [selected_parent],
+                            "-> Item": [kit_pk],  # added to ensure the filter still matches
+                            "Motivation": ["Preparation"],
+                            "Source": [""],
+                            "Towards": [""],
+                            "Domain": [""],
+                            "Skillset": [""],
+                            "Subset": [subset],
+                        }
+                        if tool in tool2info:
+                            # NOTE for now days since/until is shared by all subsets, but
+                            # we could make it more granular in the future. The expectation is
+                            # that picking a broad exercise by its timing is good enough. If subsets
+                            # are important enough, they can show up in vt.habituals for periodic review.
+                            info = tool2info[tool]
+                            attributes[pk]['Days Since'] = [info.days_since]
+                            attributes[pk]['Days Until'] = [info.days_until]
         return attributes
 
     def _query_subsets(self, taxonomies):

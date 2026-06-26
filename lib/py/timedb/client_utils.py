@@ -46,6 +46,9 @@ def parse_foreign(entry):
 def full_pk(table, pk):
     return f"{table} {pk}"
 
+def foreign_pk(table, pk):
+    return f"@{{{table} {pk}}}"
+
 
 def encode_pk(noun_pk, assn_pks):
     return "\t".join([noun_pk, json.dumps(assn_pks)])
@@ -122,12 +125,17 @@ def selected_target(request):
                 return f.equal_match.value
 
 
-def selected_targets(request, column='pk'):
+def selected_targets(request, column='-> Item'):
     for condition in request.conditions:
         for f in condition.requires:
+            if f.column != column:
+                continue
             match_type = f.WhichOneof('match')
-            if match_type == "in_match" and f.column == column:
-                return f.in_match.values
+            if match_type == "in_match":
+                return list(f.in_match.values)
+            if match_type == "equal_match":
+                return [f.equal_match.value]
+    return None
 
 
 def get_fields_for_items(client, table, pks, fields=(), include_children=False):
@@ -413,3 +421,36 @@ def _find_matching_auxiliaries_for_tasks(client, task_pks, kind):
             if action_matches and direct_matches:
                 toret[pk].append(aux)
     return toret
+
+
+def parse_days_until(days_until):
+    if not days_until:
+        return float('inf')
+    if days_until.startswith('+'):
+        return int(days_until[1:])
+    return int(days_until)
+
+
+def tighten_days_until_from_children(parents, parent_key_fn, children, child_parent_key_fn):
+    """Tighten 'Days Until' for each parent row to the min over its children's values.
+
+    parent_key_fn(row) -> hashable key identifying this parent, or None to skip
+    child_parent_key_fn(row) -> the parent key this child belongs to, or None to skip
+    """
+    child_min = {}
+    for child in children:
+        key = child_parent_key_fn(child)
+        if key is None:
+            continue
+        days_until = child.get("Days Until", [""])[0]
+        current = child_min.get(key)
+        if days_until and (current is None or parse_days_until(days_until) < parse_days_until(current)):
+            child_min[key] = days_until
+    for parent in parents:
+        key = parent_key_fn(parent)
+        if key is None or key not in child_min:
+            continue
+        own = parent.get("Days Until", [""])[0]
+        best = child_min[key]
+        if not own or parse_days_until(best) < parse_days_until(own):
+            parent["Days Until"] = [best]

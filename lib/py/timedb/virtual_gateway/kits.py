@@ -3,6 +3,7 @@ import json
 
 from timedb import pks, schema
 from timedb.virtual_gateway import common
+from timedb.virtual_gateway.tools import ToolsBackend
 from timedb import client_utils
 
 from jql import jql_pb2, jql_pb2_grpc
@@ -40,11 +41,20 @@ class KitsBackend(jql_pb2_grpc.JQLServicer):
                 continue
             kits[kit] = row
         kit2info = common.get_timing_info(self.client, kits.keys())
+
+        # Query tools for all kits in a single batch call, then group by kit
+        tools_backend = ToolsBackend(self.client)
+        all_exercises = tools_backend._query_exercises(list(kits.keys()), selected_parent)
+        kit2exercises = collections.defaultdict(dict)
+        for ex_pk, ex in all_exercises.items():
+            kit2exercises[ex["-> Item"][0]][ex_pk] = ex
+
         rows = {}
         for kit, row in kits.items():
             if kit in kit2info and len(kit2info[kit].active_actions) > 0:
                 continue
             pk = _encode_pk(kit, selected_parent)
+            tool_noun_pks = list({client_utils.foreign_pk(schema.Tables.Nouns, ex["Direct"][0]) for ex in kit2exercises[kit].values()})
             rows[pk] = {
                 "_pk": [pk],
                 "Action": ["Warm-up"],
@@ -59,11 +69,20 @@ class KitsBackend(jql_pb2_grpc.JQLServicer):
                 "Skillset":
                 [row.entries[assn_cmap[schema.Fields.Arg1]].formatted],
                 "Parent": [selected_parent],
+                "Tools": tool_noun_pks,
             }
             if kit in kit2info:
                 info = kit2info[kit]
                 rows[pk]['Days Since'] = [info.days_since]
                 rows[pk]['Days Until'] = [info.days_until]
+
+        # Tighten each kit's Days Until to reflect its most urgent tool
+        client_utils.tighten_days_until_from_children(
+            parents=list(rows.values()),
+            parent_key_fn=lambda k: k.get("Direct", [""])[0] or None,
+            children=list(all_exercises.values()),
+            child_parent_key_fn=lambda ex: ex.get("-> Item", [""])[0] or None,
+        )
         return rows
 
     def GetRow(self, request, context):
