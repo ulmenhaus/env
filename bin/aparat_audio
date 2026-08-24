@@ -1,0 +1,46 @@
+#!/usr/bin/env python3
+"""Download audio from an Aparat video URL."""
+
+import argparse
+import sys
+
+try:
+    import yt_dlp
+except ImportError:
+    print("yt-dlp is required: pip install yt-dlp", file=sys.stderr)
+    sys.exit(1)
+
+
+def download_audio(url: str, output: str = "%(title)s.%(ext)s", format: str = "mp3") -> None:
+    ydl_opts = {
+        "format": "bestaudio/best",
+        "outtmpl": output,
+        "postprocessors": [
+            {
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": format,
+                "preferredquality": "192",
+            }
+        ],
+        "quiet": False,
+        "no_warnings": False,
+    }
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        ydl.download([url])
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Download audio from Aparat videos")
+    parser.add_argument("url", help="Aparat video URL")
+    parser.add_argument("-o", "--output", default="%(title)s.%(ext)s",
+                        help="Output filename template (default: video title)")
+    parser.add_argument("-f", "--format", default="mp3",
+                        choices=["mp3", "m4a", "wav", "opus", "flac"],
+                        help="Audio format (default: mp3)")
+    args = parser.parse_args()
+
+    download_audio(args.url, output=args.output, format=args.format)
+
+
+if __name__ == "__main__":
+    main()

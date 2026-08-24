@@ -1,0 +1,354 @@
+#!/usr/bin/env python3
+
+import argparse
+import curses
+import json
+import os
+import sys
+
+from google.protobuf import descriptor_pb2
+from google.protobuf import descriptor_pool as _descriptor_pool
+from google.protobuf import descriptor
+
+
+TYPE_NAMES = {
+    descriptor.FieldDescriptor.TYPE_DOUBLE: 'double',
+    descriptor.FieldDescriptor.TYPE_FLOAT: 'float',
+    descriptor.FieldDescriptor.TYPE_INT64: 'int64',
+    descriptor.FieldDescriptor.TYPE_UINT64: 'uint64',
+    descriptor.FieldDescriptor.TYPE_INT32: 'int32',
+    descriptor.FieldDescriptor.TYPE_FIXED64: 'fixed64',
+    descriptor.FieldDescriptor.TYPE_FIXED32: 'fixed32',
+    descriptor.FieldDescriptor.TYPE_BOOL: 'bool',
+    descriptor.FieldDescriptor.TYPE_STRING: 'string',
+    descriptor.FieldDescriptor.TYPE_BYTES: 'bytes',
+    descriptor.FieldDescriptor.TYPE_UINT32: 'uint32',
+    descriptor.FieldDescriptor.TYPE_SFIXED32: 'sfixed32',
+    descriptor.FieldDescriptor.TYPE_SFIXED64: 'sfixed64',
+    descriptor.FieldDescriptor.TYPE_SINT32: 'sint32',
+    descriptor.FieldDescriptor.TYPE_SINT64: 'sint64',
+}
+
+NUMERIC_TYPES = {
+    descriptor.FieldDescriptor.TYPE_DOUBLE,
+    descriptor.FieldDescriptor.TYPE_FLOAT,
+    descriptor.FieldDescriptor.TYPE_INT64,
+    descriptor.FieldDescriptor.TYPE_UINT64,
+    descriptor.FieldDescriptor.TYPE_INT32,
+    descriptor.FieldDescriptor.TYPE_FIXED64,
+    descriptor.FieldDescriptor.TYPE_FIXED32,
+    descriptor.FieldDescriptor.TYPE_UINT32,
+    descriptor.FieldDescriptor.TYPE_SFIXED32,
+    descriptor.FieldDescriptor.TYPE_SFIXED64,
+    descriptor.FieldDescriptor.TYPE_SINT32,
+    descriptor.FieldDescriptor.TYPE_SINT64,
+}
+
+
+def load_pool(protoset_path):
+    fds = descriptor_pb2.FileDescriptorSet()
+    with open(protoset_path, 'rb') as f:
+        fds.ParseFromString(f.read())
+    pool = _descriptor_pool.DescriptorPool()
+    for file_proto in fds.file:
+        pool.Add(file_proto)
+    return pool
+
+
+def find_input_descriptor(pool, method):
+    service_name, method_name = method.rsplit('/', 1)
+    service = pool.FindServiceByName(service_name)
+    return service.FindMethodByName(method_name).input_type
+
+
+class FieldItem:
+    def __init__(self, field_desc, path, depth):
+        self.field_desc = field_desc
+        self.path = path        # tuple of str keys from root to this field
+        self.depth = depth
+        self.expanded = True
+        self.children = []      # populated for non-repeated message fields
+
+    @property
+    def is_expandable(self):
+        return (self.field_desc.type == descriptor.FieldDescriptor.TYPE_MESSAGE
+                and self.field_desc.label != descriptor.FieldDescriptor.LABEL_REPEATED)
+
+    @property
+    def is_repeated(self):
+        return self.field_desc.label == descriptor.FieldDescriptor.LABEL_REPEATED
+
+    @property
+    def type_str(self):
+        fd = self.field_desc
+        if fd.type == descriptor.FieldDescriptor.TYPE_ENUM:
+            base = fd.enum_type.name
+        elif fd.type == descriptor.FieldDescriptor.TYPE_MESSAGE:
+            base = fd.message_type.name
+        else:
+            base = TYPE_NAMES.get(fd.type, '?')
+        return f'[]{base}' if self.is_repeated else base
+
+    @property
+    def enum_hint(self):
+        fd = self.field_desc
+        if fd.type != descriptor.FieldDescriptor.TYPE_ENUM:
+            return None
+        pairs = [f"{v.name}={v.number}" for v in fd.enum_type.values]
+        return '  ' + '  '.join(pairs)
+
+
+def build_items(msg_desc, path=(), depth=0):
+    items = []
+    for field in msg_desc.fields:
+        item = FieldItem(field, path + (field.name,), depth)
+        if item.is_expandable:
+            item.children = build_items(field.message_type, path + (field.name,), depth + 1)
+        items.append(item)
+    return items
+
+
+def get_visible(items):
+    result = []
+    for item in items:
+        result.append(item)
+        if item.expanded and item.children:
+            result.extend(get_visible(item.children))
+    return result
+
+
+def get_value(data, path):
+    for key in path:
+        if not isinstance(data, dict) or key not in data:
+            return None
+        data = data[key]
+    return data
+
+
+def set_value(data, path, value):
+    for key in path[:-1]:
+        if key not in data or not isinstance(data[key], dict):
+            data[key] = {}
+        data = data[key]
+    if value is None:
+        data.pop(path[-1], None)
+    else:
+        data[path[-1]] = value
+
+
+def format_value(item, data):
+    val = get_value(data, item.path)
+    if item.is_expandable:
+        return '{...}' if val else '{}'
+    if val is None:
+        return ''
+    if isinstance(val, str):
+        return val
+    return json.dumps(val)
+
+
+def parse_value(item, text):
+    if not text:
+        return None
+    fd = item.field_desc
+    if item.is_repeated:
+        return json.loads(text)
+    if fd.type == descriptor.FieldDescriptor.TYPE_BOOL:
+        return text.lower() in ('true', '1', 'yes')
+    if fd.type in NUMERIC_TYPES:
+        try:
+            return int(text)
+        except ValueError:
+            return float(text)
+    if fd.type == descriptor.FieldDescriptor.TYPE_ENUM:
+        try:
+            return int(text)
+        except ValueError:
+            val_desc = fd.enum_type.values_by_name.get(text)
+            if val_desc is None:
+                raise ValueError(f"unknown enum value '{text}'")
+            return val_desc.number
+    return text
+
+
+def run_ui(stdscr, root_items, data):
+    curses.curs_set(0)
+    curses.use_default_colors()
+    curses.init_pair(1, curses.COLOR_BLACK, curses.COLOR_WHITE)
+    curses.init_pair(2, curses.COLOR_YELLOW, -1)
+    curses.init_pair(3, curses.COLOR_RED, -1)
+    curses.init_pair(4, curses.COLOR_CYAN, -1)
+
+    cursor = 0
+    scroll = 0
+    edit_text = None
+    status_msg = None
+    status_error = False
+
+    HINTS = "j/k:move  Enter:edit/toggle  w:write  q:quit"
+
+    while True:
+        visible = get_visible(root_items)
+
+        if not visible:
+            stdscr.clear()
+            height, width = stdscr.getmaxyx()
+            stdscr.addstr(0, 0, "(no fields)")
+            stdscr.addstr(height - 1, 0, HINTS[:width - 1])
+            stdscr.refresh()
+            key = stdscr.getch()
+            if key in (ord('q'), 27):
+                return None
+            if key == ord('w'):
+                return data
+            continue
+
+        if cursor >= len(visible):
+            cursor = max(0, len(visible) - 1)
+
+        stdscr.clear()
+        height, width = stdscr.getmaxyx()
+        list_height = height - 2
+
+        if cursor < scroll:
+            scroll = cursor
+        elif cursor >= scroll + list_height:
+            scroll = cursor - list_height + 1
+
+        for i in range(list_height):
+            idx = i + scroll
+            if idx >= len(visible):
+                break
+            item = visible[idx]
+            indent = '  ' * item.depth
+            if item.is_expandable:
+                toggle = '▼' if item.expanded else '▶'
+                line = f"{indent}{toggle} {item.field_desc.name} ({item.type_str})"
+            else:
+                val_str = format_value(item, data)
+                line = f"{indent}  {item.field_desc.name} ({item.type_str}): {val_str}"
+            line = line[:width - 1]
+            try:
+                if idx == cursor:
+                    stdscr.attron(curses.color_pair(1))
+                    stdscr.addstr(i, 0, line.ljust(width - 1))
+                    stdscr.attroff(curses.color_pair(1))
+                else:
+                    stdscr.addstr(i, 0, line)
+            except curses.error:
+                pass
+
+        # Context / edit line
+        current_item = visible[cursor]
+        if edit_text is not None:
+            prompt = f"  {current_item.field_desc.name}: {edit_text}_"
+            try:
+                stdscr.attron(curses.color_pair(2))
+                stdscr.addstr(height - 2, 0, prompt[:width - 1])
+                stdscr.attroff(curses.color_pair(2))
+            except curses.error:
+                pass
+        elif status_msg:
+            pair = curses.color_pair(3) if status_error else curses.color_pair(4)
+            try:
+                stdscr.attron(pair)
+                stdscr.addstr(height - 2, 0, status_msg[:width - 1])
+                stdscr.attroff(pair)
+            except curses.error:
+                pass
+        else:
+            hint = current_item.enum_hint
+            if hint:
+                try:
+                    stdscr.attron(curses.color_pair(4))
+                    stdscr.addstr(height - 2, 0, hint[:width - 1])
+                    stdscr.attroff(curses.color_pair(4))
+                except curses.error:
+                    pass
+
+        try:
+            stdscr.addstr(height - 1, 0, HINTS[:width - 1])
+        except curses.error:
+            pass
+
+        stdscr.refresh()
+
+        key = stdscr.getch()
+
+        if edit_text is not None:
+            if key == 27:
+                edit_text = None
+                status_msg = None
+            elif key in (curses.KEY_ENTER, 10, 13):
+                try:
+                    val = parse_value(current_item, edit_text)
+                    set_value(data, current_item.path, val)
+                    status_msg = f"  set {current_item.field_desc.name}"
+                    status_error = False
+                except Exception as e:
+                    status_msg = f"  error: {e}"
+                    status_error = True
+                edit_text = None
+            elif key in (curses.KEY_BACKSPACE, 127, 8):
+                edit_text = edit_text[:-1]
+            elif 32 <= key <= 126:
+                edit_text += chr(key)
+        else:
+            if key in (ord('j'), curses.KEY_DOWN):
+                cursor = min(cursor + 1, len(visible) - 1)
+                status_msg = None
+            elif key in (ord('k'), curses.KEY_UP):
+                cursor = max(cursor - 1, 0)
+                status_msg = None
+            elif key in (curses.KEY_ENTER, 10, 13):
+                if current_item.is_expandable:
+                    current_item.expanded = not current_item.expanded
+                    status_msg = None
+                else:
+                    current = get_value(data, current_item.path)
+                    if current is None:
+                        edit_text = ''
+                    elif isinstance(current, str):
+                        edit_text = current
+                    else:
+                        edit_text = json.dumps(current)
+                    status_msg = None
+            elif key == ord('w'):
+                return data
+            elif key in (ord('q'), 27):
+                return None
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--protoset', required=True, help='path to binary FileDescriptorSet')
+    parser.add_argument('--method', required=True, help='fully.qualified.Service/Method')
+    parser.add_argument('--payload', default=None, help='existing JSON payload as starting point')
+    args = parser.parse_args()
+
+    pool = load_pool(args.protoset)
+    input_desc = find_input_descriptor(pool, args.method)
+    root_items = build_items(input_desc)
+
+    data = {}
+    if args.payload:
+        data = json.loads(args.payload)
+
+    real_stdout_fd = os.dup(sys.stdout.fileno())
+    tty = open('/dev/tty', 'r+b', buffering=0)
+    os.dup2(tty.fileno(), 0)
+    os.dup2(tty.fileno(), 1)
+
+    try:
+        result = curses.wrapper(run_ui, root_items, data)
+    finally:
+        os.dup2(real_stdout_fd, 1)
+        os.close(real_stdout_fd)
+        tty.close()
+
+    if result is not None:
+        sys.stdout.write(json.dumps(result, indent=2))
+
+
+if __name__ == '__main__':
+    main()
