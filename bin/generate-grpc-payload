@@ -56,7 +56,12 @@ def load_pool(protoset_path):
 
 
 def find_input_descriptor(pool, method):
-    service_name, method_name = method.rsplit('/', 1)
+    if "/" in method:
+        service_name, method_name = method.rsplit('/', 1)
+    else:
+        parts = method.split(".")
+        service_name = ".".join(parts[:-1])
+        method_name = parts[-1]
     service = pool.FindServiceByName(service_name)
     return service.FindMethodByName(method_name).input_type
 
