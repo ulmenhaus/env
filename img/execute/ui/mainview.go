@@ -84,9 +84,8 @@ type MainView struct {
 	planSelections   []PlanSelectionItem
 	substitutingPlan bool
 
-	// state used for focus mode
-	focusing             bool
 	justSwitchedGrouping bool
+	treeMode             bool
 
 	// state used for prompting for next noun state
 	nounSwitchingStatePK string
@@ -661,7 +660,13 @@ func (mv *MainView) listTasksLayout(g *gocui.Gui) error {
 func (mv *MainView) tabulatedTasks(g *gocui.Gui, v *gocui.View) ([]string, error) {
 	if mv.span == timedb.Today {
 		wasNil := mv.cachedTodayTasks == nil
-		today, err := mv.todayTasks()
+		var today []string
+		var err error
+		if mv.treeMode {
+			today, err = mv.treeTasks()
+		} else {
+			today, err = mv.todayTasks()
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -780,17 +785,11 @@ func (mv *MainView) todayTasks() ([]string, error) {
 			currentBreak.done += 1
 		}
 	}
-	passedFirstWithUnfinished := false
 	for _, brk := range brks {
-		if mv.focusing && (passedFirstWithUnfinished || brk.done == len(brk.items)) {
-			tasks = append(tasks, fmt.Sprintf("[%d/%d] %s", brk.done, len(brk.items), brk.description))
-		} else {
-			tasks = append(tasks, brk.description)
-			for _, item := range brk.items {
-				ix2item[len(tasks)] = item
-				tasks = append(tasks, " "+item.Description)
-			}
-			passedFirstWithUnfinished = brk.done != len(brk.items)
+		tasks = append(tasks, brk.description)
+		for _, item := range brk.items {
+			ix2item[len(tasks)] = item
+			tasks = append(tasks, " "+item.Description)
 		}
 	}
 	mv.ix2item = ix2item
@@ -849,11 +848,11 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(timedb.TasksView, 'f', gocui.ModNone, mv.toggleFocus)
+	err = g.SetKeybinding(timedb.TasksView, 'X', gocui.ModNone, mv.refreshTasks)
 	if err != nil {
 		return err
 	}
-	err = g.SetKeybinding(timedb.TasksView, 'X', gocui.ModNone, mv.refreshTasks)
+	err = g.SetKeybinding(timedb.TasksView, 't', gocui.ModNone, mv.toggleTreeMode)
 	if err != nil {
 		return err
 	}
@@ -917,12 +916,18 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 
 func (mv *MainView) selectNextFreeTask(g *gocui.Gui, v *gocui.View) {
 	for i, task := range mv.cachedTodayTasks {
-		// TODO(rabrams) bit of a hack here to identify which tasks are undone
-		if strings.HasPrefix(task, " [ ]") {
+		if mv.isFreeTask(task) {
 			v.SetCursor(0, i)
 			return
 		}
 	}
+}
+
+func (mv *MainView) isFreeTask(task string) bool {
+	if mv.treeMode {
+		return strings.Contains(task, "[ ]")
+	}
+	return strings.HasPrefix(task, " [ ]")
 }
 
 func (mv *MainView) nextSpan(g *gocui.Gui, v *gocui.View) error {
@@ -1217,7 +1222,7 @@ func (mv *MainView) cursorDown(g *gocui.Gui, v *gocui.View) error {
 			// TODO(rabrams) bit of a hack here to identify which tasks can be skipped
 			// because they're already done -- NOTE we don't do the same for cursor-up
 			// so you can backtrack to those if you want
-			if strings.HasPrefix(mv.cachedTodayTasks[ix], " [ ]") {
+			if mv.isFreeTask(mv.cachedTodayTasks[ix]) {
 				break
 			}
 			delta += 1
@@ -1674,6 +1679,145 @@ func (mv *MainView) switchModes(g *gocui.Gui, v *gocui.View) error {
 		mv.TaskViewMode = TaskViewModeListBar
 	}
 	return mv.refreshView(g)
+}
+
+func (mv *MainView) toggleTreeMode(g *gocui.Gui, v *gocui.View) error {
+	mv.treeMode = !mv.treeMode
+	mv.justSwitchedGrouping = true
+	return mv.refreshView(g)
+}
+
+// treeTasks renders the today list as a hierarchical tree based on task
+// parent-child relationships (Primary Goal chain and check→task).
+// Each entry is indented four spaces per level relative to its nearest
+// ancestor that appears contiguously above it in the list.
+func (mv *MainView) treeTasks() ([]string, error) {
+	items := mv.today
+	tasksTable := mv.tables[timedb.TableTasks]
+
+	// Memoised parent lookup: taskPK → Primary Goal value (parentTaskPK).
+	parentCache := map[string]string{}
+	getParent := func(pk string) (string, error) {
+		if p, ok := parentCache[pk]; ok {
+			return p, nil
+		}
+		resp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
+			Table: timedb.TableTasks,
+			Conditions: []*jqlpb.Condition{{
+				Requires: []*jqlpb.Filter{{
+					Column: timedb.FieldDescription,
+					Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: pk}},
+				}},
+			}},
+		})
+		if err != nil {
+			return "", err
+		}
+		parent := ""
+		if len(resp.Rows) > 0 {
+			parent = resp.Rows[0].Entries[api.IndexOfField(tasksTable.Columns, timedb.FieldPrimaryGoal)].Formatted
+		}
+		parentCache[pk] = parent
+		return parent, nil
+	}
+
+	// ancestorSet returns the set of all ancestor taskPKs for a given taskPK,
+	// walking up the Primary Goal chain.
+	ancestorSets := map[string]map[string]bool{}
+	var ancestorSet func(pk string) (map[string]bool, error)
+	ancestorSet = func(pk string) (map[string]bool, error) {
+		if s, ok := ancestorSets[pk]; ok {
+			return s, nil
+		}
+		s := map[string]bool{}
+		seen := map[string]bool{pk: true}
+		cur := pk
+		for {
+			parent, err := getParent(cur)
+			if err != nil {
+				return nil, err
+			}
+			if parent == "" || seen[parent] {
+				break
+			}
+			s[parent] = true
+			seen[parent] = true
+			cur = parent
+		}
+		ancestorSets[pk] = s
+		return s, nil
+	}
+
+	// isAncestorOf returns true if items[j] is a direct or transitive ancestor
+	// of items[i]. A task-level reminder is the ancestor of a check-level
+	// reminder for the same task; a task-level reminder is an ancestor of any
+	// reminder whose task's Primary Goal chain passes through it. A check-level
+	// reminder is never an ancestor across task boundaries.
+	isAncestorOf := func(j, i int) (bool, error) {
+		infoI, okI := mv.reminderCache[items[i].ReminderArg0]
+		infoJ, okJ := mv.reminderCache[items[j].ReminderArg0]
+		if !okI || !okJ || infoI.taskPK == "" || infoJ.taskPK == "" {
+			return false, nil
+		}
+		if infoI.taskPK == infoJ.taskPK {
+			return infoJ.checkText == "" && infoI.checkText != "", nil
+		}
+		if infoJ.checkText != "" {
+			return false, nil
+		}
+		ancestors, err := ancestorSet(infoI.taskPK)
+		if err != nil {
+			return false, err
+		}
+		return ancestors[infoJ.taskPK], nil
+	}
+
+	// Compute indent level for each item. An item is indented one level deeper
+	// than its nearest ancestor in the list, but only when every item between
+	// them is also a descendant of that same ancestor.
+	indents := make([]int, len(items))
+	for i := range items {
+		for j := i - 1; j >= 0; j-- {
+			ancestor, err := isAncestorOf(j, i)
+			if err != nil {
+				return nil, err
+			}
+			if !ancestor {
+				continue
+			}
+			allDescendants := true
+			for k := j + 1; k < i; k++ {
+				descendant, err := isAncestorOf(j, k)
+				if err != nil {
+					return nil, err
+				}
+				if !descendant {
+					allDescendants = false
+					break
+				}
+			}
+			if allDescendants {
+				indents[i] = indents[j] + 1
+			}
+			break
+		}
+	}
+
+	tasks := []string{}
+	ix2item := map[int]DayItem{}
+	currentBreak := ""
+	for i, item := range items {
+		if item.Break != currentBreak {
+			currentBreak = item.Break
+			if currentBreak != "" {
+				tasks = append(tasks, currentBreak)
+			}
+		}
+		ix2item[len(tasks)] = item
+		tasks = append(tasks, " "+strings.Repeat("    ", indents[i])+item.Description)
+	}
+	mv.ix2item = ix2item
+	return tasks, nil
 }
 
 func (mv *MainView) queryActiveAndHabitualTasks() (*jqlpb.ListRowsResponse, error) {
@@ -3595,12 +3739,6 @@ func (mv *MainView) substitutePlanSelectionsForTask(g *gocui.Gui, v *gocui.View)
 		return err
 	}
 	mv.MainViewMode = MainViewModeListBar
-	return mv.refreshView(g)
-}
-
-func (mv *MainView) toggleFocus(g *gocui.Gui, v *gocui.View) error {
-	mv.focusing = !mv.focusing
-	mv.justSwitchedGrouping = true
 	return mv.refreshView(g)
 }
 
