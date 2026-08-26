@@ -114,12 +114,14 @@ type DayItemMeta struct {
 
 // reminderInfo holds cached data for a reminder entity in the current day plan.
 type reminderInfo struct {
-	taskPK       string
-	taskArg0     string
-	checkText    string // empty for task-level reminders
-	description  string // checkText if set, else taskPK
-	status       string // raw status: Awaiting, Ready, Done, Elided, Failed
-	statusAssnPK string
+	taskPK          string
+	taskArg0        string
+	checkText       string // empty for task-level reminders
+	description     string // checkText if set, else taskPK
+	status          string // raw status: Awaiting, Ready, Done, Elided, Failed
+	statusAssnPK    string
+	collapsed       bool
+	collapsedAssnPK string
 }
 
 type PlanSelectionItem struct {
@@ -167,6 +169,7 @@ func NewMainView(g *gocui.Gui, dbms api.JQL_DBMS, preselectTask string, injectMa
 		dbms:                dbms,
 		preselectTask:       preselectTask,
 		injectMatchingTasks: injectMatchingTasks,
+		treeMode:            true,
 	}
 	return mv, mv.load(g)
 }
@@ -817,6 +820,14 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 	if err != nil {
 		return err
 	}
+	err = g.SetKeybinding(timedb.TasksView, 'K', gocui.ModNone, mv.treeSkipUp)
+	if err != nil {
+		return err
+	}
+	err = g.SetKeybinding(timedb.TasksView, 'J', gocui.ModNone, mv.treeSkipDown)
+	if err != nil {
+		return err
+	}
 	if err := g.SetKeybinding(timedb.TasksView, gocui.KeyEnter, gocui.ModNone, mv.logTime); err != nil {
 		return err
 	}
@@ -853,6 +864,10 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 		return err
 	}
 	err = g.SetKeybinding(timedb.TasksView, 't', gocui.ModNone, mv.toggleTreeMode)
+	if err != nil {
+		return err
+	}
+	err = g.SetKeybinding(timedb.TasksView, 'f', gocui.ModNone, mv.toggleCollapsed)
 	if err != nil {
 		return err
 	}
@@ -1251,6 +1266,72 @@ func (mv *MainView) cursorUp(g *gocui.Gui, v *gocui.View) error {
 	return mv.refreshView(g)
 }
 
+// treeRowIndent returns the hierarchy depth of a display row by counting its
+// leading spaces. Break headers (no leading space) and top-level items (one
+// leading space) both resolve to 0; each additional two spaces is one level.
+func treeRowIndent(row string) int {
+	n := 0
+	for _, c := range row {
+		if c != ' ' {
+			break
+		}
+		n++
+	}
+	if n == 0 {
+		return 0
+	}
+	return (n - 1) / 2
+}
+
+func (mv *MainView) treeSkipDown(g *gocui.Gui, v *gocui.View) error {
+	if v == nil {
+		return nil
+	}
+	cx, cy := v.Cursor()
+	_, oy := v.Origin()
+	current := cy + oy
+	rows := mv.cachedTodayTasks
+	if current >= len(rows) {
+		return nil
+	}
+	indent := treeRowIndent(rows[current])
+	delta := 1
+	for current+delta < len(rows) && treeRowIndent(rows[current+delta]) > indent {
+		delta++
+	}
+	if err := v.SetCursor(cx, cy+delta); err != nil {
+		ox, oy := v.Origin()
+		if err := v.SetOrigin(ox, oy+delta); err != nil {
+			return err
+		}
+	}
+	return mv.refreshView(g)
+}
+
+func (mv *MainView) treeSkipUp(g *gocui.Gui, v *gocui.View) error {
+	if v == nil {
+		return nil
+	}
+	cx, cy := v.Cursor()
+	ox, oy := v.Origin()
+	current := cy + oy
+	rows := mv.cachedTodayTasks
+	if current <= 0 {
+		return nil
+	}
+	indent := treeRowIndent(rows[current])
+	delta := 1
+	for current-delta > 0 && treeRowIndent(rows[current-delta]) > indent {
+		delta++
+	}
+	if err := v.SetCursor(cx, cy-delta); err != nil && oy > 0 {
+		if err := v.SetOrigin(ox, oy-delta); err != nil {
+			return err
+		}
+	}
+	return mv.refreshView(g)
+}
+
 func (mv *MainView) GetTodayPlanPK() (string, error) {
 	today, err := mv.queryDayPlan()
 	if err != nil {
@@ -1289,6 +1370,62 @@ func (mv *MainView) ResolveSelectedPK(g *gocui.Gui) (string, error) {
 		selectedTask := mv.tasks[mv.span][ix]
 		return selectedTask.Entries[api.IndexOfField(tasksTable.Columns, timedb.FieldDescription)].Formatted, nil
 	}
+}
+
+// selectedReminder returns the DayItem and reminderInfo for the currently
+// highlighted row. Both return values are nil/zero if the cursor is on a
+// non-reminder row (e.g. a break header). This is the canonical way for key
+// handlers to resolve cursor position → reminder data.
+func (mv *MainView) selectedReminder(g *gocui.Gui) (DayItem, *reminderInfo, error) {
+	view, err := g.View(timedb.TasksView)
+	if err != nil {
+		return DayItem{}, nil, err
+	}
+	_, oy := view.Origin()
+	_, cy := view.Cursor()
+	item, ok := mv.ix2item[oy+cy]
+	if !ok || item.ReminderArg0 == "" {
+		return DayItem{}, nil, nil
+	}
+	return item, mv.reminderCache[item.ReminderArg0], nil
+}
+
+func (mv *MainView) toggleCollapsed(g *gocui.Gui, v *gocui.View) error {
+	item, info, err := mv.selectedReminder(g)
+	if err != nil || info == nil {
+		return err
+	}
+	newValue := "yes"
+	if info.collapsed {
+		newValue = "no"
+	}
+	reminderRef := fmt.Sprintf("vt.reminders %s", item.ReminderArg0)
+	if info.collapsedAssnPK != "" {
+		_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
+			UpdateOnly: true,
+			Table:      timedb.TableAssertions,
+			Pk:         info.collapsedAssnPK,
+			Fields:     map[string]string{timedb.FieldArg1: newValue},
+		})
+	} else {
+		_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
+			InsertOnly: true,
+			Table:      timedb.TableAssertions,
+			Pk:         randPK(),
+			Fields: map[string]string{
+				timedb.FieldRelation: ".Collapsed",
+				timedb.FieldArg0:     reminderRef,
+				timedb.FieldArg1:     newValue,
+			},
+		})
+	}
+	if err != nil {
+		return err
+	}
+	if err = mv.save(); err != nil {
+		return err
+	}
+	return mv.refreshView(g)
 }
 
 func (mv *MainView) GetSelectedReminderArg0(g *gocui.Gui) (string, error) {
@@ -1536,12 +1673,14 @@ func (mv *MainView) refreshToday() error {
 				desc = taskPK
 			}
 			mv.reminderCache[arg0] = &reminderInfo{
-				taskPK:       taskPK,
-				taskArg0:     taskArg0,
-				checkText:    checkText,
-				description:  desc,
-				status:       status,
-				statusAssnPK: assnPKs[arg0]["Status"],
+				taskPK:          taskPK,
+				taskArg0:        taskArg0,
+				checkText:       checkText,
+				description:     desc,
+				status:          status,
+				statusAssnPK:    assnPKs[arg0]["Status"],
+				collapsed:       a["Collapsed"] == "yes",
+				collapsedAssnPK: assnPKs[arg0]["Collapsed"],
 			}
 		}
 	}
@@ -1803,18 +1942,67 @@ func (mv *MainView) treeTasks() ([]string, error) {
 		}
 	}
 
+	// For each item, find the range of its descendants: the contiguous run of
+	// items that follow it with a strictly greater indent level.
+	descEnd := make([]int, len(items))
+	for i := range items {
+		end := i + 1
+		for end < len(items) && indents[end] > indents[i] {
+			end++
+		}
+		descEnd[i] = end
+	}
+
+	isTerminal := func(description string) bool {
+		return strings.HasPrefix(description, "[x]") || strings.HasPrefix(description, "[-]")
+	}
+
 	tasks := []string{}
 	ix2item := map[int]DayItem{}
 	currentBreak := ""
+	skipUntil := 0 // items before this index are hidden as descendants of a collapsed entry
 	for i, item := range items {
+		if i < skipUntil {
+			continue
+		}
 		if item.Break != currentBreak {
 			currentBreak = item.Break
 			if currentBreak != "" {
 				tasks = append(tasks, currentBreak)
 			}
 		}
+		info := mv.reminderCache[item.ReminderArg0]
+		collapsed := info != nil && info.collapsed
+
+		description := item.Description
+		visibleEnd := descEnd[i]
+		if collapsed {
+			// When collapsed, count only the descendants that would be visible
+			// (i.e. not themselves hidden by a collapse further up) — for
+			// simplicity we count all of them since the state is per-item.
+			visibleEnd = descEnd[i]
+		}
+		if start, end := i+1, visibleEnd; start < end {
+			total := end - start
+			done := 0
+			for k := start; k < end; k++ {
+				if isTerminal(items[k].Description) {
+					done++
+				}
+			}
+			description = fmt.Sprintf("%s [%d/%d] %s", description[:3], done, total, description[4:])
+		}
+
+		indent := strings.Repeat("  ", indents[i])
+		var line string
+		if collapsed {
+			line = " " + indent + "\033[1m" + description + "\033[0m"
+			skipUntil = descEnd[i]
+		} else {
+			line = " " + indent + description
+		}
 		ix2item[len(tasks)] = item
-		tasks = append(tasks, " "+strings.Repeat("    ", indents[i])+item.Description)
+		tasks = append(tasks, line)
 	}
 	mv.ix2item = ix2item
 	return tasks, nil
