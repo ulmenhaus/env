@@ -81,6 +81,9 @@ def render_pics(grouped, meta):
         yield render_pic(src)
 
 
+def render_link(description, path):
+    return f"[{description}]({path})"
+
 def inject_externals(default_project, markdown):
     suffix_to_language = {
         "py": "python",
@@ -149,6 +152,6 @@ def resolve_jql_links(base_markdown):
             ref, rest = inpt.split(":", 1)
         except:
             raise Exception("Exception breaking line", inpt)
-        parts.append(_render_link(ref, "/nouns " + ref))
+        parts.append(render_link(ref, "/nouns " + ref))
         parts.append(rest)
     return "".join(parts)

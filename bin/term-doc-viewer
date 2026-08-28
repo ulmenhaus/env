@@ -1,0 +1,135 @@
+#!/usr/bin/env python3
+
+import argparse
+import curses
+import glob
+import json
+import os
+import subprocess
+import tempfile
+import time
+
+
+def watch(statedir):
+    watch_file = os.path.join(statedir, "current_img_path")
+    pages_file = os.path.join(statedir, "pages.json")
+    last_content = None
+    last_pages_mtime = None
+
+    while True:
+        try:
+            pages_mtime = os.path.getmtime(pages_file)
+        except FileNotFoundError:
+            pages_mtime = None
+
+        if pages_mtime != last_pages_mtime:
+            last_pages_mtime = pages_mtime
+            last_content = None
+
+        try:
+            with open(watch_file, "r") as f:
+                content = f.read().strip()
+        except FileNotFoundError:
+            content = ""
+
+        if content != last_content:
+            last_content = content
+            if content:
+                subprocess.run(["kitty", "+kitten", "icat", "--transfer-mode=file", content])
+
+        time.sleep(0.5)
+
+
+def select(statedir):
+    pages_file = os.path.join(statedir, "pages.json")
+    current_img_path = os.path.join(statedir, "current_img_path")
+
+    def load_config():
+        with open(pages_file) as f:
+            config = json.load(f)
+        return config["path_template"], config["count"], os.path.getmtime(pages_file)
+
+    def write_selection(path_template, ordinal):
+        with open(current_img_path, "w") as f:
+            f.write(path_template.format(ordinal=ordinal))
+
+    def run(stdscr):
+        curses.curs_set(0)
+        stdscr.timeout(500)
+
+        path_template, count, last_mtime = load_config()
+        selected = 0
+        write_selection(path_template, selected + 1)
+
+        while True:
+            try:
+                mtime = os.path.getmtime(pages_file)
+                if mtime != last_mtime:
+                    path_template, count, last_mtime = load_config()
+                    selected = 0
+                    write_selection(path_template, selected + 1)
+            except FileNotFoundError:
+                pass
+
+            stdscr.erase()
+            x = 0
+            for i in range(count):
+                label = f" {i + 1} "
+                attr = curses.A_REVERSE if i == selected else curses.A_NORMAL
+                stdscr.addstr(0, x, label, attr)
+                x += len(label) + 1
+            stdscr.refresh()
+
+            key = stdscr.getch()
+            if key == ord('l') and selected < count - 1:
+                selected += 1
+                write_selection(path_template, selected + 1)
+            elif key == ord('h') and selected > 0:
+                selected -= 1
+                write_selection(path_template, selected + 1)
+            elif key == ord('q'):
+                break
+
+    curses.wrapper(run)
+
+
+def view(statedir, pdf_path):
+    os.makedirs(statedir, exist_ok=True)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        subprocess.run(
+            ["pdftoppm", "-png", pdf_path, os.path.join(tmpdir, "page")],
+            check=True,
+        )
+        pages = sorted(glob.glob(os.path.join(tmpdir, "page-*.png")))
+        count = len(pages)
+        for i, src in enumerate(pages):
+            dst = os.path.join(statedir, f"page-{i + 1:02d}.png")
+            subprocess.run(["convert", src, "-negate", dst], check=True)
+
+    template = os.path.join(statedir, "page-{ordinal:02d}.png")
+    with open(os.path.join(statedir, "pages.json"), "w") as f:
+        json.dump({"path_template": template, "count": count}, f)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="term-doc-viewer")
+    parser.add_argument("--statedir", default=".tdv/")
+    subparsers = parser.add_subparsers(dest="mode", required=True)
+    subparsers.add_parser("watch")
+    subparsers.add_parser("select")
+    view_parser = subparsers.add_parser("view")
+    view_parser.add_argument("pdf_path")
+
+    args = parser.parse_args()
+
+    if args.mode == "watch":
+        watch(args.statedir)
+    elif args.mode == "select":
+        select(args.statedir)
+    elif args.mode == "view":
+        view(args.statedir, args.pdf_path)
+
+
+if __name__ == "__main__":
+    main()
