@@ -1,4 +1,42 @@
 #!/usr/bin/env python3
+"""
+term-doc-viewer — display a PDF document page-by-page in a Kitty terminal.
+
+Architecture
+------------
+Three cooperating processes share a state directory (default: ``.tdv/``):
+
+  view   Convert a PDF to per-page PNG images and write pages.json.
+         Run once each time the document changes.
+
+  select Interactive curses UI: shows a page-number bar, writes the path of
+         the selected page to ``current_img_path`` whenever the user presses
+         h/l.  Also reloads automatically when pages.json changes on disk.
+
+  watch  Polls ``current_img_path`` every 0.5 s; whenever the path changes
+         it renders the new image with ``kitty +kitten icat``.
+
+Typical setup: ``watch`` and ``select`` run as persistent processes in
+dedicated tmux panes; ``view`` is called from other scripts whenever the
+document needs refreshing.
+
+PDF rasterisation (view mode)
+------------------------------
+Pages are rasterised with MuPDF (``mutool draw``) rather than the older
+``pdftoppm`` + ImageMagick ``convert`` pipeline for three reasons:
+
+  1. **Speed** – MuPDF's renderer is substantially faster than Poppler's.
+  2. **Parallelism** – the ``-P`` flag lets MuPDF render pages concurrently
+     across all available CPU cores in a single subprocess call.
+  3. **Built-in inversion** – the ``-I`` flag negates colours during
+     rasterisation, eliminating the separate ``convert -negate`` step that
+     was previously needed to make white-background PDFs readable on a dark
+     terminal background.
+
+Page files are written with four-digit zero-padded names
+(``page-0001.png``, ``page-0002.png``, …) so that ``sorted(glob(…))``
+produces the correct order without custom key functions.
+"""
 
 import argparse
 import curses
@@ -6,7 +44,6 @@ import glob
 import json
 import os
 import subprocess
-import tempfile
 import time
 
 
@@ -96,20 +133,47 @@ def select(statedir):
 def view(statedir, pdf_path):
     os.makedirs(statedir, exist_ok=True)
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        subprocess.run(
-            ["pdftoppm", "-png", pdf_path, os.path.join(tmpdir, "page")],
-            check=True,
-        )
-        pages = sorted(glob.glob(os.path.join(tmpdir, "page-*.png")))
-        count = len(pages)
-        for i, src in enumerate(pages):
-            dst = os.path.join(statedir, f"page-{i + 1:02d}.png")
-            subprocess.run(["convert", src, "-negate", dst], check=True)
+    # Remove images from any prior run before rasterising the new ones, so a
+    # document with fewer pages than before doesn't leave stale trailing
+    # images on disk.
+    pages_file = os.path.join(statedir, "pages.json")
+    try:
+        with open(pages_file) as f:
+            old_config = json.load(f)
+        for ordinal in range(1, old_config["count"] + 1):
+            old_path = old_config["path_template"].format(ordinal=ordinal)
+            try:
+                os.remove(old_path)
+            except FileNotFoundError:
+                pass
+    except (FileNotFoundError, json.JSONDecodeError, KeyError):
+        pass
 
-    template = os.path.join(statedir, "page-{ordinal:02d}.png")
+    # Rasterise all pages in one mutool call.
+    #
+    #   -q     suppress progress output
+    #   -I     invert colours (white↔black) for dark terminal backgrounds;
+    #          replaces the former `convert -negate` post-processing loop
+    #   -P     render pages in parallel across available CPU cores
+    #   -r 96  96 DPI — sufficient for terminal display and roughly half the
+    #          pixel count of the 150 DPI pdftoppm default, reducing both
+    #          render time and kitty icat transfer time
+    #   %04d   zero-padded page number so sorted(glob(…)) orders correctly
+    #          for documents up to 9999 pages
+    out_template = os.path.join(statedir, "page-%04d.png")
+    subprocess.run(
+        ["mutool", "draw", "-q", "-I", "-P", "-r", "96", "-o", out_template, pdf_path],
+        check=True,
+    )
+
+    pages = sorted(glob.glob(os.path.join(statedir, "page-*.png")))
+    count = len(pages)
+
+    # pages.json is the handshake between view and select/watch.  Writing it
+    # last means select only reloads once all page images are fully on disk.
+    display_template = os.path.join(statedir, "page-{ordinal:04d}.png")
     with open(os.path.join(statedir, "pages.json"), "w") as f:
-        json.dump({"path_template": template, "count": count}, f)
+        json.dump({"path_template": display_template, "count": count}, f)
 
 
 def main():

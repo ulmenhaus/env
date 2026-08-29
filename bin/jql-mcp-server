@@ -1,0 +1,263 @@
+#!/usr/bin/env python3
+"""MCP server wrapping the jql gRPC daemon.
+
+Exposes jql operations as MCP tools so Claude can query and edit the timedb.
+Connects to the jql daemon over gRPC (optionally TLS) and serves MCP over stdio or SSE.
+
+Usage:
+    jql-mcp-server --address localhost:9999
+    jql-mcp-server --address myhost:9999 --tls-cert cert.pem --tls-key key.pem --tls-ca ca.pem
+    jql-mcp-server --address jql:9999 --tls-cert ... --transport sse --host 0.0.0.0 --port 9997
+
+Filter format for list_rows (DNF — OR of ANDs):
+    [
+      [{"column": "Status", "match": "equal", "value": "Active"}],
+      [{"column": "Status", "match": "equal", "value": "Pending"},
+       {"column": "Direct", "match": "contains", "value": "project"}]
+    ]
+  match types: equal, less_than, greater_than, in (value is JSON list), contains, path_to
+  Optional keys: negated (bool, default false), exact (bool, for contains), reverse (bool, for path_to)
+"""
+
+import argparse
+import json
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'lib', 'py'))
+
+import grpc
+from mcp.server.mcpserver import MCPServer
+
+from jql import jql_pb2, jql_pb2_grpc
+
+
+def _build_stub(args: argparse.Namespace) -> jql_pb2_grpc.JQLStub:
+    if args.tls_cert:
+        with open(args.tls_cert, 'rb') as f:
+            cert = f.read()
+        with open(args.tls_key, 'rb') as f:
+            key = f.read()
+        with open(args.tls_ca, 'rb') as f:
+            ca = f.read()
+        creds = grpc.ssl_channel_credentials(
+            root_certificates=ca, private_key=key, certificate_chain=cert)
+        channel = grpc.secure_channel(args.address, creds)
+    else:
+        channel = grpc.insecure_channel(args.address)
+    return jql_pb2_grpc.JQLStub(channel)
+
+
+def _columns_to_dict(columns) -> list[dict]:
+    type_names = {
+        jql_pb2.EntryType.STRING: 'string',
+        jql_pb2.EntryType.INT: 'int',
+        jql_pb2.EntryType.DATE: 'date',
+        jql_pb2.EntryType.ENUM: 'enum',
+        jql_pb2.EntryType.ID: 'id',
+        jql_pb2.EntryType.TIME: 'time',
+        jql_pb2.EntryType.MONEYAMT: 'moneyamt',
+        jql_pb2.EntryType.FOREIGN: 'foreign',
+        jql_pb2.EntryType.FOREIGNS: 'foreigns',
+        jql_pb2.EntryType.POLYFOREIGN: 'polyforeign',
+    }
+    result = []
+    for col in columns:
+        d = {
+            'name': col.name,
+            'type': type_names.get(col.type, str(col.type)),
+            'primary': col.primary,
+        }
+        if col.foreign_table:
+            d['foreign_table'] = col.foreign_table
+        if col.values:
+            d['values'] = list(col.values)
+        result.append(d)
+    return result
+
+
+def _row_to_dict(columns, row) -> dict:
+    return {col.name: row.entries[i].formatted for i, col in enumerate(columns)}
+
+
+def _parse_filter(f: dict) -> jql_pb2.Filter:
+    match_type = f['match']
+    value = f.get('value', '')
+    negated = f.get('negated', False)
+    column = f['column']
+
+    if match_type == 'equal':
+        match_kwargs = {'equal_match': jql_pb2.EqualMatch(value=value)}
+    elif match_type == 'less_than':
+        match_kwargs = {'less_than_match': jql_pb2.LessThanMatch(value=value)}
+    elif match_type == 'greater_than':
+        match_kwargs = {'greather_than_match': jql_pb2.GreaterThanMatch(value=value)}
+    elif match_type == 'in':
+        values = json.loads(value) if isinstance(value, str) else value
+        match_kwargs = {'in_match': jql_pb2.InMatch(values=values)}
+    elif match_type == 'contains':
+        match_kwargs = {'contains_match': jql_pb2.ContainsMatch(
+            value=value, exact=f.get('exact', False))}
+    elif match_type == 'path_to':
+        match_kwargs = {'path_to_match': jql_pb2.PathToMatch(
+            value=value, reverse=f.get('reverse', False))}
+    else:
+        raise ValueError(f"Unknown match type: {match_type!r}")
+
+    return jql_pb2.Filter(negated=negated, column=column, **match_kwargs)
+
+
+def _parse_conditions(filters: list[list[dict]]) -> list[jql_pb2.Condition]:
+    conditions = []
+    for condition_spec in filters:
+        requires = [_parse_filter(f) for f in condition_spec]
+        conditions.append(jql_pb2.Condition(requires=requires))
+    return conditions
+
+
+def _register_tools(app: MCPServer, stub: jql_pb2_grpc.JQLStub) -> None:
+
+    @app.tool(description=(
+        "List all tables in the jql database with their column names and types. "
+        "Call this first to understand the schema before querying."
+    ))
+    def list_tables() -> str:
+        resp = stub.ListTables(jql_pb2.ListTablesRequest())
+        tables = [{'name': t.name, 'columns': _columns_to_dict(t.columns)} for t in resp.tables]
+        return json.dumps(tables, indent=2)
+
+    @app.tool(description=(
+        "Query rows from a jql table. Returns matching rows as JSON.\n\n"
+        "filters: DNF filter — a JSON list of conditions (ORed together), each condition "
+        "is a list of filter objects (ANDed together). Each filter has:\n"
+        "  column (str), match (equal|less_than|greater_than|in|contains|path_to), "
+        "value (str or list for 'in'), negated (bool), exact (bool, contains only), "
+        "reverse (bool, path_to only).\n"
+        "Pass filters as a JSON string or omit for no filtering.\n\n"
+        "Returns: {table, columns, total_matched, total_all, rows: [{col: val, ...}]}"
+    ))
+    def list_rows(
+        table: str,
+        filters: str = '[]',
+        order_by: str = '',
+        dec: bool = False,
+        offset: int = 0,
+        limit: int = 50,
+    ) -> str:
+        filter_specs = json.loads(filters) if isinstance(filters, str) else filters
+        conditions = _parse_conditions(filter_specs)
+        req = jql_pb2.ListRowsRequest(
+            table=table,
+            conditions=conditions,
+            order_by=order_by,
+            dec=dec,
+            offset=offset,
+            limit=limit,
+        )
+        resp = stub.ListRows(req)
+        rows = [_row_to_dict(resp.columns, row) for row in resp.rows]
+        return json.dumps({
+            'table': resp.table,
+            'columns': _columns_to_dict(resp.columns),
+            'total_matched': resp.total,
+            'total_all': resp.all,
+            'rows': rows,
+        }, indent=2)
+
+    @app.tool(description=(
+        "Get a single row by its primary key. "
+        "Returns the row as {col: val, ...} plus the column schema."
+    ))
+    def get_row(table: str, pk: str) -> str:
+        resp = stub.GetRow(jql_pb2.GetRowRequest(table=table, pk=pk))
+        return json.dumps({
+            'table': resp.table,
+            'columns': _columns_to_dict(resp.columns),
+            'row': _row_to_dict(resp.columns, resp.row),
+        }, indent=2)
+
+    @app.tool(description=(
+        "Create or update a row. fields is a JSON object mapping column names to values.\n"
+        "update_only=true: fail if the row does not exist.\n"
+        "insert_only=true: fail if the row already exists.\n"
+        "After writing, call persist() to flush changes to disk."
+    ))
+    def write_row(
+        table: str,
+        pk: str,
+        fields: str,
+        update_only: bool = False,
+        insert_only: bool = False,
+    ) -> str:
+        field_map = json.loads(fields) if isinstance(fields, str) else fields
+        stub.WriteRow(jql_pb2.WriteRowRequest(
+            table=table,
+            pk=pk,
+            fields=field_map,
+            update_only=update_only,
+            insert_only=insert_only,
+        ))
+        return json.dumps({'ok': True})
+
+    @app.tool(description=(
+        "Delete a row by its primary key. "
+        "After deleting, call persist() to flush changes to disk."
+    ))
+    def delete_row(table: str, pk: str) -> str:
+        stub.DeleteRow(jql_pb2.DeleteRowRequest(table=table, pk=pk))
+        return json.dumps({'ok': True})
+
+    @app.tool(description=(
+        "Increment an integer or time field by a given amount (negative to decrement). "
+        "After incrementing, call persist() to flush changes to disk."
+    ))
+    def increment_entry(table: str, pk: str, column: str, amount: int = 1) -> str:
+        stub.IncrementEntry(jql_pb2.IncrementEntryRequest(
+            table=table, pk=pk, column=column, amount=amount))
+        return json.dumps({'ok': True})
+
+    @app.tool(description=(
+        "Persist all pending writes to disk. Always call this after write_row, "
+        "delete_row, or increment_entry to ensure changes are saved."
+    ))
+    def persist() -> str:
+        stub.Persist(jql_pb2.PersistRequest())
+        return json.dumps({'ok': True})
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description='MCP server for the jql gRPC daemon')
+    parser.add_argument('--address', required=True,
+                        help='jql daemon address, e.g. localhost:9999')
+    parser.add_argument('--tls-cert', metavar='PATH',
+                        help='Path to client TLS certificate (PEM)')
+    parser.add_argument('--tls-key', metavar='PATH',
+                        help='Path to client TLS private key (PEM)')
+    parser.add_argument('--tls-ca', metavar='PATH',
+                        help='Path to CA certificate for verifying the server (PEM)')
+    parser.add_argument('--transport', choices=['stdio', 'sse'], default='stdio',
+                        help='MCP transport (default: stdio)')
+    parser.add_argument('--host', default='127.0.0.1',
+                        help='Bind host for SSE transport (default: 127.0.0.1)')
+    parser.add_argument('--port', type=int, default=9997,
+                        help='Bind port for SSE transport (default: 9997)')
+    args = parser.parse_args()
+
+    if bool(args.tls_cert) != bool(args.tls_key) or bool(args.tls_cert) != bool(args.tls_ca):
+        parser.error('--tls-cert, --tls-key, and --tls-ca must all be provided together')
+
+    stub = _build_stub(args)
+
+    app = MCPServer(
+        'jql',
+        description='Query and edit the jql personal timedb database via gRPC',
+    )
+    _register_tools(app, stub)
+    if args.transport == 'sse':
+        app.run(transport='sse', host=args.host, port=args.port)
+    else:
+        app.run(transport='stdio')
+
+
+if __name__ == '__main__':
+    main()

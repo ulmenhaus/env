@@ -26,6 +26,7 @@ RUN pip3 install --break-system-packages \
   click \
   gitpython \
   grpcio \
+  mcp \
   markdown \
   matplotlib \
   numpy \

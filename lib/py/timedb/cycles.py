@@ -210,7 +210,7 @@ def add_task_from_template(dbms, table, pk):
         return _add_plan_for_task(dbms, table, pk)
     resp = dbms.GetRow(jql_pb2.GetRowRequest(table=table, pk=pk))
     cmap = {c.name: i for i, c in enumerate(resp.columns)}
-    parent = resp.row.entries[cmap[schema.Fields.Parent]].formatted
+    parent = resp.row.entries[cmap[schema.Fields.Parent]].formatted if schema.Fields.Parent in cmap else ""
     if not parent:
         parent_resp = dbms.ListRows(jql_pb2.ListRowsRequest(
             table=schema.Tables.Tasks,

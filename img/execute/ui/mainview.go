@@ -932,7 +932,11 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 func (mv *MainView) selectNextFreeTask(g *gocui.Gui, v *gocui.View) {
 	for i, task := range mv.cachedTodayTasks {
 		if mv.isFreeTask(task) {
-			v.SetCursor(0, i)
+			ix := i
+			if mv.treeMode {
+				ix = mv.deepenToFreeDescendant(mv.cachedTodayTasks, i)
+			}
+			v.SetCursor(0, ix)
 			return
 		}
 	}
@@ -1238,6 +1242,12 @@ func (mv *MainView) cursorDown(g *gocui.Gui, v *gocui.View) error {
 			// because they're already done -- NOTE we don't do the same for cursor-up
 			// so you can backtrack to those if you want
 			if mv.isFreeTask(mv.cachedTodayTasks[ix]) {
+				if mv.treeMode {
+					deeper := mv.deepenToFreeDescendant(mv.cachedTodayTasks, ix)
+					if deeper != ix {
+						delta = deeper - (cy + oy)
+					}
+				}
 				break
 			}
 			delta += 1
@@ -1281,6 +1291,55 @@ func treeRowIndent(row string) int {
 		return 0
 	}
 	return (n - 1) / 2
+}
+
+// isAncestorRow reports whether rows[j] is a tree ancestor of rows[i].
+// Break headers (no leading space) are never ancestors. The contiguity
+// condition requires all rows between j and i to have a strictly greater
+// indent than j, so items from different sections are never considered
+// ancestors/descendants of each other.
+func isAncestorRow(rows []string, j, i int) bool {
+	if j >= i || len(rows[j]) == 0 || rows[j][0] != ' ' {
+		return false
+	}
+	jIndent := treeRowIndent(rows[j])
+	if jIndent >= treeRowIndent(rows[i]) {
+		return false
+	}
+	for k := j + 1; k < i; k++ {
+		if treeRowIndent(rows[k]) <= jIndent {
+			return false
+		}
+	}
+	return true
+}
+
+// treeDescendantRange returns the half-open range [start, end) of rows that
+// are descendants of rows[ix]: the contiguous run of rows after ix whose
+// indent is strictly greater than rows[ix]'s indent.
+func treeDescendantRange(rows []string, ix int) (int, int) {
+	if ix >= len(rows) {
+		return ix + 1, ix + 1
+	}
+	iIndent := treeRowIndent(rows[ix])
+	end := ix + 1
+	for end < len(rows) && treeRowIndent(rows[end]) > iIndent {
+		end++
+	}
+	return ix + 1, end
+}
+
+// deepenToFreeDescendant returns the display-row index of the first free
+// descendant of rows[ix], recursively descending until either a leaf free
+// task is found or no free descendants exist (in which case ix is returned).
+func (mv *MainView) deepenToFreeDescendant(rows []string, ix int) int {
+	start, end := treeDescendantRange(rows, ix)
+	for k := start; k < end; k++ {
+		if mv.isFreeTask(rows[k]) {
+			return mv.deepenToFreeDescendant(rows, k)
+		}
+	}
+	return ix
 }
 
 func (mv *MainView) treeSkipDown(g *gocui.Gui, v *gocui.View) error {
@@ -1390,16 +1449,15 @@ func (mv *MainView) selectedReminder(g *gocui.Gui) (DayItem, *reminderInfo, erro
 	return item, mv.reminderCache[item.ReminderArg0], nil
 }
 
-func (mv *MainView) toggleCollapsed(g *gocui.Gui, v *gocui.View) error {
-	item, info, err := mv.selectedReminder(g)
-	if err != nil || info == nil {
-		return err
+// setCollapseState writes a Collapsed assertion for the given reminder to the
+// database. It does not save or refresh — callers are responsible for that.
+func (mv *MainView) setCollapseState(arg0 string, info *reminderInfo, collapsed bool) error {
+	newValue := "no"
+	if collapsed {
+		newValue = "yes"
 	}
-	newValue := "yes"
-	if info.collapsed {
-		newValue = "no"
-	}
-	reminderRef := fmt.Sprintf("vt.reminders %s", item.ReminderArg0)
+	reminderRef := fmt.Sprintf("vt.reminders %s", arg0)
+	var err error
 	if info.collapsedAssnPK != "" {
 		_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
 			UpdateOnly: true,
@@ -1419,13 +1477,77 @@ func (mv *MainView) toggleCollapsed(g *gocui.Gui, v *gocui.View) error {
 			},
 		})
 	}
-	if err != nil {
+	return err
+}
+
+func (mv *MainView) toggleCollapsed(g *gocui.Gui, v *gocui.View) error {
+	item, info, err := mv.selectedReminder(g)
+	if err != nil || info == nil {
+		return err
+	}
+	if err = mv.setCollapseState(item.ReminderArg0, info, !info.collapsed); err != nil {
 		return err
 	}
 	if err = mv.save(); err != nil {
 		return err
 	}
 	return mv.refreshView(g)
+}
+
+// findAncestorWithAllDescendantsDone returns the ReminderArg0 of the closest
+// tree ancestor of the item at display index ix such that:
+//   - the ancestor is still free (has "[ ]"), and
+//   - every visible descendant of the ancestor except ix is already terminal.
+//
+// ix is the item that was just closed out, so it is excluded from the "still
+// free" check. Returns "" when no such ancestor exists.
+func (mv *MainView) findAncestorWithAllDescendantsDone(ix int) string {
+	rows := mv.cachedTodayTasks
+	if ix >= len(rows) {
+		return ""
+	}
+	// Walk backward through all rows, picking out proper ancestors of ix.
+	for j := ix - 1; j >= 0; j-- {
+		if !isAncestorRow(rows, j, ix) {
+			continue
+		}
+		if !mv.isFreeTask(rows[j]) {
+			continue
+		}
+		_, end := treeDescendantRange(rows, j)
+		allDone := true
+		for k := j + 1; k < end; k++ {
+			if k == ix {
+				continue // just closed
+			}
+			if mv.isFreeTask(rows[k]) {
+				allDone = false
+				break
+			}
+		}
+		if allDone {
+			if item, ok := mv.ix2item[j]; ok && item.ReminderArg0 != "" {
+				return item.ReminderArg0
+			}
+		}
+	}
+	return ""
+}
+
+// setCursorToArg0 positions the cursor at the display row whose ReminderArg0
+// matches arg0. It scans ix2item, which must already reflect the current
+// (post-refresh) display state.
+func (mv *MainView) setCursorToArg0(g *gocui.Gui, arg0 string) {
+	view, err := g.View(timedb.TasksView)
+	if err != nil {
+		return
+	}
+	for displayIx, dayItem := range mv.ix2item {
+		if dayItem.ReminderArg0 == arg0 {
+			view.SetCursor(0, displayIx)
+			return
+		}
+	}
 }
 
 func (mv *MainView) GetSelectedReminderArg0(g *gocui.Gui) (string, error) {
@@ -3272,6 +3394,67 @@ func (mv *MainView) markTask(g *gocui.Gui, v *gocui.View, status string) error {
 	if err != nil {
 		return err
 	}
+
+	if mv.treeMode {
+		// Case 3: current item is an ancestor — if all visible descendants are
+		// already terminal, auto-collapse it so the done subtree disappears.
+		autoCollapseArg0 := ""
+		{
+			colInfo := mv.reminderCache[item.ReminderArg0]
+			if colInfo != nil && !colInfo.collapsed {
+				start, end := treeDescendantRange(mv.cachedTodayTasks, ix)
+				if start < end {
+					allDone := true
+					for k := start; k < end && allDone; k++ {
+						if mv.isFreeTask(mv.cachedTodayTasks[k]) {
+							allDone = false
+						}
+					}
+					if allDone {
+						autoCollapseArg0 = item.ReminderArg0
+						if err = mv.setCollapseState(item.ReminderArg0, colInfo, true); err != nil {
+							return err
+						}
+						if err = mv.save(); err != nil {
+							return err
+						}
+					}
+				}
+			}
+		}
+
+		// Case 2: current item is a descendant and closing it completes the last
+		// open work under one of its ancestors — jump up to that ancestor.
+		ancestorArg0 := mv.findAncestorWithAllDescendantsDone(ix)
+
+		if ancestorArg0 != "" || autoCollapseArg0 != "" {
+			if err = mv.refreshView(g); err != nil {
+				return err
+			}
+			if ancestorArg0 != "" {
+				mv.setCursorToArg0(g, ancestorArg0)
+			} else {
+				// Case 3 only: position at the next free task after the collapsed block.
+				ancNewIx := 0
+				for displayIx, dayItem := range mv.ix2item {
+					if dayItem.ReminderArg0 == autoCollapseArg0 {
+						ancNewIx = displayIx + 1
+						break
+					}
+				}
+				if view2, err2 := g.View(timedb.TasksView); err2 == nil {
+					for k := ancNewIx; k < len(mv.cachedTodayTasks); k++ {
+						if mv.isFreeTask(mv.cachedTodayTasks[k]) {
+							view2.SetCursor(0, mv.deepenToFreeDescendant(mv.cachedTodayTasks, k))
+							break
+						}
+					}
+				}
+			}
+			return mv.possiblyPromptForNextNounState(info.taskPK)
+		}
+	}
+
 	err = mv.cursorDown(g, v)
 	if err != nil {
 		return err
