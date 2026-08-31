@@ -90,6 +90,14 @@ type MainView struct {
 	searchAll     bool // indicates if we search all fields or just this one
 	selectOptions []string
 	selectedPK    string
+
+	// pendingCursorPK and pendingCursorColumn are used to keep the cursor
+	// on the same row/column across a requery (e.g. after running a
+	// macro) when a row with that pk, and a column with that name, are
+	// still present, regardless of what index either is now at.
+	havePendingCursor   bool
+	pendingCursorPK     string
+	pendingCursorColumn string
 }
 
 // NewMainView returns a MainView initialized with a given Table
@@ -202,7 +210,7 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 	}
 	// Virtual Tables store auxiliary pks in an entry's main pk to prevent unnecessary look-ups
 	// when modifying entries. These auxiliary pks are tab delimited so we hide them here
-	location.Write([]byte(fmt.Sprintf("    L%d C%d           %s", row, col, strings.Split(primarySelection.Formatted, "\t")[0])))
+	location.Write([]byte(fmt.Sprintf("    L%d C%d           %s", row, col, shortPK(primarySelection.Formatted))))
 	if mv.Mode == MainViewModeSelectBox || mv.Mode == MainViewModePromptForMacro {
 		selectBox, err := g.SetView("selectBox", maxX/2-30, maxY/2-10, maxX/2+30, maxY/2+10)
 		if err != nil {
@@ -676,6 +684,12 @@ func (mv *MainView) selectColumn(respA, respB *jqlpb.ListRowsResponse) int {
 	return 0
 }
 
+// shortPK strips any metadata that follows the first tab in a formatted
+// pk value, so that two pks can be compared ignoring that metadata.
+func shortPK(formatted string) string {
+	return strings.Split(formatted, "\t")[0]
+}
+
 func (mv *MainView) updateTableViewContents(resetCursorRow bool) error {
 	response, err := mv.dbms.ListRows(ctx, &mv.request)
 	if err != nil {
@@ -692,12 +706,38 @@ func (mv *MainView) updateTableViewContents(resetCursorRow bool) error {
 		pkIndex := api.GetPrimary(mv.response.Columns)
 		for i, row := range mv.response.Rows {
 			rowPk := row.Entries[pkIndex].GetFormatted()
-			shortRowPk := strings.Split(rowPk, "\t")[0]
+			shortRowPk := shortPK(rowPk)
 			if rowPk == mv.selectedPK || shortRowPk == mv.selectedPK {
 				selectedRow = i
 			}
 		}
 		mv.selectedPK = ""
+	}
+	if mv.havePendingCursor {
+		// The row's index can shift across a requery (e.g. virtual tables
+		// like vt.relatives don't guarantee stable ordering between
+		// queries), so search for the pk rather than trusting the old
+		// index.
+		pkIndex := api.GetPrimary(mv.response.Columns)
+		wantPK := shortPK(mv.pendingCursorPK)
+		for i, row := range mv.response.Rows {
+			if shortPK(row.Entries[pkIndex].GetFormatted()) == wantPK {
+				selectedRow = i
+				break
+			}
+		}
+		// selectedCol was computed against mv.response as it stood before
+		// this requery, which for a macro on a virtual table may be a
+		// throwaway intermediate response (e.g. loadTable's unfiltered
+		// query) rather than the column layout the user was actually
+		// looking at. Restore by name from the real prior column instead.
+		for i, col := range mv.response.Columns {
+			if col.GetName() == mv.pendingCursorColumn {
+				selectedCol = i
+				break
+			}
+		}
+		mv.havePendingCursor = false
 	}
 
 	var header []string
@@ -1295,6 +1335,7 @@ func (mv *MainView) runMacro(ch rune, description string) error {
 	}
 	row, col := mv.SelectedEntry()
 	primarySelection := mv.response.Rows[row].Entries[api.GetPrimary(mv.response.Columns)]
+	primaryColumn := mv.response.Columns[col].GetName()
 	requestBytes, err := proto.Marshal(&mv.request)
 	if err != nil {
 		return err
@@ -1303,7 +1344,7 @@ func (mv *MainView) runMacro(ch rune, description string) error {
 		Table:            mv.request.Table,
 		PKs:              pks,
 		PrimarySelection: primarySelection.Formatted,
-		PrimaryColumn:    mv.response.Columns[col].GetName(),
+		PrimaryColumn:    primaryColumn,
 		EncodedRequest:   hex.EncodeToString(requestBytes),
 	}
 
@@ -1359,6 +1400,9 @@ func (mv *MainView) runMacro(ch rune, description string) error {
 			},
 		}
 	}
+	mv.havePendingCursor = true
+	mv.pendingCursorPK = primarySelection.GetFormatted()
+	mv.pendingCursorColumn = primaryColumn
 	err = mv.updateTableViewContents(true)
 	if err != nil {
 		return fmt.Errorf("Could not update table view after macro: %s", err)
