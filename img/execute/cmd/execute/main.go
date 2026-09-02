@@ -8,8 +8,9 @@ import (
 	"github.com/jroimartin/gocui"
 	"github.com/spf13/cobra"
 	"github.com/ulmenhaus/env/img/execute/ui"
-	"github.com/ulmenhaus/env/lib/go/timedb"
+	"github.com/ulmenhaus/env/img/jql/api"
 	"github.com/ulmenhaus/env/img/jql/cli"
+	"github.com/ulmenhaus/env/lib/go/timedb"
 	"github.com/ulmenhaus/env/proto/jql/jqlpb"
 	"google.golang.org/protobuf/proto"
 )
@@ -160,6 +161,61 @@ func runExecute() error {
 		return cfg.SwitchTool("jql", pk)
 	}
 	err = g.SetKeybinding("", 'g', gocui.ModNone, goToSelectedPK)
+	if err != nil {
+		return err
+	}
+
+	goToRelatives := func(g *gocui.Gui, v *gocui.View) error {
+		if mv.MainViewMode != ui.MainViewModeListBar {
+			mv.Edit(v, gocui.Key(0), ',', gocui.ModNone)
+			return nil
+		}
+		taskPK, err := mv.ResolveSelectedPK(g)
+		if err != nil {
+			return err
+		}
+		task, err := dbms.GetRow(context.Background(), &jqlpb.GetRowRequest{
+			Table: timedb.TableTasks,
+			Pk:    taskPK,
+		})
+		if err != nil {
+			return err
+		}
+		direct := task.Row.Entries[api.IndexOfField(task.Columns, timedb.FieldDirect)].Formatted
+		if direct == "" {
+			return nil
+		}
+		req := &jqlpb.ListRowsRequest{
+			Table: "vt.relatives",
+			Conditions: []*jqlpb.Condition{
+				{
+					Requires: []*jqlpb.Filter{
+						{
+							Column: "-> Item",
+							Match: &jqlpb.Filter_EqualMatch{EqualMatch: &jqlpb.EqualMatch{
+								Value: fmt.Sprintf("%s %s", timedb.TableNouns, direct),
+							}},
+						},
+					},
+				},
+			},
+			GroupBy: &jqlpb.GroupBy{
+				Groupings: []*jqlpb.RequestedGrouping{
+					{Field: "Relation"},
+				},
+			},
+			OrderBy: "A Date",
+			Dec:     true,
+		}
+		data, err := proto.Marshal(req)
+		if err != nil {
+			return err
+		}
+		cfg.Table = ""
+		cfg.Query = base64.StdEncoding.EncodeToString(data)
+		return cfg.SwitchTool("jql", "")
+	}
+	err = g.SetKeybinding("", ',', gocui.ModNone, goToRelatives)
 	if err != nil {
 		return err
 	}
