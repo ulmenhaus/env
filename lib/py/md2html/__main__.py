@@ -11,7 +11,7 @@ from markdown.extensions import codehilite
 from pygments.formatters import HtmlFormatter
 from pymdownx.superfences import fence_code_format
 
-from timedb.markdown import render
+from md2html import render
 
 def graphviz_format(source: str, language: str, class_name: str,
                     options: Dict[str, Any], md: markdown.Markdown,
