@@ -3431,6 +3431,21 @@ func (mv *MainView) markTask(g *gocui.Gui, v *gocui.View, status string) error {
 			if err = mv.refreshView(g); err != nil {
 				return err
 			}
+			// refreshView only reloads the underlying data (mv.today,
+			// mv.reminderCache); the tabulated display rows
+			// (mv.cachedTodayTasks, mv.ix2item) that encode collapse state
+			// are otherwise only rebuilt on the next gocui Layout pass.
+			// Rebuild them now so the auto-collapse above is reflected
+			// before we compute where the cursor should land — otherwise
+			// we'd compute against the pre-collapse (longer) row list and
+			// overshoot.
+			view2, err2 := g.View(timedb.TasksView)
+			if err2 != nil {
+				return err2
+			}
+			if _, err = mv.tabulatedTasks(g, view2); err != nil {
+				return err
+			}
 			if ancestorArg0 != "" {
 				mv.setCursorToArg0(g, ancestorArg0)
 			} else {
@@ -3442,12 +3457,10 @@ func (mv *MainView) markTask(g *gocui.Gui, v *gocui.View, status string) error {
 						break
 					}
 				}
-				if view2, err2 := g.View(timedb.TasksView); err2 == nil {
-					for k := ancNewIx; k < len(mv.cachedTodayTasks); k++ {
-						if mv.isFreeTask(mv.cachedTodayTasks[k]) {
-							view2.SetCursor(0, mv.deepenToFreeDescendant(mv.cachedTodayTasks, k))
-							break
-						}
+				for k := ancNewIx; k < len(mv.cachedTodayTasks); k++ {
+					if mv.isFreeTask(mv.cachedTodayTasks[k]) {
+						view2.SetCursor(0, mv.deepenToFreeDescendant(mv.cachedTodayTasks, k))
+						break
 					}
 				}
 			}
