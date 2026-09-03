@@ -707,7 +707,7 @@ func (mv *MainView) selectResource(g *gocui.Gui, v *gocui.View) error {
 	}
 	if recType == ResourceTypeProcedures {
 		// XXX hard-coding the tmux and runproc path is not portable
-		cmd := exec.Command("/usr/local/bin/tmux", "split-window", "-fb", "-l", "15", "--", "/usr/local/bin/runproc", resource.Description, resource.Meta)
+		cmd := exec.Command("/usr/local/bin/tmux", "split-window", "-fb", "-l", "15", "-e", "TERM=xterm-256color", "--", "/usr/local/bin/runproc", resource.Description, resource.Meta)
 		err := cmd.Run()
 		if err != nil {
 			return err

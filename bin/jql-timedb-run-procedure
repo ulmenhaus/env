@@ -61,10 +61,12 @@ def main():
                 return
         # Fall back to the default behavior which is to open the prompt tool with
         # the right procedures preselected
-        subprocess.check_call([
+        cmd = [
             "tmux",
             "popup",
             "-E",
+            "-e",
+            "TERM=xterm-256color",
             "/usr/local/bin/runner",
             "--mode",
             "client",
@@ -81,7 +83,18 @@ def main():
             "--jql-bin-dir",
             # TODO hard-coding location of jql bin dir for now
             os.path.expanduser("~/src/github.com/ulmenhaus/env/bin"),
-        ])
+        ]
+        tls_cert = iface.attrs.get("tls_cert", "")
+        if tls_cert:
+            cmd += [
+                "--tls-cert",
+                tls_cert,
+                "--tls-key",
+                iface.attrs["tls_key"],
+                "--tls-ca",
+                iface.attrs["tls_ca"],
+            ]
+        subprocess.check_call(cmd)
 
 
 if __name__ == "__main__":
