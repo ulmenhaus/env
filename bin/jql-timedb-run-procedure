@@ -80,6 +80,8 @@ def main():
             direct,
             '--init-query',
             action,
+            '--init-task-pk',
+            pk,
             "--jql-bin-dir",
             # TODO hard-coding location of jql bin dir for now
             os.path.expanduser("~/src/github.com/ulmenhaus/env/bin"),

@@ -23,12 +23,13 @@ func runExecute() error {
 	}
 	cfg.Register(cmd.Flags())
 
-	var jqlBinDir, initResource, initQuery, initType string
+	var jqlBinDir, initResource, initQuery, initType, initTaskPK string
 
 	cmd.Flags().StringVarP(&jqlBinDir, "jql-bin-dir", "d", "", "Directory containing jql binaries")
 	cmd.Flags().StringVarP(&initResource, "init-resource", "r", "", "The resource to start at")
 	cmd.Flags().StringVarP(&initQuery, "init-query", "q", "", "The initial search query")
 	cmd.Flags().StringVarP(&initType, "init-type", "e", "", "The initially selected type of resource")
+	cmd.Flags().StringVar(&initTaskPK, "init-task-pk", "", "The pk of the task this runner was opened for, used e.g. to attach procedure steps as checks")
 
 	if err := cmd.Execute(); err != nil {
 		return err
@@ -44,7 +45,7 @@ func runExecute() error {
 	}
 	// TODO decent amount of common set-up logic here to maybe break into a common subroutine
 	defer g.Close()
-	mv, err := ui.NewMainView(g, dbms, jqlBinDir, initResource, initQuery, initType)
+	mv, err := ui.NewMainView(g, dbms, jqlBinDir, initResource, initQuery, initType, initTaskPK)
 	if err != nil {
 		return err
 	}

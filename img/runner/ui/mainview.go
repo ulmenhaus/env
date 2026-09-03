@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand"
 	"os"
 	"os/exec"
 	"path"
@@ -12,9 +13,20 @@ import (
 
 	"github.com/jroimartin/gocui"
 	"github.com/ulmenhaus/env/img/jql/api"
+	"github.com/ulmenhaus/env/lib/go/procedure"
 	"github.com/ulmenhaus/env/lib/go/timedb"
 	"github.com/ulmenhaus/env/proto/jql/jqlpb"
 )
+
+const alphanumChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+func randPK() string {
+	b := make([]byte, 16)
+	for i := range b {
+		b[i] = alphanumChars[rand.Intn(len(alphanumChars))]
+	}
+	return string(b)
+}
 
 // MainViewMode is the current mode of the MainView.
 // It determines which subviews are displayed
@@ -55,6 +67,7 @@ var (
 type MainView struct {
 	dbms      api.JQL_DBMS
 	jqlBinDir string
+	taskPK    string
 
 	Mode   MainViewMode
 	TypeIX int
@@ -70,7 +83,7 @@ type MainView struct {
 }
 
 // NewMainView returns a MainView initialized with a given Table
-func NewMainView(g *gocui.Gui, dbms api.JQL_DBMS, jqlBinDir, initResource, initQuery, initType string) (*MainView, error) {
+func NewMainView(g *gocui.Gui, dbms api.JQL_DBMS, jqlBinDir, initResource, initQuery, initType, initTaskPK string) (*MainView, error) {
 	rootTopic := timedb.RootTopic
 	recursive := true
 	if initResource != "" {
@@ -92,6 +105,7 @@ func NewMainView(g *gocui.Gui, dbms api.JQL_DBMS, jqlBinDir, initResource, initQ
 		recursive: recursive,
 		jqlBinDir: jqlBinDir,
 		resourceQ: initQuery,
+		taskPK:    initTaskPK,
 	}
 	return mv, mv.refreshResources()
 }
@@ -364,6 +378,10 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 		return err
 	}
 	err = g.SetKeybinding(timedb.ResourceView, 'C', gocui.ModNone, mv.copyAllProcedures)
+	if err != nil {
+		return err
+	}
+	err = g.SetKeybinding(timedb.ResourceView, 'c', gocui.ModNone, mv.checkifySelectedProcedure)
 	if err != nil {
 		return err
 	}
@@ -826,6 +844,38 @@ func (mv *MainView) copyAllProcedures(g *gocui.Gui, v *gocui.View) error {
 	err := cmd.Run()
 	if err != nil {
 		return err
+	}
+	os.Exit(0)
+	return nil
+}
+
+// checkifySelectedProcedure turns each step of the currently selected procedure
+// into a new .Check assertion on the task the runner was opened for.
+func (mv *MainView) checkifySelectedProcedure(g *gocui.Gui, v *gocui.View) error {
+	if ListResourcesTypes[mv.TypeIX] != ResourceTypeProcedures || mv.taskPK == "" {
+		return nil
+	}
+	_, oy := v.Origin()
+	_, cy := v.Cursor()
+	ix := oy + cy
+	if ix >= len(mv.resources) {
+		return nil
+	}
+	resource := mv.resources[ix]
+	for _, step := range procedure.ParseSteps(resource.Meta) {
+		_, err := mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
+			Table:      timedb.TableAssertions,
+			Pk:         randPK(),
+			InsertOnly: true,
+			Fields: map[string]string{
+				timedb.FieldRelation: ".Check",
+				timedb.FieldArg0:     fmt.Sprintf("tasks %s", mv.taskPK),
+				timedb.FieldArg1:     step.Description,
+			},
+		})
+		if err != nil {
+			return err
+		}
 	}
 	os.Exit(0)
 	return nil

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/jroimartin/gocui"
+	"github.com/ulmenhaus/env/lib/go/procedure"
 )
 
 const (
@@ -12,21 +13,16 @@ const (
 	DetailView = "details"
 )
 
-type step struct {
-	description string
-	details     string
-}
-
 // A MainView is the overall view including a list of resources
 type MainView struct {
 	title    string
-	steps    []step
+	steps    []procedure.Step
 	selected bool
 }
 
 // NewMainView returns a MainView initialized with a given Table
 func NewMainView(title string, g *gocui.Gui, text string) (*MainView, error) {
-	steps := parseSteps(text)
+	steps := procedure.ParseSteps(text)
 	mv := &MainView{
 		title: title,
 		steps: steps,
@@ -47,9 +43,9 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 	steps.SelFgColor = gocui.ColorBlack
 	g.SetCurrentView(StepView)
 	for _, step := range mv.steps {
-		desc := step.description
+		desc := step.Description
 		if len(desc) > maxX {
-			desc = step.description[:maxX]
+			desc = step.Description[:maxX]
 		}
 		steps.Write([]byte(desc + strings.Repeat(" ", maxX-len(desc)) + "\n"))
 	}
@@ -79,7 +75,7 @@ func (mv *MainView) populateDetails(g *gocui.Gui) error {
 	ix := cy + oy
 	step := mv.steps[ix]
 	details.Clear()
-	details.Write([]byte(step.details))
+	details.Write([]byte(step.Details))
 	return nil
 }
 
@@ -133,7 +129,7 @@ func (mv *MainView) selectItem(g *gocui.Gui, v *gocui.View) error {
 	_, cy := v.Cursor()
 	ix := oy + cy
 	step := mv.steps[ix]
-	details := strings.TrimSuffix(step.details, "\n")
+	details := strings.TrimSuffix(step.Details, "\n")
 	if mv.selected {
 		details = "\n"
 	}
@@ -148,28 +144,4 @@ func (mv *MainView) selectItem(g *gocui.Gui, v *gocui.View) error {
 		return mv.incrementCursor(g, v)
 	}
 	return nil
-}
-
-func parseSteps(text string) []step {
-	items := strings.Split(text, "\n- ")
-	steps := []step{}
-	for _, item := range items {
-		lines := strings.Split(item, "\n")
-		if lines[0] == "" {
-			continue
-		}
-		details := ""
-		for _, line := range lines[1:] {
-			if strings.HasPrefix(line, "```") || line == "" {
-				continue
-			}
-			details += strings.TrimSpace(line) + "\n"
-		}
-		// some basic sanitizing
-		steps = append(steps, step{
-			description: lines[0],
-			details:     details,
-		})
-	}
-	return steps
 }
