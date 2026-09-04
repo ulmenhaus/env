@@ -67,7 +67,17 @@ type MainView struct {
 	today            []DayItem
 	today2item       map[string]DayItemMeta // keyed by reminderArg0
 	ix2item          map[int]DayItem
-	reminderCache    map[string]*reminderInfo // reminderArg0 → info
+	reminderCache    map[string]*reminderInfo   // reminderArg0 → info
+	groupUnderCache  map[string]*groupUnderInfo // taskPK → .GroupUnder override info, for tasks in today's view
+
+	// ancestorParentCache memoizes treeTasks' resolved parent taskPK (via
+	// .GroupUnder or Primary Goal) for tasks reached only by walking the
+	// hierarchy chain (i.e. not covered by groupUnderCache because they have
+	// no reminder in today's view). Unlike groupUnderCache, this persists
+	// across gocui redraws — not just within one treeTasks call — since
+	// Layout reruns treeTasks on every keypress; it's invalidated only by
+	// refreshToday, when the underlying data can actually have changed.
+	ancestorParentCache map[string]string
 
 	// state used for searching tasks
 	topicQ          string
@@ -76,9 +86,9 @@ type MainView struct {
 	queryCallback   func(taskPK string) error
 
 	// state used for querying for a new plan / reminder
-	newPlanTaskPK              string
-	newPlanDescription         string
-	newReminderInsertAfterPK   string // .Entry assn PK of the item under cursor when 'i' was pressed
+	newPlanTaskPK            string
+	newPlanDescription       string
+	newReminderInsertAfterPK string // .Entry assn PK of the item under cursor when 'i' was pressed
 
 	// state used for querying for a subset of plans
 	planSelections   []PlanSelectionItem
@@ -122,6 +132,14 @@ type reminderInfo struct {
 	statusAssnPK    string
 	collapsed       bool
 	collapsedAssnPK string
+}
+
+// groupUnderInfo holds the .GroupUnder hierarchy override for a task in the
+// current day plan. parentPK is "" when no override assertion exists, in
+// which case the task's hierarchical parent falls back to Primary Goal.
+type groupUnderInfo struct {
+	parentPK string
+	assnPK   string
 }
 
 type PlanSelectionItem struct {
@@ -297,8 +315,8 @@ func (mv *MainView) createNewReminder(g *gocui.Gui, taskPK, checkText string) er
 		InsertOnly: true,
 		Fields: map[string]string{
 			timedb.FieldRelation: ".Check",
-			timedb.FieldArg0:      fmt.Sprintf("tasks %s", taskPK),
-			timedb.FieldArg1:      checkText,
+			timedb.FieldArg0:     fmt.Sprintf("tasks %s", taskPK),
+			timedb.FieldArg1:     checkText,
 		},
 	})
 	if err != nil {
@@ -408,10 +426,10 @@ func (mv *MainView) createNewPlan(g *gocui.Gui, taskPK, description string) erro
 	// pk doesn't really matter here so using a random integer
 	pk := randPK()
 	fields := map[string]string{
-		timedb.FieldArg0:      fmt.Sprintf("tasks %s", taskPK),
-		timedb.FieldArg1:      fmt.Sprintf("[ ] %s", description),
+		timedb.FieldArg0:     fmt.Sprintf("tasks %s", taskPK),
+		timedb.FieldArg1:     fmt.Sprintf("[ ] %s", description),
 		timedb.FieldRelation: ".Plan",
-		timedb.FieldOrder:     fmt.Sprintf("%d", newOrder),
+		timedb.FieldOrder:    fmt.Sprintf("%d", newOrder),
 	}
 	_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
 		Table:  timedb.TableAssertions,
@@ -507,10 +525,10 @@ func (mv *MainView) insertDayPlan(g *gocui.Gui, description string, delta int) e
 	}
 
 	fields := map[string]string{
-		timedb.FieldArg0:      dayPlanLink,
-		timedb.FieldArg1:      fmt.Sprintf("[ ] %s", description),
+		timedb.FieldArg0:     dayPlanLink,
+		timedb.FieldArg1:     fmt.Sprintf("[ ] %s", description),
 		timedb.FieldRelation: ".Do timedb.Today",
-		timedb.FieldOrder:     fmt.Sprintf("%d", dayOrder+1),
+		timedb.FieldOrder:    fmt.Sprintf("%d", dayOrder+1),
 	}
 	pk := randPK()
 	_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
@@ -868,6 +886,14 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 		return err
 	}
 	err = g.SetKeybinding(timedb.TasksView, 'f', gocui.ModNone, mv.toggleCollapsed)
+	if err != nil {
+		return err
+	}
+	err = g.SetKeybinding(timedb.TasksView, 'L', gocui.ModNone, mv.indentTask)
+	if err != nil {
+		return err
+	}
+	err = g.SetKeybinding(timedb.TasksView, 'H', gocui.ModNone, mv.outdentTask)
 	if err != nil {
 		return err
 	}
@@ -1259,7 +1285,7 @@ func (mv *MainView) cursorDown(g *gocui.Gui, v *gocui.View) error {
 			return err
 		}
 	}
-	return mv.refreshView(g)
+	return mv.syncSelectedLog(g)
 }
 
 func (mv *MainView) cursorUp(g *gocui.Gui, v *gocui.View) error {
@@ -1273,7 +1299,7 @@ func (mv *MainView) cursorUp(g *gocui.Gui, v *gocui.View) error {
 			return err
 		}
 	}
-	return mv.refreshView(g)
+	return mv.syncSelectedLog(g)
 }
 
 // treeRowIndent returns the hierarchy depth of a display row by counting its
@@ -1364,7 +1390,7 @@ func (mv *MainView) treeSkipDown(g *gocui.Gui, v *gocui.View) error {
 			return err
 		}
 	}
-	return mv.refreshView(g)
+	return mv.syncSelectedLog(g)
 }
 
 func (mv *MainView) treeSkipUp(g *gocui.Gui, v *gocui.View) error {
@@ -1388,7 +1414,7 @@ func (mv *MainView) treeSkipUp(g *gocui.Gui, v *gocui.View) error {
 			return err
 		}
 	}
-	return mv.refreshView(g)
+	return mv.syncSelectedLog(g)
 }
 
 func (mv *MainView) GetTodayPlanPK() (string, error) {
@@ -1492,6 +1518,189 @@ func (mv *MainView) toggleCollapsed(g *gocui.Gui, v *gocui.View) error {
 		return err
 	}
 	return mv.refreshView(g)
+}
+
+// setGroupUnder creates, updates, or deletes the .GroupUnder assertion that
+// overrides childPK's hierarchical parent. Passing newParentPK == "" deletes
+// the existing override assertion (if any), which makes the task a
+// hierarchy root unless it still resolves a parent via Primary Goal. It does
+// not save or refresh — callers are responsible for that.
+func (mv *MainView) setGroupUnder(childPK string, existingAssnPK string, newParentPK string) error {
+	if newParentPK == "" {
+		if existingAssnPK == "" {
+			return nil
+		}
+		_, err := mv.dbms.DeleteRow(ctx, &jqlpb.DeleteRowRequest{
+			Table: timedb.TableAssertions,
+			Pk:    existingAssnPK,
+		})
+		return err
+	}
+	arg1 := fmt.Sprintf("@{tasks %s}", newParentPK)
+	if existingAssnPK != "" {
+		_, err := mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
+			UpdateOnly: true,
+			Table:      timedb.TableAssertions,
+			Pk:         existingAssnPK,
+			Fields:     map[string]string{timedb.FieldArg1: arg1},
+		})
+		return err
+	}
+	_, err := mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
+		InsertOnly: true,
+		Table:      timedb.TableAssertions,
+		Pk:         randPK(),
+		Fields: map[string]string{
+			timedb.FieldRelation: ".GroupUnder",
+			timedb.FieldArg0:     fmt.Sprintf("tasks %s", childPK),
+			timedb.FieldArg1:     arg1,
+		},
+	})
+	return err
+}
+
+// resolveRowTaskPK returns the taskPK of the reminder rendered at display
+// row j, or "" if row j isn't a reminder row (e.g. a break header) or has no
+// associated task.
+func (mv *MainView) resolveRowTaskPK(rows []string, j int) string {
+	if j < 0 || j >= len(rows) || len(rows[j]) == 0 || rows[j][0] != ' ' {
+		return ""
+	}
+	item, ok := mv.ix2item[j]
+	if !ok || item.ReminderArg0 == "" {
+		return ""
+	}
+	info, ok := mv.reminderCache[item.ReminderArg0]
+	if !ok {
+		return ""
+	}
+	return info.taskPK
+}
+
+// indentTask handles capital 'L' in the today tree view: it moves the
+// selected item under the nearest preceding item (scanning backward to the
+// top of the list) that sits at the same indent level, by writing a
+// .GroupUnder assertion pointing at that item's task.
+func (mv *MainView) indentTask(g *gocui.Gui, v *gocui.View) error {
+	if mv.span != timedb.Today || !mv.treeMode {
+		return nil
+	}
+	item, info, err := mv.selectedReminder(g)
+	if err != nil || info == nil || info.taskPK == "" {
+		return err
+	}
+	view, err := g.View(timedb.TasksView)
+	if err != nil {
+		return err
+	}
+	_, oy := view.Origin()
+	_, cy := view.Cursor()
+	ix := oy + cy
+	rows := mv.cachedTodayTasks
+	if ix < 0 || ix >= len(rows) {
+		return nil
+	}
+	curIndent := treeRowIndent(rows[ix])
+
+	targetPK := ""
+	for j := ix - 1; j >= 0; j-- {
+		if treeRowIndent(rows[j]) != curIndent {
+			continue
+		}
+		pk := mv.resolveRowTaskPK(rows, j)
+		if pk == "" || pk == info.taskPK {
+			continue
+		}
+		targetPK = pk
+		break
+	}
+	if targetPK == "" {
+		return nil
+	}
+
+	existingAssnPK := ""
+	if gu, ok := mv.groupUnderCache[info.taskPK]; ok {
+		existingAssnPK = gu.assnPK
+	}
+	if err = mv.setGroupUnder(info.taskPK, existingAssnPK, targetPK); err != nil {
+		return err
+	}
+	if err = mv.save(); err != nil {
+		return err
+	}
+	if err = mv.refreshView(g); err != nil {
+		return err
+	}
+	if _, err = mv.tabulatedTasks(g, view); err != nil {
+		return err
+	}
+	mv.setCursorToArg0(g, item.ReminderArg0)
+	return nil
+}
+
+// outdentTask handles capital 'H' in the today tree view: it moves the
+// selected item under the nearest preceding item (scanning backward to the
+// top of the list) that sits at a shallower indent level than the item's
+// current parent, by writing a .GroupUnder assertion pointing at that item's
+// task. If no such item exists, the .GroupUnder assertion is removed
+// entirely, making the item a hierarchy root.
+func (mv *MainView) outdentTask(g *gocui.Gui, v *gocui.View) error {
+	if mv.span != timedb.Today || !mv.treeMode {
+		return nil
+	}
+	item, info, err := mv.selectedReminder(g)
+	if err != nil || info == nil || info.taskPK == "" {
+		return err
+	}
+	view, err := g.View(timedb.TasksView)
+	if err != nil {
+		return err
+	}
+	_, oy := view.Origin()
+	_, cy := view.Cursor()
+	ix := oy + cy
+	rows := mv.cachedTodayTasks
+	if ix < 0 || ix >= len(rows) {
+		return nil
+	}
+	curIndent := treeRowIndent(rows[ix])
+	if curIndent == 0 {
+		// Already a root; nothing shallower to outdent to.
+		return nil
+	}
+	parentIndent := curIndent - 1
+
+	targetPK := ""
+	for j := ix - 1; j >= 0; j-- {
+		if treeRowIndent(rows[j]) >= parentIndent {
+			continue
+		}
+		pk := mv.resolveRowTaskPK(rows, j)
+		if pk == "" || pk == info.taskPK {
+			continue
+		}
+		targetPK = pk
+		break
+	}
+
+	existingAssnPK := ""
+	if gu, ok := mv.groupUnderCache[info.taskPK]; ok {
+		existingAssnPK = gu.assnPK
+	}
+	if err = mv.setGroupUnder(info.taskPK, existingAssnPK, targetPK); err != nil {
+		return err
+	}
+	if err = mv.save(); err != nil {
+		return err
+	}
+	if err = mv.refreshView(g); err != nil {
+		return err
+	}
+	if _, err = mv.tabulatedTasks(g, view); err != nil {
+		return err
+	}
+	mv.setCursorToArg0(g, item.ReminderArg0)
+	return nil
 }
 
 // findAncestorWithAllDescendantsDone returns the ReminderArg0 of the closest
@@ -1651,6 +1860,36 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 	return mv.refreshToday()
 }
 
+// syncSelectedLog updates mv.log to reflect the task under the cursor, for
+// spans other than Today (whose view doesn't use the log pane). Unlike
+// refreshView, it doesn't reload tasks or today's plan/reminder/assertion
+// data from the DB, so it's cheap enough to call on every cursor movement.
+func (mv *MainView) syncSelectedLog(g *gocui.Gui) error {
+	mv.log = []*jqlpb.Row{}
+	if mv.span == timedb.Today {
+		return nil
+	}
+	view, err := g.View(timedb.TasksView)
+	if err != nil {
+		if err == gocui.ErrUnknownView {
+			return nil
+		}
+		return err
+	}
+	_, oy := view.Origin()
+	_, cy := view.Cursor()
+	ix := oy + cy
+	if ix < 0 || ix >= len(mv.tasks[mv.span]) {
+		return nil
+	}
+	resp, err := mv.queryLogs(mv.tasks[mv.span][ix])
+	if err != nil {
+		return err
+	}
+	mv.log = resp.Rows
+	return nil
+}
+
 func (mv *MainView) refreshWeeklyDisplays() error {
 	intentions, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
 		Table:   timedb.TableTasks,
@@ -1704,6 +1943,8 @@ func (mv *MainView) refreshToday() error {
 	mv.today = []DayItem{}
 	mv.reminderCache = map[string]*reminderInfo{}
 	mv.today2item = map[string]DayItemMeta{}
+	mv.groupUnderCache = map[string]*groupUnderInfo{}
+	mv.ancestorParentCache = map[string]string{}
 
 	today, err := mv.queryDayPlan()
 	if err != nil {
@@ -1776,6 +2017,7 @@ func (mv *MainView) refreshToday() error {
 			attrs[arg0][rel] = val
 			assnPKs[arg0][rel] = pk
 		}
+		taskPKSet := map[string]bool{}
 		for _, arg0 := range reminderArg0s {
 			a := attrs[arg0]
 			taskRef := a["Task"]
@@ -1803,6 +2045,31 @@ func (mv *MainView) refreshToday() error {
 				statusAssnPK:    assnPKs[arg0]["Status"],
 				collapsed:       a["Collapsed"] == "yes",
 				collapsedAssnPK: assnPKs[arg0]["Collapsed"],
+			}
+			if taskPK != "" {
+				taskPKSet[taskPK] = true
+			}
+		}
+
+		// Batch-fetch .GroupUnder assertions for every task in today's view so
+		// treeTasks can resolve hierarchy overrides without per-task queries.
+		if len(taskPKSet) > 0 {
+			taskPKs := make([]string, 0, len(taskPKSet))
+			for pk := range taskPKSet {
+				mv.groupUnderCache[pk] = &groupUnderInfo{}
+				taskPKs = append(taskPKs, pk)
+			}
+			groupUnderResp, err := mv.queryGroupUnder(taskPKs)
+			if err != nil {
+				return err
+			}
+			for _, row := range groupUnderResp.Rows {
+				childPK := strings.TrimPrefix(row.Entries[api.IndexOfField(assnTable.Columns, timedb.FieldArg0)].Formatted, "tasks ")
+				arg1 := row.Entries[api.IndexOfField(assnTable.Columns, timedb.FieldArg1)].Formatted
+				assnPK := row.Entries[api.GetPrimary(assnTable.Columns)].Formatted
+				if table, parentPK := api.ParseForeignKey(arg1); table == timedb.TableTasks {
+					mv.groupUnderCache[childPK] = &groupUnderInfo{parentPK: parentPK, assnPK: assnPK}
+				}
 			}
 		}
 	}
@@ -1956,11 +2223,47 @@ func (mv *MainView) treeTasks() ([]string, error) {
 	items := mv.today
 	tasksTable := mv.tables[timedb.TableTasks]
 
-	// Memoised parent lookup: taskPK → Primary Goal value (parentTaskPK).
-	parentCache := map[string]string{}
+	// Memoised parent lookup: taskPK → parent taskPK, preferring a .GroupUnder
+	// assertion override over the Primary Goal column when one is present.
+	// Tasks covered by mv.groupUnderCache (today's view) resolve without a
+	// query; others fall back to mv.ancestorParentCache, which persists
+	// across treeTasks calls (gocui redraws treeTasks on every keypress, so
+	// a call-local cache would repeat these live lookups on every render).
+	assnTable := mv.tables[timedb.TableAssertions]
 	getParent := func(pk string) (string, error) {
-		if p, ok := parentCache[pk]; ok {
+		if p, ok := mv.ancestorParentCache[pk]; ok {
 			return p, nil
+		}
+		groupUnderParentPK := ""
+		if gu, cached := mv.groupUnderCache[pk]; cached {
+			groupUnderParentPK = gu.parentPK
+		} else {
+			// pk wasn't in today's view (e.g. an ancestor reached only by
+			// walking the chain), so it wasn't covered by the batch fetch
+			// in refreshToday. Look it up directly, once, and remember the
+			// result in mv.ancestorParentCache for subsequent renders.
+			resp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
+				Table: timedb.TableAssertions,
+				Conditions: []*jqlpb.Condition{{
+					Requires: []*jqlpb.Filter{
+						{Column: timedb.FieldArg0, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: "tasks " + pk}}},
+						{Column: timedb.FieldRelation, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".GroupUnder"}}},
+					},
+				}},
+			})
+			if err != nil {
+				return "", err
+			}
+			if len(resp.Rows) > 0 {
+				arg1 := resp.Rows[0].Entries[api.IndexOfField(assnTable.Columns, timedb.FieldArg1)].Formatted
+				if table, parentPK := api.ParseForeignKey(arg1); table == timedb.TableTasks {
+					groupUnderParentPK = parentPK
+				}
+			}
+		}
+		if groupUnderParentPK != "" {
+			mv.ancestorParentCache[pk] = groupUnderParentPK
+			return groupUnderParentPK, nil
 		}
 		resp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
 			Table: timedb.TableTasks,
@@ -1978,7 +2281,7 @@ func (mv *MainView) treeTasks() ([]string, error) {
 		if len(resp.Rows) > 0 {
 			parent = resp.Rows[0].Entries[api.IndexOfField(tasksTable.Columns, timedb.FieldPrimaryGoal)].Formatted
 		}
-		parentCache[pk] = parent
+		mv.ancestorParentCache[pk] = parent
 		return parent, nil
 	}
 
@@ -2170,6 +2473,30 @@ func (mv *MainView) queryPlans(taskPKs []string) (*jqlpb.ListRowsResponse, error
 	})
 }
 
+func (mv *MainView) queryGroupUnder(taskPKs []string) (*jqlpb.ListRowsResponse, error) {
+	taskCols := []string{}
+	for _, task := range taskPKs {
+		taskCols = append(taskCols, fmt.Sprintf("tasks %s", task))
+	}
+	return mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
+		Table: timedb.TableAssertions,
+		Conditions: []*jqlpb.Condition{
+			{
+				Requires: []*jqlpb.Filter{
+					{
+						Column: timedb.FieldArg0,
+						Match:  &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: taskCols}},
+					},
+					{
+						Column: timedb.FieldRelation,
+						Match:  &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".GroupUnder"}},
+					},
+				},
+			},
+		},
+	})
+}
+
 func (mv *MainView) queryDayPlan() (*jqlpb.Row, error) {
 	resp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
 		Table: timedb.TableTasks,
@@ -2340,10 +2667,10 @@ func (mv *MainView) copyOldTasks() error {
 		// pk doesn't really matter here so using a random integer
 		pk := randPK()
 		fields := map[string]string{
-			timedb.FieldArg0:      fmt.Sprintf("tasks %s", todayPK),
-			timedb.FieldArg1:      val,
+			timedb.FieldArg0:     fmt.Sprintf("tasks %s", todayPK),
+			timedb.FieldArg1:     val,
 			timedb.FieldRelation: rel,
-			timedb.FieldOrder:     order,
+			timedb.FieldOrder:    order,
 		}
 		_, err := mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
 			Table:  timedb.TableAssertions,
@@ -2582,9 +2909,9 @@ func (mv *MainView) placeRemindersAtPosition(
 			InsertOnly: true,
 			Fields: map[string]string{
 				timedb.FieldRelation: ".Entry",
-				timedb.FieldArg0:      fmt.Sprintf("tasks %s", dayPlanPK),
-				timedb.FieldArg1:      fmt.Sprintf("@{vt.reminders %s}", bareID),
-				timedb.FieldOrder:     fmt.Sprintf("%d", nextOrder),
+				timedb.FieldArg0:     fmt.Sprintf("tasks %s", dayPlanPK),
+				timedb.FieldArg1:     fmt.Sprintf("@{vt.reminders %s}", bareID),
+				timedb.FieldOrder:    fmt.Sprintf("%d", nextOrder),
 			},
 		})
 		if err != nil {
@@ -2756,9 +3083,9 @@ func (mv *MainView) addDueRemindersToDay(dayPlanPK string, entries []dayPlanEntr
 			InsertOnly: true,
 			Fields: map[string]string{
 				timedb.FieldRelation: ".Entry",
-				timedb.FieldArg0:      fmt.Sprintf("tasks %s", dayPlanPK),
-				timedb.FieldArg1:      fmt.Sprintf("@{vt.reminders %s}", bareID),
-				timedb.FieldOrder:     fmt.Sprintf("%d", reminderOrders[i]),
+				timedb.FieldArg0:     fmt.Sprintf("tasks %s", dayPlanPK),
+				timedb.FieldArg1:     fmt.Sprintf("@{vt.reminders %s}", bareID),
+				timedb.FieldOrder:    fmt.Sprintf("%d", reminderOrders[i]),
 			},
 		})
 		if err != nil {
@@ -2846,7 +3173,6 @@ func (mv *MainView) queryDayPlanEntries(dayPlanPK string) ([]dayPlanEntry, error
 	}
 	return entries, nil
 }
-
 
 // fetchHabitPlacementMeta resolves DayPlanGroup and DayPlanOrder for a set of task PKs
 // by following their .Habit assertions to the originating habit tasks (2 batch queries).
@@ -3172,9 +3498,9 @@ func (mv *MainView) createReminderEntity(dayPlanPK, taskPK, checkText, targetDat
 		InsertOnly: true,
 		Fields: map[string]string{
 			timedb.FieldRelation: ".Entry",
-			timedb.FieldArg0:      fmt.Sprintf("tasks %s", dayPlanPK),
-			timedb.FieldArg1:      fmt.Sprintf("@{vt.reminders %s}", bareID),
-			timedb.FieldOrder:     fmt.Sprintf("%d", entryOrder),
+			timedb.FieldArg0:     fmt.Sprintf("tasks %s", dayPlanPK),
+			timedb.FieldArg1:     fmt.Sprintf("@{vt.reminders %s}", bareID),
+			timedb.FieldOrder:    fmt.Sprintf("%d", entryOrder),
 		},
 	})
 	return err
@@ -3310,9 +3636,9 @@ func (mv *MainView) carryForwardEntries() error {
 			InsertOnly: true,
 			Fields: map[string]string{
 				timedb.FieldRelation: ".Entry",
-				timedb.FieldArg0:      fmt.Sprintf("tasks %s", todayPK),
-				timedb.FieldArg1:      e.arg1,
-				timedb.FieldOrder:     fmt.Sprintf("%d", e.order),
+				timedb.FieldArg0:     fmt.Sprintf("tasks %s", todayPK),
+				timedb.FieldArg1:     e.arg1,
+				timedb.FieldOrder:    fmt.Sprintf("%d", e.order),
 			},
 		})
 		if err != nil {
@@ -3371,8 +3697,8 @@ func (mv *MainView) markTask(g *gocui.Gui, v *gocui.View, status string) error {
 			Pk:         pk,
 			Fields: map[string]string{
 				timedb.FieldRelation: ".Status",
-				timedb.FieldArg0:      fmt.Sprintf("vt.reminders %s", item.ReminderArg0),
-				timedb.FieldArg1:      reminderStatus,
+				timedb.FieldArg0:     fmt.Sprintf("vt.reminders %s", item.ReminderArg0),
+				timedb.FieldArg1:     reminderStatus,
 			},
 		})
 	}
