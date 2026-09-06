@@ -157,7 +157,10 @@ def generate_markdown(iface):
     if item_full_pk is None:
         raise ValueError("Could not determine target item from request")
 
-    if relation == schema.Values.RelationIdentity:
+    # An empty string value means we are grouping by relation but we haven't
+    # yet switched our selection. Default to showing the "w/ Identity" relation
+    # in this case
+    if relation in [schema.Values.RelationIdentity, ""]:
         return _generate_identity_markdown(dbms, item_full_pk)
 
     return _generate_table_markdown(dbms, request, relation)
