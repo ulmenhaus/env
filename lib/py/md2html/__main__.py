@@ -34,6 +34,10 @@ def graphviz_format(source: str, language: str, class_name: str,
 
 def build_markdown() -> markdown.Markdown:
     md = markdown.Markdown(
+        # jql's markdown export nests sub-bullets with 2-space indentation; Python-Markdown's
+        # default tab_length of 4 requires 4-space indentation to recognize list nesting and
+        # otherwise silently flattens nested bullets into the parent list.
+        tab_length=2,
         extensions=[
             "toc",
             "tables",
