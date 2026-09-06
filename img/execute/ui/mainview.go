@@ -173,10 +173,13 @@ type dayPlanEntry struct {
 	order int
 }
 
-// habitPlacementMeta carries DayPlanGroup and DayPlanOrder resolved from a habit task.
+// habitPlacementMeta carries DayPlanGroup and DayPlanOrder resolved from a habit task,
+// plus the instance-level .GroupUnder parent translated from a .GroupUnder assertion on
+// the originating habit generator task (see fetchHabitPlacementMeta).
 type habitPlacementMeta struct {
-	dayPlanGroup string
-	dayPlanOrder int
+	dayPlanGroup       string
+	dayPlanOrder       int
+	groupUnderParentPK string
 }
 
 const alphanumChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -2947,27 +2950,31 @@ func (mv *MainView) placeRemindersAtPosition(
 		nextOrder++
 	}
 	if groupUnderParentPK != "" && len(newTaskPKs) > 0 {
-		if err := mv.groupTasksUnder(newTaskPKs, groupUnderParentPK); err != nil {
+		targets := make(map[string]string, len(newTaskPKs))
+		for _, pk := range newTaskPKs {
+			targets[pk] = groupUnderParentPK
+		}
+		if err := mv.groupTasksUnder(targets); err != nil {
 			return totalToAdd, err
 		}
 	}
 	return totalToAdd, nil
 }
 
-// groupTasksUnder sets a .GroupUnder assertion on each of childPKs pointing at parentPK,
-// updating any existing override assertion in place. childPKs equal to parentPK are skipped
-// to avoid a self-referential assertion.
-func (mv *MainView) groupTasksUnder(childPKs []string, parentPK string) error {
-	var filtered []string
-	for _, pk := range childPKs {
-		if pk != parentPK {
-			filtered = append(filtered, pk)
+// groupTasksUnder sets a .GroupUnder assertion on each key of targets pointing at its
+// value, updating any existing override assertion in place with a single batched lookup.
+// A child mapped to itself is skipped to avoid a self-referential assertion.
+func (mv *MainView) groupTasksUnder(targets map[string]string) error {
+	var childPKs []string
+	for childPK, parentPK := range targets {
+		if childPK != parentPK {
+			childPKs = append(childPKs, childPK)
 		}
 	}
-	if len(filtered) == 0 {
+	if len(childPKs) == 0 {
 		return nil
 	}
-	resp, err := mv.queryGroupUnder(filtered)
+	resp, err := mv.queryGroupUnder(childPKs)
 	if err != nil {
 		return err
 	}
@@ -2976,8 +2983,8 @@ func (mv *MainView) groupTasksUnder(childPKs []string, parentPK string) error {
 		childPK := strings.TrimPrefix(row.Entries[api.IndexOfField(resp.Columns, timedb.FieldArg0)].Formatted, "tasks ")
 		existingAssnPKs[childPK] = row.Entries[api.GetPrimary(resp.Columns)].Formatted
 	}
-	for _, pk := range filtered {
-		if err := mv.setGroupUnder(pk, existingAssnPKs[pk], parentPK); err != nil {
+	for _, pk := range childPKs {
+		if err := mv.setGroupUnder(pk, existingAssnPKs[pk], targets[pk]); err != nil {
 			return err
 		}
 	}
@@ -3120,10 +3127,14 @@ func (mv *MainView) addDueRemindersToDay(dayPlanPK string, entries []dayPlanEntr
 	if err != nil {
 		return err
 	}
+	groupUnderTargets := map[string]string{}
 	for i := range placements {
 		if m, ok := habitMeta[placements[i].taskPK]; ok {
 			placements[i].dayPlanGroup = m.dayPlanGroup
 			placements[i].dayPlanOrder = m.dayPlanOrder
+			if m.groupUnderParentPK != "" {
+				groupUnderTargets[placements[i].taskPK] = m.groupUnderParentPK
+			}
 		}
 	}
 
@@ -3145,6 +3156,11 @@ func (mv *MainView) addDueRemindersToDay(dayPlanPK string, entries []dayPlanEntr
 			},
 		})
 		if err != nil {
+			return err
+		}
+	}
+	if len(groupUnderTargets) > 0 {
+		if err := mv.groupTasksUnder(groupUnderTargets); err != nil {
 			return err
 		}
 	}
@@ -3230,8 +3246,15 @@ func (mv *MainView) queryDayPlanEntries(dayPlanPK string) ([]dayPlanEntry, error
 	return entries, nil
 }
 
-// fetchHabitPlacementMeta resolves DayPlanGroup and DayPlanOrder for a set of task PKs
-// by following their .Habit assertions to the originating habit tasks (2 batch queries).
+// fetchHabitPlacementMeta resolves DayPlanGroup and DayPlanOrder for a set of task PKs by
+// following their .Habit assertions to the originating habit tasks (2 batch queries). It
+// also translates a .GroupUnder assertion between two habit tasks into an instance-level
+// target: when a habit task's .GroupUnder points at another habit task that resolved to
+// exactly one instance in this same batch, every instance of the first habit task gets a
+// groupUnderParentPK pointing at that instance. This only resolves within the current
+// batch of task PKs — if the parent habit's instance was placed in an earlier invocation
+// (and so isn't part of this batch) the grouping is skipped for now rather than issuing an
+// extra lookup; it will resolve the next time both instances fall in the same batch.
 func (mv *MainView) fetchHabitPlacementMeta(taskPKs []string) (map[string]habitPlacementMeta, error) {
 	if len(taskPKs) == 0 {
 		return nil, nil
@@ -3281,7 +3304,7 @@ func (mv *MainView) fetchHabitPlacementMeta(taskPKs []string) (map[string]habitP
 		Conditions: []*jqlpb.Condition{{
 			Requires: []*jqlpb.Filter{
 				{Column: timedb.FieldArg0, Match: &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: habitArg0s}}},
-				{Column: timedb.FieldRelation, Match: &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: []string{".DayPlanOrder", ".DayPlanGroup"}}}},
+				{Column: timedb.FieldRelation, Match: &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: []string{".DayPlanOrder", ".DayPlanGroup", ".GroupUnder"}}}},
 			},
 		}},
 	})
@@ -3294,6 +3317,7 @@ func (mv *MainView) fetchHabitPlacementMeta(taskPKs []string) (map[string]habitP
 	}
 	habitGroups := map[string][]ordVal{}
 	habitOrders := map[string][]ordVal{}
+	habitParent := map[string]string{}
 	for _, row := range attrResp.Rows {
 		habitPK := strings.TrimPrefix(row.Entries[api.IndexOfField(attrResp.Columns, timedb.FieldArg0)].Formatted, "tasks ")
 		rel := strings.TrimPrefix(row.Entries[api.IndexOfField(attrResp.Columns, timedb.FieldRelation)].Formatted, ".")
@@ -3304,6 +3328,10 @@ func (mv *MainView) fetchHabitPlacementMeta(taskPKs []string) (map[string]habitP
 			habitGroups[habitPK] = append(habitGroups[habitPK], ordVal{ord, val})
 		case "DayPlanOrder":
 			habitOrders[habitPK] = append(habitOrders[habitPK], ordVal{ord, val})
+		case "GroupUnder":
+			if _, parentHabitPK := api.ParseForeignKey(val); parentHabitPK != "" {
+				habitParent[habitPK] = parentHabitPK
+			}
 		}
 	}
 	for habitPK := range habitGroups {
@@ -3322,6 +3350,22 @@ func (mv *MainView) fetchHabitPlacementMeta(taskPKs []string) (map[string]habitP
 			}
 			order, _ := strconv.Atoi(orders[i].val)
 			result[taskPK] = habitPlacementMeta{dayPlanGroup: groups[i].val, dayPlanOrder: order}
+		}
+	}
+	for childHabitPK, parentHabitPK := range habitParent {
+		parentInstances := habitToTasks[parentHabitPK]
+		if len(parentInstances) != 1 {
+			// Ambiguous (multiple instances) or unresolved in this batch (see doc comment).
+			continue
+		}
+		parentInstancePK := parentInstances[0]
+		for _, childInstancePK := range habitToTasks[childHabitPK] {
+			if childInstancePK == parentInstancePK {
+				continue
+			}
+			meta := result[childInstancePK]
+			meta.groupUnderParentPK = parentInstancePK
+			result[childInstancePK] = meta
 		}
 	}
 	return result, nil
