@@ -157,6 +157,15 @@ type reminderToPlace struct {
 	dayPlanOrder int
 }
 
+// placedReminder identifies an existing reminder resolved by resolveReminderPlacements,
+// along with the task/check it points to so callers can distinguish task-level
+// placements (checkText == "") from check-level ones.
+type placedReminder struct {
+	bareID    string
+	taskPK    string
+	checkText string
+}
+
 // dayPlanEntry is a snapshot of an existing .Entry assertion on the day plan.
 type dayPlanEntry struct {
 	pk    string
@@ -2864,6 +2873,10 @@ func (mv *MainView) buildCandidatesForTasks(allPKs []string, activePKs map[strin
 // placeRemindersAtPosition resolves candidates via resolveReminderPlacements, filters out reminders
 // already in today's plan, shifts existing entries upward to make room, and inserts all new entries
 // sequentially starting at insertAfterOrder+1. Returns the count of entries added.
+//
+// When groupUnderParentPK is non-empty, every newly placed reminder that points directly at a
+// task (as opposed to a check on a task) has its task's .GroupUnder assertion set to point at
+// groupUnderParentPK, nesting it under the task that was selected when the pull-in was triggered.
 func (mv *MainView) placeRemindersAtPosition(
 	dayPlanPK string,
 	entries []dayPlanEntry,
@@ -2871,15 +2884,16 @@ func (mv *MainView) placeRemindersAtPosition(
 	insertAfterOrder int,
 	candidates []reminderToPlace,
 	todayStr string,
+	groupUnderParentPK string,
 ) (int, error) {
 	toCreate, existingToPlace, err := mv.resolveReminderPlacements(candidates)
 	if err != nil {
 		return 0, err
 	}
-	var filteredExisting []string
-	for _, bareID := range existingToPlace {
-		if !inTodayPlan[bareID] {
-			filteredExisting = append(filteredExisting, bareID)
+	var filteredExisting []placedReminder
+	for _, p := range existingToPlace {
+		if !inTodayPlan[p.bareID] {
+			filteredExisting = append(filteredExisting, p)
 		}
 	}
 	totalToAdd := len(toCreate) + len(filteredExisting)
@@ -2901,7 +2915,8 @@ func (mv *MainView) placeRemindersAtPosition(
 		}
 	}
 	nextOrder := insertAfterOrder + 1
-	for _, bareID := range filteredExisting {
+	var newTaskPKs []string
+	for _, p := range filteredExisting {
 		newPK := randPK()
 		_, err = mv.dbms.WriteRow(ctx, &jqlpb.WriteRowRequest{
 			Table:      timedb.TableAssertions,
@@ -2910,12 +2925,15 @@ func (mv *MainView) placeRemindersAtPosition(
 			Fields: map[string]string{
 				timedb.FieldRelation: ".Entry",
 				timedb.FieldArg0:     fmt.Sprintf("tasks %s", dayPlanPK),
-				timedb.FieldArg1:     fmt.Sprintf("@{vt.reminders %s}", bareID),
+				timedb.FieldArg1:     fmt.Sprintf("@{vt.reminders %s}", p.bareID),
 				timedb.FieldOrder:    fmt.Sprintf("%d", nextOrder),
 			},
 		})
 		if err != nil {
 			return 0, err
+		}
+		if p.checkText == "" && p.taskPK != "" {
+			newTaskPKs = append(newTaskPKs, p.taskPK)
 		}
 		nextOrder++
 	}
@@ -2923,9 +2941,47 @@ func (mv *MainView) placeRemindersAtPosition(
 		if err := mv.createReminderEntity(dayPlanPK, c.taskPK, c.checkText, todayStr, nextOrder); err != nil {
 			return 0, err
 		}
+		if c.checkText == "" && c.taskPK != "" {
+			newTaskPKs = append(newTaskPKs, c.taskPK)
+		}
 		nextOrder++
 	}
+	if groupUnderParentPK != "" && len(newTaskPKs) > 0 {
+		if err := mv.groupTasksUnder(newTaskPKs, groupUnderParentPK); err != nil {
+			return totalToAdd, err
+		}
+	}
 	return totalToAdd, nil
+}
+
+// groupTasksUnder sets a .GroupUnder assertion on each of childPKs pointing at parentPK,
+// updating any existing override assertion in place. childPKs equal to parentPK are skipped
+// to avoid a self-referential assertion.
+func (mv *MainView) groupTasksUnder(childPKs []string, parentPK string) error {
+	var filtered []string
+	for _, pk := range childPKs {
+		if pk != parentPK {
+			filtered = append(filtered, pk)
+		}
+	}
+	if len(filtered) == 0 {
+		return nil
+	}
+	resp, err := mv.queryGroupUnder(filtered)
+	if err != nil {
+		return err
+	}
+	existingAssnPKs := map[string]string{}
+	for _, row := range resp.Rows {
+		childPK := strings.TrimPrefix(row.Entries[api.IndexOfField(resp.Columns, timedb.FieldArg0)].Formatted, "tasks ")
+		existingAssnPKs[childPK] = row.Entries[api.GetPrimary(resp.Columns)].Formatted
+	}
+	for _, pk := range filtered {
+		if err := mv.setGroupUnder(pk, existingAssnPKs[pk], parentPK); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // buildCandidatesFromAwaitingReminders returns (taskPK, checkText) candidates for all
@@ -3347,7 +3403,7 @@ func (mv *MainView) applyOrderUpdates(orderChanges map[string]int) error {
 // (toCreate) and bare IDs of existing reminders whose TargetDate is today or earlier
 // (existingToPlace). Uses one query to find existing reminders and a second to check
 // their TargetDate assertions.
-func (mv *MainView) resolveReminderPlacements(candidates []reminderToPlace) (toCreate []reminderToPlace, existingToPlace []string, err error) {
+func (mv *MainView) resolveReminderPlacements(candidates []reminderToPlace) (toCreate []reminderToPlace, existingToPlace []placedReminder, err error) {
 	if len(candidates) == 0 {
 		return nil, nil, nil
 	}
@@ -3451,7 +3507,7 @@ func (mv *MainView) resolveReminderPlacements(candidates []reminderToPlace) (toC
 			bareID := strings.TrimPrefix(reminderID, "vt.reminders ")
 			if !existingSet[bareID] {
 				existingSet[bareID] = true
-				existingToPlace = append(existingToPlace, bareID)
+				existingToPlace = append(existingToPlace, placedReminder{bareID: bareID, taskPK: c.taskPK, checkText: c.checkText})
 			}
 		}
 	}
@@ -4018,7 +4074,14 @@ func (mv *MainView) InjectTaskWithAllMatching(g *gocui.Gui, v *gocui.View, match
 		return 0, err
 	}
 
-	added, err := mv.placeRemindersAtPosition(dayPlanPK, entries, inTodayPlan, insertAfterOrder, candidates, todayStr)
+	// Only nest newly added tasks under the selected item when that item is itself a
+	// plain task reminder; a selected check has no standalone task identity to group under.
+	groupUnderParentPK := taskPk
+	if _, info, serr := mv.selectedReminder(g); serr == nil && info != nil && info.checkText != "" {
+		groupUnderParentPK = ""
+	}
+
+	added, err := mv.placeRemindersAtPosition(dayPlanPK, entries, inTodayPlan, insertAfterOrder, candidates, todayStr, groupUnderParentPK)
 	if err != nil {
 		return added, err
 	}
