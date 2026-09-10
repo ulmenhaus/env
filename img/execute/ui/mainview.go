@@ -858,6 +858,10 @@ func (mv *MainView) SetKeyBindings(g *gocui.Gui) error {
 	if err != nil {
 		return err
 	}
+	err = g.SetKeybinding(timedb.TasksView, '[', gocui.ModNone, mv.jumpToNestedRowUp)
+	if err != nil {
+		return err
+	}
 	if err := g.SetKeybinding(timedb.TasksView, gocui.KeyEnter, gocui.ModNone, mv.logTime); err != nil {
 		return err
 	}
@@ -1420,6 +1424,40 @@ func (mv *MainView) treeSkipUp(g *gocui.Gui, v *gocui.View) error {
 	delta := 1
 	for current-delta > 0 && treeRowIndent(rows[current-delta]) > indent {
 		delta++
+	}
+	if err := v.SetCursor(cx, cy-delta); err != nil && oy > 0 {
+		if err := v.SetOrigin(ox, oy-delta); err != nil {
+			return err
+		}
+	}
+	return mv.syncSelectedLog(g)
+}
+
+// jumpToNestedRowUp moves the cursor up to the closest row above the current
+// one whose indent is strictly less (i.e. less deeply nested / a higher
+// level) than the current row's indent. If no such row exists, the cursor
+// stays put.
+func (mv *MainView) jumpToNestedRowUp(g *gocui.Gui, v *gocui.View) error {
+	if v == nil {
+		return nil
+	}
+	cx, cy := v.Cursor()
+	ox, oy := v.Origin()
+	current := cy + oy
+	rows := mv.cachedTodayTasks
+	if current <= 0 || current >= len(rows) {
+		return nil
+	}
+	indent := treeRowIndent(rows[current])
+	delta := 0
+	for i := current - 1; i >= 0; i-- {
+		if treeRowIndent(rows[i]) < indent {
+			delta = current - i
+			break
+		}
+	}
+	if delta == 0 {
+		return nil
 	}
 	if err := v.SetCursor(cx, cy-delta); err != nil && oy > 0 {
 		if err := v.SetOrigin(ox, oy-delta); err != nil {
