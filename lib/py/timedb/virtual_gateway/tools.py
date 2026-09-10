@@ -104,10 +104,10 @@ class ToolsBackend(jql_pb2_grpc.JQLServicer):
                     "@{nouns Claimset}": ["Review"],
                     "@{nouns Schema}": ["Review"],
                     "@{nouns Taxonomy}": ["Review"],
-                    "@{nouns Technique}": ["Exercise"],
+                    "@{nouns Technique}": ["Exercise", "Review"],
                     "@{nouns Theory}": ["Review"],
                 }
-                default_actions = ["Ready", "Evaluate"]
+                default_actions = ["Ready", "Evaluate", "Review"]
                 if relation == ".Resource":
                     default_actions = ["Consult"]
                 tool_class = tool_attrs.get("Class", [None])[0]
