@@ -3693,7 +3693,10 @@ func (mv *MainView) refreshTasks(g *gocui.Gui, v *gocui.View) error {
 }
 
 // carryForwardEntries copies .Entry assertions from yesterday's day plan to today's,
-// skipping any reminder references whose status is Done, Failed, or Elided.
+// skipping any reminder references whose status is Done, Failed, or Elided. An
+// exception is made for a Done check-reminder whose task isn't done: if that task
+// itself has a (task-level) reminder in yesterday's view, the Done check is carried
+// forward too, so progress made on the broader task stays visible.
 func (mv *MainView) carryForwardEntries() error {
 	tasksTable := mv.tables[timedb.TableTasks]
 
@@ -3727,7 +3730,7 @@ func (mv *MainView) carryForwardEntries() error {
 		return nil
 	}
 
-	// Collect reminder PKs so we can batch-query their statuses.
+	// Collect reminder PKs so we can batch-query their attributes.
 	var reminderPKs []string
 	for _, e := range yesterdayEntries {
 		if table, pk := api.ParseForeignKey(e.arg1); table == "vt.reminders" {
@@ -3735,27 +3738,82 @@ func (mv *MainView) carryForwardEntries() error {
 		}
 	}
 
-	// Build a set of reminder PKs that should be skipped (Done/Failed/Elided).
+	// Build a set of reminder PKs that should be skipped (Done/Failed/Elided),
+	// along with each reminder's task and check text.
 	skipReminders := map[string]bool{}
 	if len(reminderPKs) > 0 {
-		statusResp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
+		attrResp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
 			Table: timedb.TableAssertions,
 			Conditions: []*jqlpb.Condition{{
 				Requires: []*jqlpb.Filter{
 					{Column: timedb.FieldArg0, Match: &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: reminderPKs}}},
-					{Column: timedb.FieldRelation, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Status"}}},
 				},
 			}},
 		})
 		if err != nil {
 			return err
 		}
-		for _, row := range statusResp.Rows {
-			arg0 := row.Entries[api.IndexOfField(statusResp.Columns, timedb.FieldArg0)].Formatted
-			status := row.Entries[api.IndexOfField(statusResp.Columns, timedb.FieldArg1)].Formatted
+		statusByReminder := map[string]string{}
+		checkTextByReminder := map[string]string{}
+		taskPKByReminder := map[string]string{}
+		for _, row := range attrResp.Rows {
+			arg0 := row.Entries[api.IndexOfField(attrResp.Columns, timedb.FieldArg0)].Formatted
+			rel := row.Entries[api.IndexOfField(attrResp.Columns, timedb.FieldRelation)].Formatted
+			val := row.Entries[api.IndexOfField(attrResp.Columns, timedb.FieldArg1)].Formatted
+			switch rel {
+			case ".Status":
+				statusByReminder[arg0] = val
+			case ".Check":
+				checkTextByReminder[arg0] = val
+			case ".Task":
+				if table, pk := api.ParseForeignKey(val); table == timedb.TableTasks {
+					taskPKByReminder[arg0] = pk
+				} else if strings.HasPrefix(val, "tasks ") {
+					taskPKByReminder[arg0] = val[len("tasks "):]
+				}
+			}
+		}
+		for arg0, status := range statusByReminder {
 			switch status {
 			case "Done", "Failed", "Elided":
 				skipReminders[arg0] = true
+			}
+		}
+
+		// A task-level reminder (no check text) present in yesterday's view means
+		// that task is being tracked in Today.
+		taskHasReminderToday := map[string]bool{}
+		for arg0, taskPK := range taskPKByReminder {
+			if checkTextByReminder[arg0] == "" && taskPK != "" {
+				taskHasReminderToday[taskPK] = true
+			}
+		}
+
+		// Un-skip a Done check-reminder when its task is still open and tracked
+		// today, so progress on the broader task carries forward too.
+		taskStatus := map[string]string{}
+		for arg0 := range skipReminders {
+			if checkTextByReminder[arg0] == "" || statusByReminder[arg0] != "Done" {
+				continue
+			}
+			taskPK := taskPKByReminder[arg0]
+			if taskPK == "" || !taskHasReminderToday[taskPK] {
+				continue
+			}
+			status, ok := taskStatus[taskPK]
+			if !ok {
+				taskRow, err := mv.dbms.GetRow(ctx, &jqlpb.GetRowRequest{
+					Table: timedb.TableTasks,
+					Pk:    taskPK,
+				})
+				if err != nil {
+					return err
+				}
+				status = taskRow.Row.Entries[api.IndexOfField(tasksTable.Columns, timedb.FieldStatus)].Formatted
+				taskStatus[taskPK] = status
+			}
+			if status != timedb.StatusSatisfied {
+				delete(skipReminders, arg0)
 			}
 		}
 	}
