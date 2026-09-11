@@ -207,7 +207,9 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
         client_utils.tighten_days_until_from_children(
             parents=[c for c in children.values() if c.get("Action", [""])[0] == "Practice"],
             parent_key_fn=lambda c: c.get("Direct", [""])[0] or None,
-            children=list(children.values()),
+            # Only still-actionable entries (Towards="something new" or
+            # "something regular") should pull a Practice's Days Until forward
+            children=[c for c in children.values() if c.get("Towards", [""])[0] in ("something new", "something regular")],
             child_parent_key_fn=skillset_key,
         )
 
