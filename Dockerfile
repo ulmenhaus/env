@@ -21,7 +21,7 @@ RUN apt-get update && apt-get install -y  \
 	xonsh \
 	xzdec
 
-RUN pip3 install --break-system-packages \
+RUN pip3 install --break-system-packages --ignore-installed \
   GitPython \
   click \
   gitpython \
