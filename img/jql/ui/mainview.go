@@ -1450,6 +1450,24 @@ func (mv *MainView) LoadQuery(req *jqlpb.ListRowsRequest) error {
 	return mv.updateTableViewContents(true)
 }
 
+func (mv *MainView) SetOrderBy(field string, dec bool) error {
+	mv.request.OrderBy = field
+	mv.request.Dec = dec
+	return mv.updateTableViewContents(true)
+}
+
+func (mv *MainView) SetGroupBy(field, selected string) error {
+	mv.request.GroupBy = &jqlpb.GroupBy{
+		Groupings: []*jqlpb.RequestedGrouping{
+			{
+				Field:    field,
+				Selected: selected,
+			},
+		},
+	}
+	return mv.updateTableViewContents(true)
+}
+
 func (mv *MainView) AddFilters(filters []cli.Filter) error {
 	for _, filter := range filters {
 		mv.request.Conditions[0].Requires = append(mv.request.Conditions[0].Requires, &jqlpb.Filter{

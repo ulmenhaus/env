@@ -276,6 +276,10 @@ func runExecute() error {
 			)
 		} else {
 			cfg.Table = timedb.TablePractices
+			cfg.OrderBy = timedb.FieldDaysUntil
+			cfg.OrderDec = false
+			cfg.GroupByField = timedb.FieldTowards
+			cfg.GroupBySelected = timedb.ValueSomethingNew
 			return cfg.SwitchTool("jql", "", cli.Filter{
 				Key:   timedb.FieldSkillset,
 				Value: fmt.Sprintf("@{nouns %s}", info.Skillset),

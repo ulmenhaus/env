@@ -103,6 +103,33 @@ func runFeed() error {
 		return err
 	}
 
+	goToSkillsetPractices := func(g *gocui.Gui, v *gocui.View) error {
+		if mv.Mode != ui.MainViewModeListBar {
+			return nil
+		}
+		pk, err := mv.GetSelectedPK(g, v)
+		if err != nil {
+			return err
+		}
+		cfg.Table = timedb.TablePractices
+		_, err = dbms.Persist(context.Background(), &jqlpb.PersistRequest{})
+		if err != nil {
+			return err
+		}
+		err = mv.SaveIgnores()
+		if err != nil {
+			return err
+		}
+		return cfg.SwitchTool("jql", "", cli.Filter{
+			Key:   timedb.FieldDirect,
+			Value: pk,
+		})
+	}
+	err = g.SetKeybinding("", 'S', gocui.ModNone, goToSkillsetPractices)
+	if err != nil {
+		return err
+	}
+
 	if err := g.MainLoop(); err != nil && err != gocui.ErrQuit {
 		return err
 	}

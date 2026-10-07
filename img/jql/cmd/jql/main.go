@@ -140,6 +140,24 @@ func runUI(cfg *cli.JQLConfig, dbms api.JQL_DBMS) error {
 			}
 		}
 	}
+	if cfg.OrderBy != "" {
+		err = mv.SetOrderBy(cfg.OrderBy, cfg.OrderDec)
+		if err != nil {
+			return err
+		}
+		// Reset so that it won't be carried over in subsequent UI changes
+		cfg.OrderBy = ""
+		cfg.OrderDec = false
+	}
+	if cfg.GroupByField != "" {
+		err = mv.SetGroupBy(cfg.GroupByField, cfg.GroupBySelected)
+		if err != nil {
+			return err
+		}
+		// Reset so that it won't be carried over in subsequent UI changes
+		cfg.GroupByField = ""
+		cfg.GroupBySelected = ""
+	}
 	if cfg.SelectPK != "" {
 		mv.SetSelectedPK(cfg.SelectPK)
 	}

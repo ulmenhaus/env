@@ -45,6 +45,11 @@ type JQLConfig struct {
 	SelectPK string
 	Query    string
 
+	OrderBy         string
+	OrderDec        bool
+	GroupByField    string
+	GroupBySelected string
+
 	TLSCert string
 	TLSKey  string
 	TLSCA   string
@@ -112,6 +117,10 @@ func (c *JQLConfig) Register(f *flag.FlagSet) {
 	f.StringVarP(&c.ListenUnix, "listen-unix", "", "", "Additional Unix socket path for the daemon to listen on")
 	f.StringArrayVarP(&c.filters, "filter", "", []string{}, "Add initial filters to the table")
 	f.StringVarP(&c.Query, "query", "", "", "Base64-encoded ListRowsRequest as the initial query (mutually exclusive with --table and --filter)")
+	f.StringVarP(&c.OrderBy, "order-by", "", "", "Column to order results by on startup")
+	f.BoolVarP(&c.OrderDec, "order-dec", "", false, "Order results in descending order (requires --order-by)")
+	f.StringVarP(&c.GroupByField, "group-by", "", "", "Column to group results by on startup")
+	f.StringVarP(&c.GroupBySelected, "group-by-selected", "", "", "Initially selected group value (requires --group-by)")
 	f.StringVarP(&c.TLSCert, "tls-cert", "", "", "Path to TLS certificate file")
 	f.StringVarP(&c.TLSKey, "tls-key", "", "", "Path to TLS key file")
 	f.StringVarP(&c.TLSCA, "tls-ca", "", "", "Path to TLS CA certificate file")
@@ -141,6 +150,18 @@ func (c *JQLConfig) SwitchTool(tool, pk string, filters ...Filter) error {
 	}
 	if c.Query != "" {
 		args = append(args, "--query", c.Query)
+	}
+	if c.OrderBy != "" {
+		args = append(args, "--order-by", c.OrderBy)
+		if c.OrderDec {
+			args = append(args, "--order-dec")
+		}
+	}
+	if c.GroupByField != "" {
+		args = append(args, "--group-by", c.GroupByField)
+		if c.GroupBySelected != "" {
+			args = append(args, "--group-by-selected", c.GroupBySelected)
+		}
 	}
 	for _, filter := range filters {
 		args = append(args, "--filter", fmt.Sprintf("%s=%s", filter.Key, filter.Value))

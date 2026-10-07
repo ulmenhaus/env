@@ -121,11 +121,28 @@ func NewMainView(g *gocui.Gui, dbms api.JQL_DBMS, ignoredPath string, returnArgs
 		return nil, err
 	}
 	if selected != "" {
-		for i, domain := range mv.renderDomains() {
+		// Search across all domains, not just the ones visible under the
+		// current DomainSet, since the selected channel may belong to a
+		// project domain even though MainViewFixtureDomains (the startup
+		// default) only renders non-project domains.
+		for _, domain := range mv.domains {
 			for _, channel := range domain.channels {
 				if channel == selected {
-					mv.selectedDomain = i
+					if domain.project {
+						mv.DomainSet = MainViewWorkstreamDomains
+					} else {
+						mv.DomainSet = MainViewFixtureDomains
+					}
 					mv.channelToSelect = channel
+				}
+			}
+		}
+		if mv.channelToSelect != "" {
+			for i, domain := range mv.renderDomains() {
+				for _, channel := range domain.channels {
+					if channel == mv.channelToSelect {
+						mv.selectedDomain = i
+					}
 				}
 			}
 		}

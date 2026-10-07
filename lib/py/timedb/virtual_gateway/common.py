@@ -46,11 +46,25 @@ def apply_request_parameters(rows, request):
         filter_row = lambda row: all(
             _filter_matches(row, f) for f in request.conditions[0].requires)
         rows = list(filter(filter_row, rows))
-    rows = sorted(
-        rows,
-        key=lambda idea: _sort_key(idea.get(request.order_by, idea["_pk"])),
+
+    # Rows whose order_by value parses as a number are sorted numerically
+    # (so e.g. -20 correctly sorts before -5). Rows that don't parse (blank
+    # or otherwise non-numeric) are always placed after the numeric ones,
+    # regardless of sort direction, and sorted lexicographically among
+    # themselves.
+    numeric_rows = []
+    other_rows = []
+    for row in rows:
+        value = _numeric_sort_value(row.get(request.order_by, row["_pk"]))
+        if value is None:
+            other_rows.append(row)
+        else:
+            numeric_rows.append((value, row))
+    numeric_rows.sort(key=lambda pair: pair[0], reverse=request.dec)
+    other_rows.sort(
+        key=lambda row: present_attrs(row.get(request.order_by, row["_pk"])),
         reverse=request.dec)
-    return rows
+    return [row for _, row in numeric_rows] + other_rows
 
 
 def apply_request_limits(rows, request):
@@ -116,15 +130,13 @@ def _filter_matches(row, f):
         raise ValueError("Unknown filter type", match_type)
 
 
-def _sort_key(attrs):
+def _numeric_sort_value(attrs):
     as_shown = present_attrs(attrs)
+    numeric_part = as_shown.split(" ")[0].split("%")[0].replace(",", "")
     try:
-        # HACK use a highly padded string as the sort key for an entry that
-        # begins with a number so we can mix numerical and lexicographic sorting
-        return str(int(as_shown.split(" ")[0].split("%")[0].replace(
-            ",", ""))).zfill(40)
+        return int(numeric_part)
     except ValueError:
-        return as_shown
+        return None
 
 
 def _mapping_to_row(mapping, fields, display_overrides=None):

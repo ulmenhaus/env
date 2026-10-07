@@ -29,6 +29,7 @@ const (
 	FieldCode            = "Code"
 	FieldContext         = "Context"
 	FieldCoordinal       = "Coordinal"
+	FieldDaysUntil       = "Days Until"
 	FieldDescription     = "_Description"
 	FieldNounDescription = "Description"
 	FieldDirect          = "Direct"
@@ -55,6 +56,7 @@ const (
 	FieldStatus          = "Status"
 	FieldTarget          = "A Target"
 	FieldTask            = "A Task"
+	FieldTowards         = "Towards"
 	FieldWorkdir         = "Workdir"
 
 	TableActiveReminders = "vt.active_reminders"
@@ -111,6 +113,7 @@ const (
 	SpanQuarter       = "Quarter"
 	SpanWeek          = "Week"
 	ValuePlanModifier = "Plan for"
+	ValueSomethingNew = "something new"
 )
 
 var Spans = []string{Today, SpanDay, SpanWeek, SpanMonth, SpanPending}
