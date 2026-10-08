@@ -256,12 +256,16 @@ func runExecute() error {
 		}
 		if info.IsPrepTask {
 			cfg.Table = timedb.TableKits
+			cfg.OrderBy = timedb.FieldDaysUntil
+			cfg.OrderDec = false
 			return cfg.SwitchTool("jql", "", cli.Filter{
 				Key:   "Parent",
 				Value: info.TaskPK,
 			})
 		} else if info.IsWarmup {
 			cfg.Table = timedb.TableTools
+			cfg.OrderBy = timedb.FieldDaysUntil
+			cfg.OrderDec = false
 			return cfg.SwitchTool(
 				"jql",
 				"",
