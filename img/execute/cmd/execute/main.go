@@ -220,6 +220,48 @@ func runExecute() error {
 		return err
 	}
 
+	goToProfiles := func(g *gocui.Gui, v *gocui.View) error {
+		if mv.MainViewMode != ui.MainViewModeListBar {
+			mv.Edit(v, gocui.Key(0), 'M', gocui.ModNone)
+			return nil
+		}
+		taskPK, err := mv.ResolveSelectedPK(g)
+		if err != nil {
+			return err
+		}
+		req := &jqlpb.ListRowsRequest{
+			Table: "vt.profiles",
+			Conditions: []*jqlpb.Condition{
+				{
+					Requires: []*jqlpb.Filter{
+						{
+							Column: "_target",
+							Match: &jqlpb.Filter_InMatch{InMatch: &jqlpb.InMatch{
+								Values: []string{fmt.Sprintf("%s %s", timedb.TableTasks, taskPK)},
+							}},
+						},
+					},
+				},
+			},
+			GroupBy: &jqlpb.GroupBy{
+				Groupings: []*jqlpb.RequestedGrouping{
+					{Field: "Profile"},
+				},
+			},
+		}
+		data, err := proto.Marshal(req)
+		if err != nil {
+			return err
+		}
+		cfg.Table = ""
+		cfg.Query = base64.StdEncoding.EncodeToString(data)
+		return cfg.SwitchTool("jql", "")
+	}
+	err = g.SetKeybinding("", 'M', gocui.ModNone, goToProfiles)
+	if err != nil {
+		return err
+	}
+
 	selectAndGoToTask := func(g *gocui.Gui, v *gocui.View) error {
 		if mv.MainViewMode != ui.MainViewModeListBar {
 			mv.Edit(v, gocui.Key(0), 'G', gocui.ModNone)
