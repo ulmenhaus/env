@@ -153,6 +153,7 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
                 "Genre": [genre],
                 "Motivation": [motivation],
                 "Towards": [towards],
+                "Coordinal": [row.entries[cmap[schema.Fields.Coordinal]].formatted],
             }
         for feed in feeds_resp.rows:
             if feed.entries[cmap[schema.Fields.Feed]].formatted != 'manual':
@@ -177,6 +178,7 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
                     "Motivation": ['Investment'],
                     "Genre": [genre],
                     "Towards": ['something regular'],
+                    "Coordinal": [feed.entries[cmap[schema.Fields.Coordinal]].formatted],
                 }
         # First pass: set Days Since and Days Until from each entry's own timing info
         all_noun_pks = set(row['Direct'][0] for row in children.values())
