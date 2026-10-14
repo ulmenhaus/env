@@ -4,3 +4,5 @@
 .project.json
 *.log
 .claude
+.venv
+.languify-venv

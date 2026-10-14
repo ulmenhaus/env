@@ -50,6 +50,31 @@ def build_parser() -> argparse.ArgumentParser:
              "with enter)",
     )
 
+    accent_parser = sub.add_parser(
+        "accent",
+        help="score a recording against its target pronunciation "
+             "(prototype -- see lib/py/languify/accent/)",
+    )
+    # Arguments only -- kept free of the accent package's own imports
+    # (torch/torchaudio/parselmouth), which are heavy and only pulled in
+    # lazily below once this subcommand is actually selected.
+    _add_language_arg(accent_parser)
+    accent_parser.add_argument(
+        "texts", nargs="+",
+        help="text files to read ('-' pastes from the clipboard via txtpaste)",
+    )
+    accent_parser.add_argument(
+        "-i", "--interactive", action="store_true",
+        help="launch the curses recording UI ('r' to record/stop, scored "
+             "live) instead of scoring a single pre-recorded file",
+    )
+    accent_parser.add_argument(
+        "--input-wav", default=None,
+        help="(non-interactive only) recording to score against the given "
+             "text; the text files are combined into one sentence, same as "
+             "tts's default mode",
+    )
+
     return parser
 
 
@@ -72,6 +97,18 @@ def main(argv=None) -> None:
             else:
                 out_path = tts.run_combine(args.texts, lang, out_path=args.out)
                 print(out_path)
+        elif args.command == "accent":
+            nakdimon_path = lang.tts.options.get("nakdimon_path")
+            if args.interactive:
+                from languify.accent import interactive as accent_interactive
+
+                accent_interactive.main(args.texts, lang, nakdimon_path)
+            else:
+                from languify.accent import cli as accent_cli  # heavy (torch) import
+
+                if not args.input_wav:
+                    raise ValueError("--input-wav is required without --interactive")
+                accent_cli.run(lang.name, args.texts, args.input_wav, nakdimon_path)
     except KeyboardInterrupt:
         sys.exit(130)
     except (FileNotFoundError, KeyError, ValueError, ImportError, RuntimeError) as exc:
