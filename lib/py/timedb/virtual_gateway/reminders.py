@@ -122,7 +122,7 @@ class RemindersBackend(jql_pb2_grpc.JQLServicer):
                     fields={
                         schema.Fields.Relation: ".Entry",
                         schema.Fields.Arg0: f"tasks {plan_pk}",
-                        schema.Fields.Arg1: f"@{{vt.reminders {arg0}}}",
+                        schema.Fields.Arg1: f"@{{{arg0}}}",
                     },
                     insert_only=True,
                 ))
