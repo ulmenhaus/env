@@ -26,6 +26,19 @@ var (
 // It determines which subview processes inputs.
 type MainViewMode int
 
+// queryAction records the kind of a single filter/grouping application
+// to mv.request so that 'q' can unapply them in reverse order.
+type queryAction int
+
+const (
+	// queryActionFilter indicates a filter was appended to
+	// mv.request.Conditions[0].Requires
+	queryActionFilter queryAction = iota
+	// queryActionGrouping indicates a grouping was appended to
+	// mv.request.GroupBy.Groupings
+	queryActionGrouping
+)
+
 const (
 	// MainViewModeTable is the mode for standard table
 	// navigation, filtering, ordering, &c
@@ -83,6 +96,11 @@ type MainView struct {
 	request  jqlpb.ListRowsRequest
 	response *jqlpb.ListRowsResponse
 
+	// appliedActions is a stack recording the order in which filters and
+	// groupings were applied to mv.request, so that 'q' can unapply them
+	// in the reverse order in which they were applied.
+	appliedActions []queryAction
+
 	switching     bool // on when transitioning modes has not yet been acknowleged by Layout
 	alert         string
 	promptText    string
@@ -115,6 +133,7 @@ func (mv *MainView) loadTable(t string) error {
 		Conditions: []*jqlpb.Condition{{}},
 		GroupBy:    &jqlpb.GroupBy{},
 	}
+	mv.appliedActions = nil
 	return mv.updateTableViewContents(true)
 }
 
@@ -537,16 +556,28 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 			Column:  mv.response.Columns[col].Name,
 			Match:   &jqlpb.Filter_EqualMatch{EqualMatch: &jqlpb.EqualMatch{Value: filterTarget}},
 		})
+		mv.appliedActions = append(mv.appliedActions, queryActionFilter)
 		err = mv.updateTableViewContents(true)
 	case 'q':
-		if len(mv.request.GroupBy.Groupings) > 0 {
-			mv.request.GroupBy.Groupings = mv.request.GroupBy.Groupings[:len(mv.request.GroupBy.Groupings)-1]
-		} else if len(mv.request.Conditions[0].Requires) > 0 {
-			mv.request.Conditions[0].Requires = mv.request.Conditions[0].Requires[:len(mv.request.Conditions[0].Requires)-1]
+		if len(mv.appliedActions) > 0 {
+			last := mv.appliedActions[len(mv.appliedActions)-1]
+			mv.appliedActions = mv.appliedActions[:len(mv.appliedActions)-1]
+			switch last {
+			case queryActionGrouping:
+				if len(mv.request.GroupBy.Groupings) > 0 {
+					mv.request.GroupBy.Groupings = mv.request.GroupBy.Groupings[:len(mv.request.GroupBy.Groupings)-1]
+				}
+			case queryActionFilter:
+				if len(mv.request.Conditions[0].Requires) > 0 {
+					mv.request.Conditions[0].Requires = mv.request.Conditions[0].Requires[:len(mv.request.Conditions[0].Requires)-1]
+				}
+			}
 		}
 		err = mv.updateTableViewContents(true)
 	case 'Q':
 		mv.request.Conditions = []*jqlpb.Condition{{}}
+		mv.request.GroupBy = &jqlpb.GroupBy{}
+		mv.appliedActions = nil
 		err = mv.updateTableViewContents(true)
 	case 'd':
 		err = mv.deleteSelectedRow()
@@ -571,6 +602,7 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 			Column: "",
 			Match:  &jqlpb.Filter_ContainsMatch{ContainsMatch: &jqlpb.ContainsMatch{Value: ""}},
 		})
+		mv.appliedActions = append(mv.appliedActions, queryActionFilter)
 		mv.switchMode(MainViewModeSearch)
 	case '/':
 		mv.searchAll = false
@@ -578,6 +610,7 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 			Column: mv.response.Columns[mv.TableView.Selections.Primary.Column].Name,
 			Match:  &jqlpb.Filter_ContainsMatch{ContainsMatch: &jqlpb.ContainsMatch{Value: ""}},
 		})
+		mv.appliedActions = append(mv.appliedActions, queryActionFilter)
 		mv.switchMode(MainViewModeSearch)
 	case 'o':
 		_, col := mv.SelectedEntry()
@@ -990,6 +1023,7 @@ func (mv *MainView) goFromSelectedValue(tables []*jqlpb.TableMeta, reverse bool)
 		mv.request.Table = table.Name
 		mv.request.Conditions = conditions
 		mv.request.OrderBy = ""
+		mv.appliedActions = nil
 		return mv.updateTableViewContents(true)
 	}
 	return fmt.Errorf("no tables found with corresponding foreign key: %s", selected)
@@ -1016,6 +1050,7 @@ func (mv *MainView) goFromSelectedValuePath(reverse bool) error {
 		},
 	}
 	mv.request.OrderBy = ""
+	mv.appliedActions = nil
 	return mv.updateTableViewContents(true)
 }
 
@@ -1230,6 +1265,7 @@ func (mv *MainView) addGrouping() error {
 		Field:    mv.response.Columns[col].Name,
 		Selected: mv.response.Rows[row].Entries[col].Formatted,
 	})
+	mv.appliedActions = append(mv.appliedActions, queryActionGrouping)
 	mv.request.Offset = 0
 	return mv.updateTableViewContents(true)
 }
@@ -1384,6 +1420,7 @@ func (mv *MainView) runMacro(ch rune, description string) error {
 				},
 			},
 		}
+		mv.appliedActions = append(mv.appliedActions, queryActionFilter)
 	}
 	orderBy := output.CurrentView.OrderBy
 	if orderBy != "" {
@@ -1399,6 +1436,7 @@ func (mv *MainView) runMacro(ch rune, description string) error {
 				},
 			},
 		}
+		mv.appliedActions = append(mv.appliedActions, queryActionGrouping)
 	}
 	mv.havePendingCursor = true
 	mv.pendingCursorPK = primarySelection.GetFormatted()
@@ -1432,6 +1470,7 @@ func (mv *MainView) GoToPrimaryKey(pk string) error {
 			},
 		},
 	}
+	mv.appliedActions = nil
 	return mv.updateTableViewContents(true)
 }
 
@@ -1447,6 +1486,7 @@ func (mv *MainView) LoadQuery(req *jqlpb.ListRowsRequest) error {
 	if mv.request.GroupBy == nil {
 		mv.request.GroupBy = &jqlpb.GroupBy{}
 	}
+	mv.appliedActions = nil
 	return mv.updateTableViewContents(true)
 }
 
@@ -1457,6 +1497,9 @@ func (mv *MainView) SetOrderBy(field string, dec bool) error {
 }
 
 func (mv *MainView) SetGroupBy(field, selected string) error {
+	// This replaces any existing groupings wholesale, so drop any grouping
+	// entries already on the stack before recording this one.
+	mv.appliedActions = removeQueryActions(mv.appliedActions, queryActionGrouping)
 	mv.request.GroupBy = &jqlpb.GroupBy{
 		Groupings: []*jqlpb.RequestedGrouping{
 			{
@@ -1465,6 +1508,7 @@ func (mv *MainView) SetGroupBy(field, selected string) error {
 			},
 		},
 	}
+	mv.appliedActions = append(mv.appliedActions, queryActionGrouping)
 	return mv.updateTableViewContents(true)
 }
 
@@ -1474,8 +1518,21 @@ func (mv *MainView) AddFilters(filters []cli.Filter) error {
 			Column: filter.Key,
 			Match:  &jqlpb.Filter_EqualMatch{EqualMatch: &jqlpb.EqualMatch{Value: filter.Value}},
 		})
+		mv.appliedActions = append(mv.appliedActions, queryActionFilter)
 	}
 	return mv.updateTableViewContents(true)
+}
+
+// removeQueryActions returns actions with every entry matching kind
+// removed, preserving relative order of the rest.
+func removeQueryActions(actions []queryAction, kind queryAction) []queryAction {
+	filtered := make([]queryAction, 0, len(actions))
+	for _, a := range actions {
+		if a != kind {
+			filtered = append(filtered, a)
+		}
+	}
+	return filtered
 }
 
 func (mv *MainView) writeGroupings(v *gocui.View) {
