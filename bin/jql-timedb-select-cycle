@@ -9,80 +9,102 @@ Macro will auto-jump your view to a given attention cycle
 """
 
 import datetime
-import json
 import sys
 
-from jql import jql_pb2
-from timedb import pks, schema
-from timedb import client_utils
+from jql import jql_pb2, macro
+from timedb import pks, schema, client_utils
 
 
-def find_active_root_cycle(snapshot):
-    for pk, task in snapshot['tasks'].items():
-        if task['Action'] == "Accomplish" and task[
-                'Direct'] == "set goals" and task['Status'] == "Habitual":
-            return pk
+def _find_root_cycle(dbms, status):
+    resp = dbms.ListRows(jql_pb2.ListRowsRequest(
+        table=schema.Tables.Tasks,
+        conditions=[jql_pb2.Condition(requires=[
+            jql_pb2.Filter(column=schema.Fields.Action, equal_match=jql_pb2.EqualMatch(value="Accomplish")),
+            jql_pb2.Filter(column=schema.Fields.Direct, equal_match=jql_pb2.EqualMatch(value="set goals")),
+            jql_pb2.Filter(column=schema.Fields.Status, equal_match=jql_pb2.EqualMatch(value=status)),
+        ])],
+    ))
+    if not resp.rows:
+        return None
+    primary, _ = client_utils.list_rows_meta(resp)
+    return resp.rows[0].entries[primary].formatted
 
 
-def find_pending_root_cycle(snapshot):
-    for pk, task in snapshot['tasks'].items():
-        if task['Action'] == "Accomplish" and task[
-                'Direct'] == "set goals" and task['Status'] == "Pending":
-            return pk
+def _find_active_cycles(dbms):
+    resp = dbms.ListRows(jql_pb2.ListRowsRequest(
+        table=schema.Tables.Tasks,
+        conditions=[jql_pb2.Condition(requires=[
+            jql_pb2.Filter(column=schema.Fields.Status, equal_match=jql_pb2.EqualMatch(value=schema.Values.StatusHabitual)),
+            jql_pb2.Filter(column=schema.Fields.Action, equal_match=jql_pb2.EqualMatch(value="Attend")),
+        ])],
+    ))
+    primary, cmap = client_utils.list_rows_meta(resp)
+    return {
+        row.entries[cmap[schema.Fields.Indirect]].formatted: row.entries[primary].formatted
+        for row in resp.rows
+    }
 
 
-def create_ideation_task(snapshot, idea_pk):
+def _get_noun(dbms, pk):
+    resp = dbms.GetRow(jql_pb2.GetRowRequest(table=schema.Tables.Nouns, pk=pk))
+    return macro.proto_to_dict(resp.columns, resp.row)
+
+
+def create_ideation_task(dbms, idea_pk):
     # find the nearest ancestor which has an attention cycle
     visited = set()
-    nouns, tasks = snapshot['nouns'], snapshot['tasks']
-    noun = nouns[idea_pk]['Parent']
-    active_cycles = {
-        task['Indirect']: task_pk
-        for task_pk, task in snapshot['tasks'].items()
-        if task['Status'] == 'Habitual' and task['Action'] == 'Attend'
-    }
+    noun = _get_noun(dbms, idea_pk)
+    active_cycles = _find_active_cycles(dbms)
+    noun_pk = noun[schema.Fields.Parent]
     parent = ""
     while True:
-        if noun in visited:
+        if noun_pk in visited:
             raise ValueError("cycle detected")
-        visited.add(noun)
-        if noun in active_cycles:
-            parent = active_cycles[noun]
+        visited.add(noun_pk)
+        if noun_pk in active_cycles:
+            parent = active_cycles[noun_pk]
             break
-        noun = nouns[noun]['Parent']
+        noun_pk = _get_noun(dbms, noun_pk)[schema.Fields.Parent]
     action_map = {
         'Idea': 'Ideate',
         'Exploring': 'Explore',
     }
+    actions_resp = dbms.ListRows(jql_pb2.ListRowsRequest(table=schema.Tables.Actions))
+    actions = macro.protos_to_dict(actions_resp.columns, actions_resp.rows)
     task = {
-        "Action": action_map.get(nouns[idea_pk]['Status'], 'Plan'),
-        'Direct': idea_pk,
-        "Indirect": '',
-        'Parameters': '',
+        schema.Fields.Action: action_map.get(noun[schema.Fields.Status], 'Plan'),
+        schema.Fields.Direct: idea_pk,
+        schema.Fields.Indirect: '',
+        schema.Fields.Parameters: '',
         # NOTE Assuming we want fine-grained timestamps here so selecting today's
         # date but an alternative would be to inherit the span and start from the parent
         "Param~Span": "Day",
-        "Param~Start":
-        (datetime.date.today() - datetime.date(1970, 1, 1)).days,
-        "Primary Goal": parent,
-        "Status": "Active",
+        schema.Fields.ParamStart: datetime.date.today().strftime("%d %b %Y"),
+        schema.Fields.PrimaryGoal: parent,
+        schema.Fields.Status: "Active",
     }
-    pk = pks.pk_for_task(task, snapshot['actions'])
-    tasks[pk] = task
+    pk = pks.pk_for_task(task, actions)
+    dbms.WriteRow(jql_pb2.WriteRowRequest(
+        table=schema.Tables.Tasks,
+        pk=pk,
+        fields=task,
+        insert_only=True,
+    ))
     return pk
 
 
 def _go_to_profiles(iface):
-    table = iface['current_view']['table']
+    current_view = iface.attrs['current_view']
+    table = current_view['table']
     pks = []
     if table == 'tasks':
-        pks = ["tasks " + iface['current_view']['primary_selection']]
+        pks = ["tasks " + current_view['primary_selection']]
     elif table == 'vt.relatives':
-        pks = [client_utils.decode_pk(pk)[0] for pk in iface['current_view']['pks']]
+        pks = [client_utils.decode_pk(pk)[0] for pk in current_view['pks']]
     else:
         raise ValueError(
             "Profiles view only supported from tasks and relatives tables")
-    iface['current_view']['table'] = 'vt.profiles'
+    current_view['table'] = 'vt.profiles'
     query_filter = jql_pb2.Filter(column='_target',
                                   in_match=jql_pb2.InMatch(values=pks))
     request = jql_pb2.ListRowsRequest(
@@ -94,97 +116,84 @@ def _go_to_profiles(iface):
             jql_pb2.RequestedGrouping(field=schema.Fields.Profile, ),
         ], ),
     )
-
-    iface['current_view']['encoded_request'] = request.SerializeToString().hex(
-    )
-    json.dump(iface, sys.stdout)
+    current_view['encoded_request'] = request.SerializeToString().hex()
 
 
 def main():
-    iface = json.load(sys.stdin)
-    field = "Primary Goal"
-    table = "tasks"
-    changed = False
-    order_by = ""
-    order_dec = False
-    proto_bytes = bytes.fromhex(iface['current_view']['encoded_request'])
-    request = jql_pb2.ListRowsRequest()
-    request.ParseFromString(proto_bytes)
-    if "--pending" in sys.argv:
-        snapshot = json.loads(iface["snapshot"])
-        formatted = find_pending_root_cycle(snapshot)
-    elif "--ideate" in sys.argv:
-        formatted = iface['current_view']['primary_selection']
-        snapshot = json.loads(iface["snapshot"])
-        create_ideation_task(snapshot, formatted)
+    with macro.macro_interface(sys.stdin, sys.stdout) as iface:
+        dbms = iface.get_dbms()
+        field = "Primary Goal"
         table = "tasks"
-        field = "Direct"
-        changed = True
-        order_by = "Param~Start"
-        order_dec = True
-    elif "--ideas" in sys.argv:
-        table = "vt.ideas"
-        field = "Idea"
-        formatted = iface['current_view']['primary_selection']
-    elif "--attributes" in sys.argv:
-        current_table = iface['current_view']['table']
-        table = "vt.attributes"
-        field = "-> Item"
-        iface['current_view']['group_by'] = schema.Fields.AttributeRelation
-        iface['current_view']['group_by_selected'] = ".Note"
-        if current_table == schema.Tables.Attributes:
-            target = client_utils.selected_target(request)
-            table, formatted = target.split(" ", 1)
-            field = schema.primary_for_table(table)
-        elif current_table == schema.Tables.Relatives:
-            formatted = client_utils.selected_target(request)
-            iface['current_view'][
-                'group_by_selected'] = f".{iface['current_view']['primary_column']}"
+        order_by = ""
+        order_dec = False
+        request = iface.get_request()
+        current_view = iface.attrs['current_view']
+        if "--pending" in sys.argv:
+            formatted = _find_root_cycle(dbms, schema.Values.StatusPending)
+        elif "--ideate" in sys.argv:
+            formatted = current_view['primary_selection']
+            create_ideation_task(dbms, formatted)
+            table = "tasks"
+            field = "Direct"
+            order_by = "Param~Start"
+            order_dec = True
+        elif "--ideas" in sys.argv:
+            table = "vt.ideas"
+            field = "Idea"
+            formatted = current_view['primary_selection']
+        elif "--attributes" in sys.argv:
+            current_table = current_view['table']
+            table = "vt.attributes"
+            field = "-> Item"
+            current_view['group_by'] = schema.Fields.AttributeRelation
+            current_view['group_by_selected'] = ".Note"
+            if current_table == schema.Tables.Attributes:
+                target = client_utils.selected_target(request)
+                table, formatted = target.split(" ", 1)
+                field = schema.primary_for_table(table)
+            elif current_table == schema.Tables.Relatives:
+                formatted = client_utils.selected_target(request)
+                current_view[
+                    'group_by_selected'] = f".{current_view['primary_column']}"
+            else:
+                selection = current_view['primary_selection']
+                formatted = f"{current_table} {selection}"
+        elif "--relatives" in sys.argv:
+            table = "vt.relatives"
+            field = "-> Item"
+            current_table = current_view['table']
+            selection = current_view['primary_selection']
+            current_view['group_by'] = schema.Fields.RelativeRelation
+            current_view['group_by_selected'] = schema.Values.RelationIdentity
+            if current_table in ['nouns', 'tasks']:
+                formatted = f"{current_table} {selection}"
+            elif current_table == schema.Tables.Relatives:
+                target = client_utils.selected_target(request)
+                table, formatted = target.split(" ", 1)
+                field = schema.primary_for_table(table)
+                current_view['group_by'] = ""
+            elif current_table == schema.Tables.Attributes:
+                formatted = client_utils.selected_target(request)
+            elif current_table.startswith('vt.'):
+                formatted = selection.split("\t")[0]
+        elif "--profiles" in sys.argv:
+            return _go_to_profiles(iface)
+        elif "--habituals" in sys.argv:
+            table = "vt.habituals"
+            field = "Habitual"
+            formatted = current_view['primary_selection']
+        elif "--for" in sys.argv:
+            raise NotImplementedError("--for flag not yet implemented")
         else:
-            selection = iface['current_view']['primary_selection']
-            formatted = f"{current_table} {selection}"
-    elif "--relatives" in sys.argv:
-        table = "vt.relatives"
-        field = "-> Item"
-        current_table = iface['current_view']['table']
-        selection = iface['current_view']['primary_selection']
-        iface['current_view']['group_by'] = schema.Fields.RelativeRelation
-        iface['current_view'][
-            'group_by_selected'] = schema.Values.RelationIdentity
-        if current_table in ['nouns', 'tasks']:
-            formatted = f"{current_table} {selection}"
-        elif current_table == schema.Tables.Relatives:
-            target = client_utils.selected_target(request)
-            table, formatted = target.split(" ", 1)
-            field = schema.primary_for_table(table)
-            iface['current_view']['group_by'] = ""
-        elif current_table == schema.Tables.Attributes:
-            formatted = client_utils.selected_target(request)
-        elif current_table.startswith('vt.'):
-            formatted = selection.split("\t")[0]
-    elif "--profiles" in sys.argv:
-        return _go_to_profiles(iface)
-    elif "--habituals" in sys.argv:
-        table = "vt.habituals"
-        field = "Habitual"
-        formatted = iface['current_view']['primary_selection']
-    elif "--for" in sys.argv:
-        raise NotImplementedError("--for flag not yet implemented")
-    else:
-        snapshot = json.loads(iface["snapshot"])
-        formatted = find_active_root_cycle(snapshot)
-    current_view = iface["current_view"]
-    current_view['table'] = table
-    if field:
-        current_view['filter'] = {
-            "field": field,
-            "formatted": formatted,
-        }
-    current_view['order_by'] = order_by
-    current_view['order_dec'] = order_dec
-    if changed:
-        iface['snapshot'] = json.dumps(snapshot)
-    json.dump(iface, sys.stdout)
+            formatted = _find_root_cycle(dbms, schema.Values.StatusHabitual)
+        current_view['table'] = table
+        if field:
+            current_view['filter'] = {
+                "field": field,
+                "formatted": formatted,
+            }
+        current_view['order_by'] = order_by
+        current_view['order_dec'] = order_dec
 
 
 if __name__ == "__main__":
