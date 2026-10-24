@@ -8,7 +8,7 @@ from jql import jql_pb2
 from timedb import schema
 from timedb.client_utils import (
     format_attrs,
-    get_fields_for_items,
+    get_fields_for_items_by_pk,
     get_primary,
     is_foreign,
     link_attrs,
@@ -309,7 +309,7 @@ class TimingInfo(object):
 
 def get_timing_info(client, noun_pks):
     info = {}
-    fields, assn_pks = get_fields_for_items(client, schema.Tables.Nouns,
+    fields, assn_pks = get_fields_for_items_by_pk(client, schema.Tables.Nouns,
                                             noun_pks,
                                             ["Cadence", "StartDate", "Cost"])
     all_days_since = _days_since(client, noun_pks)

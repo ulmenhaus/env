@@ -36,7 +36,7 @@ class ActiveRemindersBackend(jql_pb2_grpc.JQLServicer):
 
         if reminder_bareids:
             # Query 3: get all reminder attributes
-            attr_map, raw_assn_pks = client_utils.get_fields_for_items(
+            attr_map, raw_assn_pks = client_utils.get_fields_for_items_by_pk(
                 self.client, "vt.reminders", reminder_bareids)
 
             # Collect task PKs so we can batch-query their notes
@@ -50,7 +50,7 @@ class ActiveRemindersBackend(jql_pb2_grpc.JQLServicer):
             # Query 4: get .Note attributes for all referenced tasks
             task_assn_pks = {}
             if task_pks:
-                _, task_assn_pks = client_utils.get_fields_for_items(
+                _, task_assn_pks = client_utils.get_fields_for_items_by_pk(
                     self.client, "tasks", task_pks, fields=("Note",))
 
             for bareid in reminder_bareids:

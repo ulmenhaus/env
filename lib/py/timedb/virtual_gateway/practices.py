@@ -38,7 +38,7 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
     def _query_actionable_children(self, feeds_resp, hide_active):
         primary = client_utils.get_primary(feeds_resp)
         feeds = {row.entries[primary].formatted for row in feeds_resp.rows}
-        feed_attrs, _ = client_utils.get_fields_for_items(self.client,
+        feed_attrs, _ = client_utils.get_fields_for_items_by_pk(self.client,
                                                     schema.Tables.Nouns, feeds)
         cmap = {c.name: i for i, c in enumerate(feeds_resp.columns)}
         action_map = {
@@ -72,7 +72,6 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
         )
         nouns = self.client.ListRows(nouns_request)
         primary = client_utils.get_primary(nouns)
-        noun_pks = [row.entries[primary].formatted for row in nouns.rows]
         children = {}
         # TODO active_actions is now available on TimingInfo so we don't have
         # to query active_tasks separately
@@ -98,9 +97,6 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
              task.entries[tasks_cmap[schema.Fields.Direct]].formatted)
             for task in active_tasks.rows
         }
-        row_attrs, _ = client_utils.get_fields_for_items(self.client,
-                                                   schema.Tables.Nouns,
-                                                   noun_pks)
         pk2row = {}
         for row in nouns.rows:
             pk = row.entries[primary].formatted

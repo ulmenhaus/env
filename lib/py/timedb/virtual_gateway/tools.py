@@ -81,7 +81,7 @@ class ToolsBackend(jql_pb2_grpc.JQLServicer):
         if not all_tool_pks:
             return {}
 
-        fields, _ = client_utils.get_fields_for_items(self.client,
+        fields, _ = client_utils.get_fields_for_items_by_pk(self.client,
                                                 schema.Tables.Nouns,
                                                 all_tool_pks)
         taxonomies = set(

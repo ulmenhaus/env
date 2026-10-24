@@ -121,7 +121,7 @@ class ProfilesBackend(jql_pb2_grpc.JQLServicer):
             # NOTE once we implement include_children=True for client_utils.get_fields_for_items
             # we won't need to do this merging manually. To do this though we may need
             # to audit direct children to ensure they have a parent relation set.
-            profile_fields, _ = client_utils.get_fields_for_items(self.client,
+            profile_fields, _ = client_utils.get_fields_for_items_by_pk(self.client,
                                                             schema.Tables.Nouns,
                                                             [pk],
                                                             fields=['Member'])

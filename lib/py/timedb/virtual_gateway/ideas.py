@@ -69,7 +69,7 @@ class IdeasBackend(jql_pb2_grpc.JQLServicer):
         fields = [
             "Domain", "Parent", "Coordinal", "Cost", "PE", "SoB", "RoI", "Idea", "_pk"
         ]
-        noun_to_idea, assn_pks = client_utils.get_fields_for_items(
+        noun_to_idea, assn_pks = client_utils.get_fields_for_items_by_pk(
             self.client, schema.Tables.Nouns, noun_pks, fields)
         for row in ideas_response.rows:
             noun_pk = row.entries[primary].formatted
@@ -94,7 +94,7 @@ class IdeasBackend(jql_pb2_grpc.JQLServicer):
         parent_pks = sorted(
             {idea["Parent"][0]
              for idea in noun_to_idea.values()})
-        domains, _ = client_utils.get_fields_for_items(self.client,
+        domains, _ = client_utils.get_fields_for_items_by_pk(self.client,
                                                  schema.Tables.Nouns,
                                                  parent_pks, ["Domain"])
         for idea in noun_to_idea.values():

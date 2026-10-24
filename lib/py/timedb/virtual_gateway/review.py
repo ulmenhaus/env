@@ -23,7 +23,7 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
         descendants = self._query_descendants(ancestor_pk)
         primary, cmap = client_utils.list_rows_meta(descendants)
         task_pks = [row.entries[primary].formatted for row in descendants.rows]
-        fields, _ = client_utils.get_fields_for_items(self.client,
+        fields, _ = client_utils.get_fields_for_items_by_pk(self.client,
                                                 schema.Tables.Tasks, task_pks)
         rows = {}
         progresses, plan2workstreams = self._breakdown_progress(descendants)

@@ -139,11 +139,21 @@ def selected_targets(request, column='-> Item'):
 
 
 def get_fields_for_items(client, table, pks, fields=(), include_children=False):
+    """Queries the assertion-backed attributes recorded against each of `pks`.
+
+    `pks` are bare pks within `table` when `table` is given, or already
+    fully-qualified "<table> <pk>" strings when `table` is "" (e.g. when the
+    items span more than one table). Either way, the two returned dicts are
+    always keyed by the fully-qualified "<table> <pk>" identifier -- never by
+    the bare pk. Callers that only deal with a single, already-known table
+    and would rather key by bare pk should use `get_fields_for_items_by_pk`
+    instead.
+    """
     if include_children:
         raise NotImplementedError("including direct children in query for fields is not yet implemented")
     prefix = f"{table} " if table else ""
-    ret = {pk: collections.defaultdict(list) for pk in pks}
     full_pks = [f"{prefix}{pk}" for pk in pks]
+    ret = {full_pk: collections.defaultdict(list) for full_pk in full_pks}
     filters = [
         jql_pb2.Filter(
             column=schema.Fields.Arg0,
@@ -171,20 +181,33 @@ def get_fields_for_items(client, table, pks, fields=(), include_children=False):
     assn_pks = collections.defaultdict(lambda: collections.defaultdict(list))
     has_tasks = any([full_pk.startswith("tasks ") for full_pk in full_pks])
     if has_tasks:
-        for task_pk, attributes in _implicit_task_attributes_from_params(
+        for task_full_pk, attributes in _implicit_task_attributes_from_params(
                 client, full_pks).items():
-            pk = task_pk.split(" ", 1)[1] if table else task_pk
             for k, v in attributes.items():
-                ret[pk][k] = [v]
+                ret[task_full_pk][k] = [v]
     for row in assertions_response.rows:
         rel = row.entries[assn_cmap[schema.Fields.Relation]].formatted
         value = row.entries[assn_cmap[schema.Fields.Arg1]].formatted
         arg0 = row.entries[assn_cmap[schema.Fields.Arg0]].formatted
-        pk = arg0.split(" ", 1)[1] if table else arg0
-        ret[pk][rel[1:]].append(value)
-        assn_pks[pk][rel[1:]].append(
+        ret[arg0][rel[1:]].append(value)
+        assn_pks[arg0][rel[1:]].append(
             [row.entries[assn_primary].formatted, value])
     return ret, assn_pks
+
+
+def get_fields_for_items_by_pk(client, table, pks, fields=(), include_children=False):
+    """Like `get_fields_for_items`, but for the common case of a single,
+    already-known `table`: re-keys the result by bare pk, stripping the
+    "<table> " prefix that would otherwise be redundant for every entry.
+    """
+    if not table:
+        raise ValueError(
+            "table is required to key get_fields_for_items results by bare pk")
+    attrs, assn_pks = get_fields_for_items(client, table, pks, fields,
+                                           include_children)
+    def _by_pk(d):
+        return {parse_full_pk(full_pk)[1]: v for full_pk, v in d.items()}
+    return _by_pk(attrs), _by_pk(assn_pks)
 
 
 def _implicit_task_attributes_from_params(client, full_pks):

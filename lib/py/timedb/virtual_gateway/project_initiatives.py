@@ -31,7 +31,7 @@ class NounsBackend(jql_pb2_grpc.JQLServicer):
         tasks_resp = self.client.ListRows(project_tasks)
         primary, cmap = client_utils.list_rows_meta(tasks_resp)
         keys = [row.entries[primary].formatted for row in tasks_resp.rows]
-        fields, _ = client_utils.get_fields_for_items(self.client,
+        fields, _ = client_utils.get_fields_for_items_by_pk(self.client,
                                                 schema.Tables.Nouns, keys)
 
         for task in tasks_resp.rows:
@@ -172,7 +172,7 @@ def _query_project_plans(client):
 def _query_areas_for_plans(client, plans):
     taxonomies = set()
     plan2tax = {plan: [] for plan in plans}
-    fields, _ = client_utils.get_fields_for_items(client, schema.Tables.Nouns, list(plans))
+    fields, _ = client_utils.get_fields_for_items_by_pk(client, schema.Tables.Nouns, list(plans))
     for plan, attr_set in fields.items():
         for taxonomy in attr_set['Taxonomy']:
             if client_utils.is_foreign(taxonomy):

@@ -47,7 +47,7 @@ class RemindersBackend(jql_pb2_grpc.JQLServicer):
             return common.list_rows("vt.reminders", {}, request, VALUES)
 
         # Query 2: get all attributes for these reminders
-        attr_map, raw_assn_pks = client_utils.get_fields_for_items(
+        attr_map, raw_assn_pks = client_utils.get_fields_for_items_by_pk(
             self.client, "vt.reminders", reminder_bareids)
 
         # Queries 3 & 4: find today's day plan and which reminders are in it

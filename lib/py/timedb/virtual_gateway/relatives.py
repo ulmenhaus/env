@@ -157,7 +157,7 @@ class RelativesBackend(jql_pb2_grpc.JQLServicer):
             primary, cmap = client_utils.list_rows_meta(response)
             for row in response.rows:
                 tasks[row.entries[primary].formatted] = row
-        relatives, assn_pks = client_utils.get_fields_for_items(
+        relatives, assn_pks = client_utils.get_fields_for_items_by_pk(
             self.client, "tasks", list(tasks))
         for pk, relative in relatives.items():
             relation = "w/ Unknown"
