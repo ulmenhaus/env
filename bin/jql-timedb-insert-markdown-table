@@ -6,6 +6,7 @@ Review the contents of a framework with the help of an llm
 """
 
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -15,16 +16,28 @@ from timedb import cycles, pks, schema, llm_utils
 
 from timedb import client_utils
 
+# A GFM table divider cell is dashes, optionally with alignment colons, e.g.
+# "---", ":---", "---:", or ":---:".
+_DIVIDER_CELL_RE = re.compile(r'^:?-+:?$')
+
+
+def _is_divider_row(cells):
+    return all(_DIVIDER_CELL_RE.match(cell) for cell in cells)
+
 
 def _parse_markdown_table(table):
     rows = []
-    for i, row in enumerate(table.split("\n")):
-        if i == 1:
-            continue
+    for row in table.split("\n"):
+        row = row.strip()
         if not row.startswith("|") or not row.endswith("|"):
             continue
+        cells = [col.strip() for col in row[1:-1].split("|")]
+        if _is_divider_row(cells):
+            # the header/body divider row -- recognized by content rather than
+            # position since its exact dash/colon styling varies
+            continue
         # NOTE this doesn't support escaled pipes (e.g. inside quotes) but fine for our purposes
-        rows.append([col.strip() for col in row[1:-1].split("|")])
+        rows.append(cells)
     return rows
 
 def _insert_table(dbms, parent, table):
