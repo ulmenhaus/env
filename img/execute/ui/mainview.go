@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os/exec"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -30,11 +31,93 @@ const (
 )
 
 const (
-	blackTextEscape = "\033[30m"
-	whiteBackEscape = "\033[47m"
-	boldTextEscape  = "\033[1m"
-	resetEscape     = "\033[0m"
+	blackTextEscape  = "\033[30m"
+	whiteBackEscape  = "\033[47m"
+	boldTextEscape   = "\033[1m"
+	yellowTextEscape = "\033[33m"
+	resetEscape      = "\033[0m"
 )
+
+// reminderTimestampFormat matches the format written by the jql virtual
+// gateway for the .Updated assertion on vt.reminders entities.
+const reminderTimestampFormat = "2006-01-02 15:04:05"
+
+// timeEstimateGapSpaces is the number of spaces between the end of the
+// widest item in the today view and where time estimates are aligned.
+const timeEstimateGapSpaces = 5
+
+var ansiEscapeRegexp = regexp.MustCompile("\x1b\\[[0-9;]*m")
+
+// visibleLen returns the length of s with ANSI escape sequences stripped.
+func visibleLen(s string) int {
+	return len([]rune(ansiEscapeRegexp.ReplaceAllString(s, "")))
+}
+
+// parseTimeEstimateMinutes parses a Time-Estimate value like "5m" or "60m"
+// into a number of minutes.
+func parseTimeEstimateMinutes(raw string) (int, bool) {
+	if raw == "" {
+		return 0, false
+	}
+	s := raw
+	if strings.HasSuffix(s, "m") {
+		s = s[:len(s)-1]
+	}
+	minutes, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, false
+	}
+	return minutes, true
+}
+
+// isReminderAwaiting mirrors the display-only "Awaiting" computation in the
+// jql virtual gateway (vt.active_reminders): a Ready reminder is Awaiting
+// while now is still within Updated + Time-Estimate.
+func isReminderAwaiting(status, updated, timeEstimate string) bool {
+	if status != "Ready" {
+		return false
+	}
+	minutes, ok := parseTimeEstimateMinutes(timeEstimate)
+	if !ok || updated == "" {
+		return false
+	}
+	updatedAt, err := time.Parse(reminderTimestampFormat, updated)
+	if err != nil {
+		return false
+	}
+	return time.Now().Before(updatedAt.Add(time.Duration(minutes) * time.Minute))
+}
+
+// alignTimeEstimates right-pads each item line so that its time estimate
+// (if any) starts timeEstimateGapSpaces after the visible end of the widest
+// item line, then wraps any Awaiting line in yellow.
+func alignTimeEstimates(lines []string, isItem []bool, estimates []string, awaiting []bool) []string {
+	maxLen := 0
+	for i, line := range lines {
+		if !isItem[i] {
+			continue
+		}
+		if l := visibleLen(line); l > maxLen {
+			maxLen = l
+		}
+	}
+	out := make([]string, len(lines))
+	for i, line := range lines {
+		result := line
+		if estimates[i] != "" {
+			pad := maxLen - visibleLen(line) + timeEstimateGapSpaces
+			if pad < timeEstimateGapSpaces {
+				pad = timeEstimateGapSpaces
+			}
+			result = line + strings.Repeat(" ", pad) + estimates[i]
+		}
+		if awaiting[i] {
+			result = yellowTextEscape + strings.ReplaceAll(result, resetEscape, resetEscape+yellowTextEscape) + resetEscape
+		}
+		out[i] = result
+	}
+	return out
+}
 
 // TaskViewMode is the way in which tasks are presented
 type TaskViewMode int
@@ -128,10 +211,12 @@ type reminderInfo struct {
 	taskArg0        string
 	checkText       string // empty for task-level reminders
 	description     string // checkText if set, else taskPK
-	status          string // raw status: Awaiting, Ready, Done, Elided, Failed
+	status          string // raw status: Ready, Done, Elided, Failed
 	statusAssnPK    string
 	collapsed       bool
 	collapsedAssnPK string
+	timeEstimate    string // raw Time-Estimate value, e.g. "5m"
+	awaiting        bool   // true when Ready but still within Updated + Time-Estimate
 }
 
 // groupUnderInfo holds the .GroupUnder hierarchy override for a task in the
@@ -783,9 +868,10 @@ func (mv *MainView) todayBreakdown() ([]DayItem, error) {
 			}
 		}
 		today = append(today, DayItem{
-			Break:       brk,
-			Description: item.Description,
-			PK:          item.PK,
+			Break:        brk,
+			Description:  item.Description,
+			PK:           item.PK,
+			ReminderArg0: item.ReminderArg0,
 		})
 
 	}
@@ -818,15 +904,29 @@ func (mv *MainView) todayTasks() ([]string, error) {
 			currentBreak.done += 1
 		}
 	}
+	var isItem []bool
+	var estimates []string
+	var awaiting []bool
 	for _, brk := range brks {
 		tasks = append(tasks, brk.description)
+		isItem = append(isItem, false)
+		estimates = append(estimates, "")
+		awaiting = append(awaiting, false)
 		for _, item := range brk.items {
 			ix2item[len(tasks)] = item
 			tasks = append(tasks, " "+item.Description)
+			isItem = append(isItem, true)
+			if info, ok := mv.reminderCache[item.ReminderArg0]; ok {
+				estimates = append(estimates, info.timeEstimate)
+				awaiting = append(awaiting, info.awaiting)
+			} else {
+				estimates = append(estimates, "")
+				awaiting = append(awaiting, false)
+			}
 		}
 	}
 	mv.ix2item = ix2item
-	return tasks, nil
+	return alignTimeEstimates(tasks, isItem, estimates, awaiting), nil
 }
 
 func (mv *MainView) saveContents(g *gocui.Gui, v *gocui.View) error {
@@ -985,6 +1085,12 @@ func (mv *MainView) selectNextFreeTask(g *gocui.Gui, v *gocui.View) {
 }
 
 func (mv *MainView) isFreeTask(task string) bool {
+	// Awaiting reminders are rendered in yellow and shouldn't count as free:
+	// they're skipped both when jumping to the topmost free task and when
+	// skipping forward over done reminders.
+	if strings.Contains(task, yellowTextEscape) {
+		return false
+	}
 	if mv.treeMode {
 		return strings.Contains(task, "[ ]")
 	}
@@ -2086,6 +2192,8 @@ func (mv *MainView) refreshToday() error {
 			if desc == "" {
 				desc = taskPK
 			}
+			updated := a["Updated"]
+			timeEstimate := a["TimeEstimate"]
 			mv.reminderCache[arg0] = &reminderInfo{
 				taskPK:          taskPK,
 				taskArg0:        taskArg0,
@@ -2095,6 +2203,8 @@ func (mv *MainView) refreshToday() error {
 				statusAssnPK:    assnPKs[arg0]["Status"],
 				collapsed:       a["Collapsed"] == "yes",
 				collapsedAssnPK: assnPKs[arg0]["Collapsed"],
+				timeEstimate:    timeEstimate,
+				awaiting:        isReminderAwaiting(status, updated, timeEstimate),
 			}
 			if taskPK != "" {
 				taskPKSet[taskPK] = true
@@ -2433,6 +2543,9 @@ func (mv *MainView) treeTasks() ([]string, error) {
 	}
 
 	tasks := []string{}
+	var isItem []bool
+	var estimates []string
+	var awaiting []bool
 	ix2item := map[int]DayItem{}
 	currentBreak := ""
 	skipUntil := 0 // items before this index are hidden as descendants of a collapsed entry
@@ -2444,6 +2557,9 @@ func (mv *MainView) treeTasks() ([]string, error) {
 			currentBreak = item.Break
 			if currentBreak != "" {
 				tasks = append(tasks, currentBreak)
+				isItem = append(isItem, false)
+				estimates = append(estimates, "")
+				awaiting = append(awaiting, false)
 			}
 		}
 		info := mv.reminderCache[item.ReminderArg0]
@@ -2478,9 +2594,17 @@ func (mv *MainView) treeTasks() ([]string, error) {
 		}
 		ix2item[len(tasks)] = item
 		tasks = append(tasks, line)
+		isItem = append(isItem, true)
+		if info != nil {
+			estimates = append(estimates, info.timeEstimate)
+			awaiting = append(awaiting, info.awaiting)
+		} else {
+			estimates = append(estimates, "")
+			awaiting = append(awaiting, false)
+		}
 	}
 	mv.ix2item = ix2item
-	return tasks, nil
+	return alignTimeEstimates(tasks, isItem, estimates, awaiting), nil
 }
 
 func (mv *MainView) queryActiveAndHabitualTasks() (*jqlpb.ListRowsResponse, error) {
@@ -3030,7 +3154,7 @@ func (mv *MainView) groupTasksUnder(targets map[string]string) error {
 }
 
 // buildCandidatesFromAwaitingReminders returns (taskPK, checkText) candidates for all
-// reminder entities whose .Status is Awaiting or Ready. These are fed into
+// reminder entities whose .Status is Ready. These are fed into
 // resolveReminderPlacements so that due reminders surface in the day plan even when their
 // parent task is not in the active/habitual query.
 // createMissingReminders creates reminder assertion clusters for every (task, check) candidate
@@ -3049,7 +3173,7 @@ func (mv *MainView) createMissingReminders(candidates []reminderToPlace, todaySt
 	return nil
 }
 
-// queryDueReminderBareIDs returns the bare IDs of all Awaiting/Ready reminder entities
+// queryDueReminderBareIDs returns the bare IDs of all Ready reminder entities
 // whose TargetDate is at or before todayStr.
 func (mv *MainView) queryDueReminderBareIDs(todayStr string) ([]string, error) {
 	statusResp, err := mv.dbms.ListRows(ctx, &jqlpb.ListRowsRequest{
@@ -3057,7 +3181,7 @@ func (mv *MainView) queryDueReminderBareIDs(todayStr string) ([]string, error) {
 		Conditions: []*jqlpb.Condition{{
 			Requires: []*jqlpb.Filter{
 				{Column: timedb.FieldRelation, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: ".Status"}}},
-				{Column: timedb.FieldArg1, Match: &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: []string{"Awaiting", "Ready"}}}},
+				{Column: timedb.FieldArg1, Match: &jqlpb.Filter_EqualMatch{&jqlpb.EqualMatch{Value: "Ready"}}},
 			},
 		}},
 	})
@@ -3106,7 +3230,7 @@ func (mv *MainView) queryDueReminderBareIDs(todayStr string) ([]string, error) {
 	return due, nil
 }
 
-// addDueRemindersToDay adds all Awaiting/Ready reminders whose TargetDate is today or earlier
+// addDueRemindersToDay adds all Ready reminders whose TargetDate is today or earlier
 // to the day plan, skipping any already present. New entries are inserted after the Zeroeth
 // Entry (order 0) if one exists, otherwise at the beginning.
 func (mv *MainView) addDueRemindersToDay(dayPlanPK string, entries []dayPlanEntry, inTodayPlan map[string]bool, todayStr string) error {
@@ -3602,7 +3726,7 @@ func (mv *MainView) createReminder(taskPK, checkText, targetDate string) (string
 	bareID := randPK()
 	reminderRef := fmt.Sprintf("vt.reminders %s", bareID)
 	assns := []map[string]string{
-		{timedb.FieldRelation: ".Status", timedb.FieldArg0: reminderRef, timedb.FieldArg1: "Awaiting"},
+		{timedb.FieldRelation: ".Status", timedb.FieldArg0: reminderRef, timedb.FieldArg1: "Ready"},
 		{timedb.FieldRelation: ".Task", timedb.FieldArg0: reminderRef, timedb.FieldArg1: fmt.Sprintf("@{tasks %s}", taskPK)},
 		{timedb.FieldRelation: ".TargetDate", timedb.FieldArg0: reminderRef, timedb.FieldArg1: fmt.Sprintf("@{dates %s}", targetDate)},
 	}
@@ -3872,7 +3996,7 @@ func (mv *MainView) markTask(g *gocui.Gui, v *gocui.View, status string) error {
 	if !ok {
 		return nil
 	}
-	reminderStatus := "Awaiting"
+	reminderStatus := "Ready"
 	if status == timedb.StatusSatisfied {
 		reminderStatus = "Done"
 	} else if status == timedb.StatusFailed || status == timedb.StatusAbandoned {

@@ -21,7 +21,7 @@ from timedb.client_utils import (
 
 ALIAS_MODIFIER = 'alias of'
 
-STATUS_VALUES = ["Awaiting", "Ready", "Done", "Elided", "Failed"]
+STATUS_VALUES = ["Ready", "Done", "Elided", "Failed"]
 
 _STATUS_COLORS = {
     "Awaiting": "\033[33m",

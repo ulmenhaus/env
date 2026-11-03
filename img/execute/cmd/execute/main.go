@@ -127,7 +127,7 @@ func runExecute() error {
 						{
 							Column: "Status",
 							Match: &jqlpb.Filter_InMatch{InMatch: &jqlpb.InMatch{
-								Values: []string{"Awaiting", "Ready"},
+								Values: []string{"Ready"},
 							}},
 						},
 					},

@@ -1,10 +1,12 @@
+import datetime
+
 from timedb import schema
 from timedb.virtual_gateway import common, relative_utils
 from timedb import client_utils
 
 from jql import jql_pb2, jql_pb2_grpc
 
-# Status is an enum; Next Step, Link, Parent Notes are plain text.
+# Status is an enum; Next Step, Link, Parent Notes, Updated, Time-Estimate are plain text.
 VALUES = {
     "Status": common.STATUS_VALUES,
 }
@@ -13,7 +15,39 @@ VALUES = {
 _DISPLAY_TO_RELATION = {
     "Next Step": "NextStep",
     "Parent Notes": "Note",
+    "Time-Estimate": "TimeEstimate",
 }
+
+_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+_TIME_ESTIMATE_INCREMENT_MINUTES = 5
+
+
+def _format_now():
+    return datetime.datetime.now().strftime(_TIMESTAMP_FORMAT)
+
+
+def _parse_time_estimate_minutes(value):
+    if not value:
+        return None
+    minutes = value[:-1] if value.endswith("m") else value
+    try:
+        return int(minutes)
+    except ValueError:
+        return None
+
+
+def _is_awaiting(status_raw, updated, time_estimate):
+    if status_raw != "Ready":
+        return False
+    minutes = _parse_time_estimate_minutes(time_estimate)
+    if not updated or minutes is None:
+        return False
+    try:
+        updated_at = datetime.datetime.strptime(updated, _TIMESTAMP_FORMAT)
+    except ValueError:
+        return False
+    return datetime.datetime.now() < updated_at + datetime.timedelta(minutes=minutes)
 
 
 class ActiveRemindersBackend(jql_pb2_grpc.JQLServicer):
@@ -60,6 +94,8 @@ class ActiveRemindersBackend(jql_pb2_grpc.JQLServicer):
                 # Remap assertion relation names to display column names
                 if "NextStep" in field_assn_pks:
                     field_assn_pks["Next Step"] = field_assn_pks.pop("NextStep")
+                if "TimeEstimate" in field_assn_pks:
+                    field_assn_pks["Time-Estimate"] = field_assn_pks.pop("TimeEstimate")
 
                 # Encode entry assertion PK and order for Order column updates
                 entry_assn_pk, entry_order = entry_refs.get(bareid, ("", "0"))
@@ -90,14 +126,20 @@ class ActiveRemindersBackend(jql_pb2_grpc.JQLServicer):
                     field_assn_pks["Task"] = [["", f"tasks {task_pk}"]]
 
                 status_raw = fields.get("Status", [""])[0]
+                updated = fields.get("Updated", [""])[0]
+                time_estimate = fields.get("TimeEstimate", [""])[0]
+                display_status = "Awaiting" if _is_awaiting(
+                    status_raw, updated, time_estimate) else status_raw
                 pk = client_utils.encode_pk(f"vt.reminders {bareid}", field_assn_pks)
                 entries[pk] = {
                     "_pk": [pk],
                     "Description": [description] if description else [],
-                    "Status": [common.colorize_status(status_raw)] if status_raw else [],
+                    "Status": [common.colorize_status(display_status)] if status_raw else [],
                     "Next Step": fields.get("NextStep", []),
                     "Link": fields.get("Link", []),
                     "Parent Notes": parent_notes_display,
+                    "Updated": fields.get("Updated", []),
+                    "Time-Estimate": fields.get("TimeEstimate", []),
                     "A Order": [entry_order],
                 }
 
@@ -152,6 +194,53 @@ class ActiveRemindersBackend(jql_pb2_grpc.JQLServicer):
                         schema.Fields.Relation: ".Status",
                         schema.Fields.Arg0: arg0,
                         schema.Fields.Arg1: common.STATUS_VALUES[0],
+                    },
+                    insert_only=True,
+                ))
+        elif request.column == "Updated":
+            now = _format_now()
+            if "Updated" in pk_map:
+                assn_pk, _ = pk_map["Updated"][0]
+                self.client.WriteRow(jql_pb2.WriteRowRequest(
+                    table=schema.Tables.Assertions,
+                    pk=assn_pk,
+                    fields={schema.Fields.Arg1: now},
+                    update_only=True,
+                ))
+            else:
+                self.client.WriteRow(jql_pb2.WriteRowRequest(
+                    table=schema.Tables.Assertions,
+                    pk=str((".Updated", arg0, "0000")),
+                    fields={
+                        schema.Fields.Relation: ".Updated",
+                        schema.Fields.Arg0: arg0,
+                        schema.Fields.Arg1: now,
+                    },
+                    insert_only=True,
+                ))
+        elif request.column == "Time-Estimate":
+            if "Time-Estimate" in pk_map:
+                assn_pk, current = pk_map["Time-Estimate"][0]
+                current_minutes = _parse_time_estimate_minutes(current) or 0
+                new_minutes = max(
+                    0, current_minutes +
+                    _TIME_ESTIMATE_INCREMENT_MINUTES * request.amount)
+                self.client.WriteRow(jql_pb2.WriteRowRequest(
+                    table=schema.Tables.Assertions,
+                    pk=assn_pk,
+                    fields={schema.Fields.Arg1: f"{new_minutes}m"},
+                    update_only=True,
+                ))
+            else:
+                new_minutes = max(
+                    0, _TIME_ESTIMATE_INCREMENT_MINUTES * request.amount)
+                self.client.WriteRow(jql_pb2.WriteRowRequest(
+                    table=schema.Tables.Assertions,
+                    pk=str((".TimeEstimate", arg0, "0000")),
+                    fields={
+                        schema.Fields.Relation: ".TimeEstimate",
+                        schema.Fields.Arg0: arg0,
+                        schema.Fields.Arg1: f"{new_minutes}m",
                     },
                     insert_only=True,
                 ))
@@ -210,7 +299,18 @@ class ActiveRemindersBackend(jql_pb2_grpc.JQLServicer):
                         },
                         insert_only=True,
                     ))
-            elif field in ("Next Step", "Link"):
+            elif field == "Updated":
+                if value != "":
+                    raise ValueError(
+                        "Updated can only be cleared via WriteRow; use IncrementEntry to set it",
+                        value)
+                if "Updated" in pk_map:
+                    assn_pk, _ = pk_map["Updated"][0]
+                    self.client.DeleteRow(jql_pb2.DeleteRowRequest(
+                        table=schema.Tables.Assertions,
+                        pk=assn_pk,
+                    ))
+            elif field in ("Next Step", "Link", "Time-Estimate"):
                 relation = f".{_DISPLAY_TO_RELATION.get(field, field)}"
                 if field in pk_map:
                     assn_pk, _ = pk_map[field][0]

@@ -178,7 +178,7 @@ def get_fields_for_items(client, table, pks, fields=(), include_children=False):
     assn_primary, = [
         i for i, c in enumerate(assertions_response.columns) if c.primary
     ]
-    assn_pks = collections.defaultdict(lambda: collections.defaultdict(list))
+    assn_pks = {full_pk: collections.defaultdict(list) for full_pk in full_pks}
     has_tasks = any([full_pk.startswith("tasks ") for full_pk in full_pks])
     if has_tasks:
         for task_full_pk, attributes in _implicit_task_attributes_from_params(
