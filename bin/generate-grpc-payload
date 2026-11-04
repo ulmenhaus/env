@@ -77,11 +77,11 @@ class FieldItem:
     @property
     def is_expandable(self):
         return (self.field_desc.type == descriptor.FieldDescriptor.TYPE_MESSAGE
-                and self.field_desc.label != descriptor.FieldDescriptor.LABEL_REPEATED)
+                and self.field_desc.is_repeated)
 
     @property
     def is_repeated(self):
-        return self.field_desc.label == descriptor.FieldDescriptor.LABEL_REPEATED
+        return self.field_desc.is_repeated
 
     @property
     def type_str(self):

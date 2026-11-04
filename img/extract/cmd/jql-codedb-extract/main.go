@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
@@ -71,12 +72,14 @@ var rootCmd = &cobra.Command{
 			pkgs = []string{"./..."}
 		}
 		buffer := bytes.NewBuffer([]byte{})
+		errBuffer := bytes.NewBuffer([]byte{})
 		args := append([]string{"list"}, pkgs...)
 		lister := exec.Command("go", args...)
 		lister.Stdout = buffer
+		lister.Stderr = errBuffer
 		err = lister.Run()
 		if err != nil {
-			panic(err)
+			panic(fmt.Sprintf("Encountered error: %s with error out: %s", err, errBuffer.String()))
 		}
 		allPkgs := strings.Split(buffer.String(), "\n")
 		c, err := collector.NewCollector(allPkgs, logger, !excludeTests)
