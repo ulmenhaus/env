@@ -93,13 +93,21 @@ def apply_grouping(rows, request):
     for requested in request.group_by.groupings:
         field = requested.field
         selected = field_to_selected[field]
+        values = dict(
+            collections.Counter(
+                map(lambda row: row[field][0]
+                    if row.get(field, []) else "", rows)))
+        display_values = {
+            value: display
+            for value, display in (
+                (value, present_attrs([value])) for value in values)
+            if display != value
+        }
         grouping = jql_pb2.Grouping(
             field=field,
             selected=selected,
-            values=dict(
-                collections.Counter(
-                    map(lambda row: row[field][0]
-                        if row.get(field, []) else "", rows))),
+            values=values,
+            display_values=display_values,
         )
         rows = [row for row in rows if selected in row[field]]
         groupings.append(grouping)

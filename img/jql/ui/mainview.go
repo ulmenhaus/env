@@ -1544,7 +1544,11 @@ func (mv *MainView) writeGroupings(v *gocui.View) {
 			if k == grouping.Selected {
 				v.Write([]byte(blackTextEscape + whiteBackEscape + boldTextEscape))
 			}
-			v.Write([]byte(fmt.Sprintf("    %s (%d)    ", k, grouping.Values[k])))
+			display := k
+			if dv, ok := grouping.DisplayValues[k]; ok {
+				display = dv
+			}
+			v.Write([]byte(fmt.Sprintf("    %s (%d)    ", display, grouping.Values[k])))
 			if k == grouping.Selected {
 				v.Write([]byte(resetEscape))
 			}

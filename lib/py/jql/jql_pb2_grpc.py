@@ -5,7 +5,7 @@ import warnings
 
 from jql import jql_pb2 as jql_dot_jql__pb2
 
-GRPC_GENERATED_VERSION = '1.83.1'
+GRPC_GENERATED_VERSION = '1.85.1'
 GRPC_VERSION = grpc.__version__
 _version_not_supported = False
 

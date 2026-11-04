@@ -195,4 +195,5 @@ message Grouping {
 	string field = 1;
 	map<string, int64> values = 2;
 	string selected = 3;
+	map<string, string> display_values = 4;
 }

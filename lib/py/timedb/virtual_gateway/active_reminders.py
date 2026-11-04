@@ -244,6 +244,28 @@ class ActiveRemindersBackend(jql_pb2_grpc.JQLServicer):
                     },
                     insert_only=True,
                 ))
+        elif request.column == "Next Step":
+            prefix = f"- {_format_now()}"
+            if "Next Step" in pk_map:
+                assn_pk, current = pk_map["Next Step"][0]
+                new_value = f"{prefix}\n{current}" if current else prefix
+                self.client.WriteRow(jql_pb2.WriteRowRequest(
+                    table=schema.Tables.Assertions,
+                    pk=assn_pk,
+                    fields={schema.Fields.Arg1: new_value},
+                    update_only=True,
+                ))
+            else:
+                self.client.WriteRow(jql_pb2.WriteRowRequest(
+                    table=schema.Tables.Assertions,
+                    pk=str((".NextStep", arg0, "0000")),
+                    fields={
+                        schema.Fields.Relation: ".NextStep",
+                        schema.Fields.Arg0: arg0,
+                        schema.Fields.Arg1: prefix,
+                    },
+                    insert_only=True,
+                ))
         elif request.column == "A Order":
             if "A Order" in pk_map:
                 assn_pk, current = pk_map["A Order"][0]
