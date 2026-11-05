@@ -198,13 +198,26 @@ class ActiveRemindersBackend(jql_pb2_grpc.JQLServicer):
                     insert_only=True,
                 ))
         elif request.column == "Updated":
-            now = _format_now()
             if "Updated" in pk_map:
-                assn_pk, _ = pk_map["Updated"][0]
+                assn_pk, current = pk_map["Updated"][0]
+            else:
+                assn_pk, current = None, ""
+            if not current:
+                new_value = _format_now()
+            else:
+                try:
+                    current_dt = datetime.datetime.strptime(
+                        current, _TIMESTAMP_FORMAT)
+                    new_value = (current_dt + datetime.timedelta(
+                        minutes=30 * request.amount)).strftime(
+                            _TIMESTAMP_FORMAT)
+                except ValueError:
+                    new_value = _format_now()
+            if assn_pk:
                 self.client.WriteRow(jql_pb2.WriteRowRequest(
                     table=schema.Tables.Assertions,
                     pk=assn_pk,
-                    fields={schema.Fields.Arg1: now},
+                    fields={schema.Fields.Arg1: new_value},
                     update_only=True,
                 ))
             else:
@@ -214,7 +227,7 @@ class ActiveRemindersBackend(jql_pb2_grpc.JQLServicer):
                     fields={
                         schema.Fields.Relation: ".Updated",
                         schema.Fields.Arg0: arg0,
-                        schema.Fields.Arg1: now,
+                        schema.Fields.Arg1: new_value,
                     },
                     insert_only=True,
                 ))
@@ -322,15 +335,30 @@ class ActiveRemindersBackend(jql_pb2_grpc.JQLServicer):
                         insert_only=True,
                     ))
             elif field == "Updated":
-                if value != "":
-                    raise ValueError(
-                        "Updated can only be cleared via WriteRow; use IncrementEntry to set it",
-                        value)
                 if "Updated" in pk_map:
                     assn_pk, _ = pk_map["Updated"][0]
-                    self.client.DeleteRow(jql_pb2.DeleteRowRequest(
+                    if value == "":
+                        self.client.DeleteRow(jql_pb2.DeleteRowRequest(
+                            table=schema.Tables.Assertions,
+                            pk=assn_pk,
+                        ))
+                    else:
+                        self.client.WriteRow(jql_pb2.WriteRowRequest(
+                            table=schema.Tables.Assertions,
+                            pk=assn_pk,
+                            fields={schema.Fields.Arg1: value},
+                            update_only=True,
+                        ))
+                elif value != "":
+                    self.client.WriteRow(jql_pb2.WriteRowRequest(
                         table=schema.Tables.Assertions,
-                        pk=assn_pk,
+                        pk=str((".Updated", arg0, "0000")),
+                        fields={
+                            schema.Fields.Relation: ".Updated",
+                            schema.Fields.Arg0: arg0,
+                            schema.Fields.Arg1: value,
+                        },
+                        insert_only=True,
                     ))
             elif field in ("Next Step", "Link", "Time-Estimate"):
                 relation = f".{_DISPLAY_TO_RELATION.get(field, field)}"
