@@ -735,6 +735,7 @@ func (mv *MainView) updateTableViewContents(resetCursorRow bool) error {
 		selectedRow = mv.TableView.Selections.Primary.Row
 	}
 	mv.response = response
+	mv.syncGroupingSelections()
 	if mv.selectedPK != "" {
 		pkIndex := api.GetPrimary(mv.response.Columns)
 		for i, row := range mv.response.Rows {
@@ -1533,6 +1534,24 @@ func removeQueryActions(actions []queryAction, kind queryAction) []queryAction {
 		}
 	}
 	return filtered
+}
+
+// syncGroupingSelections updates mv.request's requested groupings to match
+// the selections the server actually applied in mv.response (e.g. when the
+// server falls back to a different value because the requested one had no
+// matching rows), so subsequent requests keep using the corrected value.
+func (mv *MainView) syncGroupingSelections() {
+	if mv.request.GroupBy == nil {
+		return
+	}
+	for _, respGrouping := range mv.response.Groupings {
+		for _, reqGrouping := range mv.request.GroupBy.Groupings {
+			if reqGrouping.Field == respGrouping.Field {
+				reqGrouping.Selected = respGrouping.Selected
+				break
+			}
+		}
+	}
 }
 
 func (mv *MainView) writeGroupings(v *gocui.View) {

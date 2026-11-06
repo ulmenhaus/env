@@ -97,6 +97,8 @@ def apply_grouping(rows, request):
             collections.Counter(
                 map(lambda row: row[field][0]
                     if row.get(field, []) else "", rows)))
+        if selected not in values and values:
+            selected = min(values)
         display_values = {
             value: display
             for value, display in (
