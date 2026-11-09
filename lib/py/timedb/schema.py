@@ -83,6 +83,16 @@ def active_statuses():
     ]
 
 
+def new_task_statuses():
+    """Statuses for tasks that are still new/in-pipeline (as opposed to
+    habitual or terminated), and so are timed by their start date rather
+    than by a habitual cadence."""
+    return [
+        Values.StatusExploring, Values.StatusPlanning,
+        Values.StatusImplementing
+    ]
+
+
 def primary_for_table(table):
     if table == Tables.Nouns:
         return Fields.Identifier

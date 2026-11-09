@@ -317,19 +317,43 @@ class TimingInfo(object):
         self.active_actions = active_actions
 
 
+def _statuses_for_nouns(client, noun_pks):
+    noun_pks = list(noun_pks)
+    if not noun_pks:
+        return {}
+    response = client.ListRows(jql_pb2.ListRowsRequest(
+        table=schema.Tables.Nouns,
+        conditions=[jql_pb2.Condition(requires=[
+            jql_pb2.Filter(
+                column=schema.Fields.Identifier,
+                in_match=jql_pb2.InMatch(values=noun_pks),
+            ),
+        ])],
+    ))
+    primary, cmap = list_rows_meta(response)
+    return {
+        row.entries[primary].formatted:
+            row.entries[cmap[schema.Fields.Status]].formatted
+        for row in response.rows
+    }
+
+
 def get_timing_info(client, noun_pks):
     info = {}
     fields, assn_pks = get_fields_for_items_by_pk(client, schema.Tables.Nouns,
                                             noun_pks,
                                             ["Cadence", "StartDate", "Cost"])
+    statuses = _statuses_for_nouns(client, noun_pks)
     all_days_since = _days_since(client, noun_pks)
     for noun_pk in noun_pks:
         cadence = fields[noun_pk].get("Cadence", [""])[0]
         start_date = fields[noun_pk].get("StartDate", [""])[0]
         cost = fields[noun_pk].get("Cost", [""])[0]
-        # The item is still active in the pipeline so we go based off
-        # of its start date
-        if start_date and cost:
+        is_new_task = statuses.get(noun_pk) in schema.new_task_statuses()
+        # Only still-new (exploring/planning/implementing) tasks go based off
+        # of their start date; habitual and terminated tasks (satisfied,
+        # failed, etc.) are timed purely by their habitual cadence.
+        if is_new_task and start_date and cost:
             parsed_start = datetime.strptime(start_date, '%Y-%m-%d')
             expected_days = 2 * (3**(int(cost.split(" ")[0]) - 1))
             expected_end = parsed_start + timedelta(days=expected_days)
