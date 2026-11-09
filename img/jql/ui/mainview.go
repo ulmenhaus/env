@@ -101,6 +101,12 @@ type MainView struct {
 	// in the reverse order in which they were applied.
 	appliedActions []queryAction
 
+	// verticalGrouping indicates that the last grouping is pivoted into
+	// a side-bar to the left of the table rather than shown horizontally
+	// above it. In this mode L/H cycle the last horizontal grouping and
+	// space cycles the vertical one.
+	verticalGrouping bool
+
 	switching     bool // on when transitioning modes has not yet been acknowleged by Layout
 	alert         string
 	promptText    string
@@ -134,6 +140,7 @@ func (mv *MainView) loadTable(t string) error {
 		GroupBy:    &jqlpb.GroupBy{},
 	}
 	mv.appliedActions = nil
+	mv.verticalGrouping = false
 	return mv.updateTableViewContents(true)
 }
 
@@ -161,15 +168,31 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 	maxX, maxY := g.Size()
 	groupingsOffset := 0
 	groupingHeight := 2
-	if len(mv.response.Groupings) > 0 {
-		groupingsOffset = groupingHeight*len(mv.response.Groupings) + 1
+	horizontal, vertical := mv.splitGroupings()
+	if len(horizontal) > 0 {
+		groupingsOffset = groupingHeight*len(horizontal) + 1
 		v, err := g.SetView("groupings", 0, 3, maxX-2, 3+groupingsOffset)
 		if err != nil && err != gocui.ErrUnknownView {
 			return err
 		}
-		mv.writeGroupings(v)
+		mv.writeGroupings(v, horizontal)
 	} else {
 		err := g.DeleteView("groupings")
+		if err != nil && err != gocui.ErrUnknownView {
+			return err
+		}
+	}
+	tableX := 0
+	if vertical != nil {
+		tableX = sideBarWidth(vertical, maxX)
+		side, err := g.SetView("verticalGrouping", 0, 3+groupingsOffset, tableX-1, maxY+groupingsOffset-5)
+		if err != nil && err != gocui.ErrUnknownView {
+			return err
+		}
+		side.Title = vertical.Field
+		mv.writeVerticalGrouping(side, vertical)
+	} else {
+		err := g.DeleteView("verticalGrouping")
 		if err != nil && err != gocui.ErrUnknownView {
 			return err
 		}
@@ -189,8 +212,8 @@ func (mv *MainView) Layout(g *gocui.Gui) error {
 	}
 	header.Clear()
 	header.Write(mv.headerContents())
-	mv.TableView.TotalWidth = maxX - 2
-	v, err := g.SetView("table", 0, 3+groupingsOffset, maxX-2, maxY+groupingsOffset-5)
+	mv.TableView.TotalWidth = maxX - 2 - tableX
+	v, err := g.SetView("table", tableX, 3+groupingsOffset, maxX-2, maxY+groupingsOffset-5)
 	if err != nil {
 		if err != gocui.ErrUnknownView {
 			return err
@@ -493,6 +516,10 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 	case gocui.KeyPgup:
 		mv.request.Offset = uint32(mv.prevPageStart())
 		err = mv.updateTableViewContents(true)
+	case gocui.KeySpace:
+		if mv.verticalGrouping {
+			err = mv.shiftSelectedGrouping(0, 1)
+		}
 	}
 
 	if int(ch) == 0 {
@@ -567,6 +594,8 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 				if len(mv.request.GroupBy.Groupings) > 0 {
 					mv.request.GroupBy.Groupings = mv.request.GroupBy.Groupings[:len(mv.request.GroupBy.Groupings)-1]
 				}
+				// the pivoted grouping was the one just removed
+				mv.verticalGrouping = false
 			case queryActionFilter:
 				if len(mv.request.Conditions[0].Requires) > 0 {
 					mv.request.Conditions[0].Requires = mv.request.Conditions[0].Requires[:len(mv.request.Conditions[0].Requires)-1]
@@ -578,6 +607,7 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		mv.request.Conditions = []*jqlpb.Condition{{}}
 		mv.request.GroupBy = &jqlpb.GroupBy{}
 		mv.appliedActions = nil
+		mv.verticalGrouping = false
 		err = mv.updateTableViewContents(true)
 	case 'd':
 		err = mv.deleteSelectedRow()
@@ -653,9 +683,11 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 	case 'b':
 		err = mv.addGrouping()
 	case 'L':
-		err = mv.shiftSelectedGrouping(1)
+		err = mv.shiftSelectedGrouping(mv.horizontalGroupingFromEnd(), 1)
 	case 'H':
-		err = mv.shiftSelectedGrouping(-1)
+		err = mv.shiftSelectedGrouping(mv.horizontalGroupingFromEnd(), -1)
+	case 't':
+		mv.verticalGrouping = !mv.verticalGrouping
 	case 'm':
 		err = mv.promptForMacro()
 	default:
@@ -1271,16 +1303,28 @@ func (mv *MainView) addGrouping() error {
 	return mv.updateTableViewContents(true)
 }
 
-func (mv *MainView) shiftSelectedGrouping(offset int) error {
-	if len(mv.request.GroupBy.Groupings) == 0 {
+// horizontalGroupingFromEnd returns the index, counting back from the
+// last grouping, of the grouping that L/H should cycle: the last grouping
+// normally, or the second to last when the last is pivoted vertically.
+func (mv *MainView) horizontalGroupingFromEnd() int {
+	if mv.verticalGrouping {
+		return 1
+	}
+	return 0
+}
+
+// shiftSelectedGrouping moves the selection of the grouping fromEnd
+// positions from the last one by offset values.
+func (mv *MainView) shiftSelectedGrouping(fromEnd, offset int) error {
+	if mv.request.GroupBy == nil || len(mv.request.GroupBy.Groupings) <= fromEnd {
 		return nil
 	}
-	if len(mv.response.Groupings) == 0 {
+	if len(mv.response.Groupings) <= fromEnd {
 		return nil
 	}
 
-	requestedGrouping := mv.request.GroupBy.Groupings[len(mv.request.GroupBy.Groupings)-1]
-	grouping := mv.response.Groupings[len(mv.response.Groupings)-1]
+	requestedGrouping := mv.request.GroupBy.Groupings[len(mv.request.GroupBy.Groupings)-1-fromEnd]
+	grouping := mv.response.Groupings[len(mv.response.Groupings)-1-fromEnd]
 	sorted := sortedKeys(grouping.Values)
 	selectedIX := 0
 	for i, k := range sorted {
@@ -1392,14 +1436,17 @@ func (mv *MainView) runMacro(ch rune, description string) error {
 	}
 	tableSwitch := mv.request.Table != output.CurrentView.Table
 	request := mv.request
+	verticalGrouping := mv.verticalGrouping
 	err = mv.loadTable(output.CurrentView.Table)
 	if err != nil {
 		return fmt.Errorf("Could not load table after macro: %s", err)
 	}
 	if !tableSwitch {
 		mv.request = request
+		mv.verticalGrouping = verticalGrouping
 	}
 	if currentView.EncodedRequest != output.CurrentView.EncodedRequest {
+		mv.verticalGrouping = false
 		requestBytes, err := hex.DecodeString(output.CurrentView.EncodedRequest)
 		if err != nil {
 			return err
@@ -1429,6 +1476,7 @@ func (mv *MainView) runMacro(ch rune, description string) error {
 		mv.request.Dec = output.CurrentView.OrderDec
 	}
 	if output.CurrentView.GroupBy != "" {
+		mv.verticalGrouping = false
 		mv.request.GroupBy = &jqlpb.GroupBy{
 			Groupings: []*jqlpb.RequestedGrouping{
 				{
@@ -1488,6 +1536,7 @@ func (mv *MainView) LoadQuery(req *jqlpb.ListRowsRequest) error {
 		mv.request.GroupBy = &jqlpb.GroupBy{}
 	}
 	mv.appliedActions = nil
+	mv.verticalGrouping = false
 	return mv.updateTableViewContents(true)
 }
 
@@ -1501,6 +1550,7 @@ func (mv *MainView) SetGroupBy(field, selected string) error {
 	// This replaces any existing groupings wholesale, so drop any grouping
 	// entries already on the stack before recording this one.
 	mv.appliedActions = removeQueryActions(mv.appliedActions, queryActionGrouping)
+	mv.verticalGrouping = false
 	mv.request.GroupBy = &jqlpb.GroupBy{
 		Groupings: []*jqlpb.RequestedGrouping{
 			{
@@ -1554,20 +1604,74 @@ func (mv *MainView) syncGroupingSelections() {
 	}
 }
 
-func (mv *MainView) writeGroupings(v *gocui.View) {
+// splitGroupings returns the groupings to display horizontally above the
+// table and, when in vertical grouping mode, the one to display in the
+// side-bar (nil otherwise).
+func (mv *MainView) splitGroupings() ([]*jqlpb.Grouping, *jqlpb.Grouping) {
+	groupings := mv.response.Groupings
+	if !mv.verticalGrouping || len(groupings) == 0 {
+		return groupings, nil
+	}
+	return groupings[:len(groupings)-1], groupings[len(groupings)-1]
+}
+
+func groupingDisplay(grouping *jqlpb.Grouping, k string) string {
+	display := k
+	if dv, ok := grouping.DisplayValues[k]; ok {
+		display = dv
+	}
+	return fmt.Sprintf("%s (%d)", display, grouping.Values[k])
+}
+
+// sideBarWidth returns the x coordinate at which the table should start
+// so that the vertical grouping side-bar fits to its left
+func sideBarWidth(grouping *jqlpb.Grouping, maxX int) int {
+	width := len(grouping.Field) + 4
+	for k := range grouping.Values {
+		if w := len(groupingDisplay(grouping, k)) + 4; w > width {
+			width = w
+		}
+	}
+	if width > maxX/3 {
+		width = maxX / 3
+	}
+	return width
+}
+
+func (mv *MainView) writeVerticalGrouping(v *gocui.View, grouping *jqlpb.Grouping) {
 	v.Clear()
-	for _, grouping := range mv.response.Groupings {
+	sorted := sortedKeys(grouping.Values)
+	selectedIX := 0
+	for i, k := range sorted {
+		if k == grouping.Selected {
+			selectedIX = i
+			v.Write([]byte(blackTextEscape + whiteBackEscape + boldTextEscape))
+		}
+		v.Write([]byte(" " + groupingDisplay(grouping, k) + " "))
+		if k == grouping.Selected {
+			v.Write([]byte(resetEscape))
+		}
+		v.Write([]byte("\n"))
+	}
+	// keep the selected value scrolled into view
+	_, height := v.Size()
+	originY := 0
+	if height > 0 && selectedIX >= height {
+		originY = selectedIX - height + 1
+	}
+	v.SetOrigin(0, originY)
+}
+
+func (mv *MainView) writeGroupings(v *gocui.View, groupings []*jqlpb.Grouping) {
+	v.Clear()
+	for _, grouping := range groupings {
 		sorted := sortedKeys(grouping.Values)
 		v.Write([]byte(grouping.Field + ":    "))
 		for _, k := range sorted {
 			if k == grouping.Selected {
 				v.Write([]byte(blackTextEscape + whiteBackEscape + boldTextEscape))
 			}
-			display := k
-			if dv, ok := grouping.DisplayValues[k]; ok {
-				display = dv
-			}
-			v.Write([]byte(fmt.Sprintf("    %s (%d)    ", display, grouping.Values[k])))
+			v.Write([]byte("    " + groupingDisplay(grouping, k) + "    "))
 			if k == grouping.Selected {
 				v.Write([]byte(resetEscape))
 			}
