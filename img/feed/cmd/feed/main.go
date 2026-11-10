@@ -105,6 +105,9 @@ func runFeed() error {
 
 	goToSkillsetPractices := func(g *gocui.Gui, v *gocui.View) error {
 		if mv.Mode != ui.MainViewModeListBar {
+			// Not navigating the list (e.g. typing a new entry's
+			// description) so let the view handle the keystroke
+			mv.Edit(v, gocui.Key(0), 'S', gocui.ModNone)
 			return nil
 		}
 		pk, err := mv.GetSelectedPK(g, v)
