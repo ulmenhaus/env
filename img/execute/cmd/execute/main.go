@@ -262,6 +262,35 @@ func runExecute() error {
 		return err
 	}
 
+	goToReview := func(g *gocui.Gui, v *gocui.View) error {
+		if mv.MainViewMode != ui.MainViewModeListBar {
+			mv.Edit(v, gocui.Key(0), 'R', gocui.ModNone)
+			return nil
+		}
+		req := &jqlpb.ListRowsRequest{
+			Table: "vt.review",
+			GroupBy: &jqlpb.GroupBy{
+				Groupings: []*jqlpb.RequestedGrouping{
+					{Field: "A Class", Selected: "Stat"},
+					{Field: "By", Selected: "Action"},
+					{Field: "A Skillset"},
+				},
+			},
+		}
+		data, err := proto.Marshal(req)
+		if err != nil {
+			return err
+		}
+		cfg.Table = ""
+		cfg.Query = base64.StdEncoding.EncodeToString(data)
+		cfg.VerticalGrouping = true
+		return cfg.SwitchTool("jql", "")
+	}
+	err = g.SetKeybinding("", 'R', gocui.ModNone, goToReview)
+	if err != nil {
+		return err
+	}
+
 	selectAndGoToTask := func(g *gocui.Gui, v *gocui.View) error {
 		if mv.MainViewMode != ui.MainViewModeListBar {
 			mv.Edit(v, gocui.Key(0), 'G', gocui.ModNone)

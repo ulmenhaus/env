@@ -104,7 +104,7 @@ type MainView struct {
 	// verticalGrouping indicates that the last grouping is pivoted into
 	// a side-bar to the left of the table rather than shown horizontally
 	// above it. In this mode L/H cycle the last horizontal grouping and
-	// space cycles the vertical one.
+	// J/K cycle the vertical one (instead of re-ordering rows).
 	verticalGrouping bool
 
 	switching     bool // on when transitioning modes has not yet been acknowleged by Layout
@@ -516,10 +516,6 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 	case gocui.KeyPgup:
 		mv.request.Offset = uint32(mv.prevPageStart())
 		err = mv.updateTableViewContents(true)
-	case gocui.KeySpace:
-		if mv.verticalGrouping {
-			err = mv.shiftSelectedGrouping(0, 1)
-		}
 	}
 
 	if int(ch) == 0 {
@@ -665,9 +661,17 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 	case 'I':
 		err = mv.incrementSelected(-1)
 	case 'J':
-		err = mv.moveRow(1)
+		if mv.verticalGrouping {
+			err = mv.shiftSelectedGrouping(0, 1)
+		} else {
+			err = mv.moveRow(1)
+		}
 	case 'K':
-		err = mv.moveRow(-1)
+		if mv.verticalGrouping {
+			err = mv.shiftSelectedGrouping(0, -1)
+		} else {
+			err = mv.moveRow(-1)
+		}
 	case 's':
 		err = mv.saveContents()
 	case 'n':
@@ -1544,6 +1548,12 @@ func (mv *MainView) SetOrderBy(field string, dec bool) error {
 	mv.request.OrderBy = field
 	mv.request.Dec = dec
 	return mv.updateTableViewContents(true)
+}
+
+// SetVerticalGrouping sets whether the last grouping is displayed in a
+// side-bar to the left of the table rather than above it
+func (mv *MainView) SetVerticalGrouping(vertical bool) {
+	mv.verticalGrouping = vertical
 }
 
 func (mv *MainView) SetGroupBy(field, selected string) error {

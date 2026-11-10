@@ -49,6 +49,9 @@ type JQLConfig struct {
 	OrderDec        bool
 	GroupByField    string
 	GroupBySelected string
+	// VerticalGrouping displays the last grouping in a side-bar rather
+	// than horizontally above the table
+	VerticalGrouping bool
 
 	TLSCert string
 	TLSKey  string
@@ -121,6 +124,7 @@ func (c *JQLConfig) Register(f *flag.FlagSet) {
 	f.BoolVarP(&c.OrderDec, "order-dec", "", false, "Order results in descending order (requires --order-by)")
 	f.StringVarP(&c.GroupByField, "group-by", "", "", "Column to group results by on startup")
 	f.StringVarP(&c.GroupBySelected, "group-by-selected", "", "", "Initially selected group value (requires --group-by)")
+	f.BoolVarP(&c.VerticalGrouping, "vertical-grouping", "", false, "Display the last grouping vertically in a side-bar")
 	f.StringVarP(&c.TLSCert, "tls-cert", "", "", "Path to TLS certificate file")
 	f.StringVarP(&c.TLSKey, "tls-key", "", "", "Path to TLS key file")
 	f.StringVarP(&c.TLSCA, "tls-ca", "", "", "Path to TLS CA certificate file")
@@ -162,6 +166,9 @@ func (c *JQLConfig) SwitchTool(tool, pk string, filters ...Filter) error {
 		if c.GroupBySelected != "" {
 			args = append(args, "--group-by-selected", c.GroupBySelected)
 		}
+	}
+	if c.VerticalGrouping {
+		args = append(args, "--vertical-grouping")
 	}
 	for _, filter := range filters {
 		args = append(args, "--filter", fmt.Sprintf("%s=%s", filter.Key, filter.Value))

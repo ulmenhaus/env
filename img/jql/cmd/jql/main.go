@@ -158,6 +158,13 @@ func runUI(cfg *cli.JQLConfig, dbms api.JQL_DBMS) error {
 		cfg.GroupByField = ""
 		cfg.GroupBySelected = ""
 	}
+	if cfg.VerticalGrouping {
+		// Applied after the query and groupings since setting either of
+		// those resets the vertical grouping mode
+		mv.SetVerticalGrouping(true)
+		// Reset so that it won't be carried over in subsequent UI changes
+		cfg.VerticalGrouping = false
+	}
 	if cfg.SelectPK != "" {
 		mv.SetSelectedPK(cfg.SelectPK)
 	}
