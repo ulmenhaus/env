@@ -1672,19 +1672,46 @@ func (mv *MainView) writeVerticalGrouping(v *gocui.View, grouping *jqlpb.Groupin
 	v.SetOrigin(0, originY)
 }
 
+// groupingCellBuffer is the number of spaces of padding added to the
+// widest cell in each column of the horizontal groupings display
+const groupingCellBuffer = 4
+
+// writeGroupings displays each grouping as a row of cells: the grouping's
+// field name followed by each of its values. Cells are aligned into
+// columns across groupings, each column being as wide as its widest cell
+// plus groupingCellBuffer.
 func (mv *MainView) writeGroupings(v *gocui.View, groupings []*jqlpb.Grouping) {
 	v.Clear()
-	for _, grouping := range groupings {
-		sorted := sortedKeys(grouping.Values)
-		v.Write([]byte(grouping.Field + ":    "))
-		for _, k := range sorted {
+	rows := make([][]string, len(groupings))
+	selected := make([]int, len(groupings))
+	widths := []int{}
+	for i, grouping := range groupings {
+		selected[i] = -1
+		cells := []string{grouping.Field + ":"}
+		for _, k := range sortedKeys(grouping.Values) {
 			if k == grouping.Selected {
-				v.Write([]byte(blackTextEscape + whiteBackEscape + boldTextEscape))
+				selected[i] = len(cells)
 			}
-			v.Write([]byte("    " + groupingDisplay(grouping, k) + "    "))
-			if k == grouping.Selected {
-				v.Write([]byte(resetEscape))
+			cells = append(cells, groupingDisplay(grouping, k))
+		}
+		for j, cell := range cells {
+			w := visibleLen([]rune(cell)) + groupingCellBuffer
+			if j >= len(widths) {
+				widths = append(widths, w)
+			} else if w > widths[j] {
+				widths[j] = w
 			}
+		}
+		rows[i] = cells
+	}
+	lead := stringMult(" ", groupingCellBuffer/2)
+	for i, cells := range rows {
+		for j, cell := range cells {
+			padded := lead + cell + stringMult(" ", widths[j]-len(lead)-visibleLen([]rune(cell)))
+			if j == selected[i] {
+				padded = blackTextEscape + whiteBackEscape + boldTextEscape + padded + resetEscape
+			}
+			v.Write([]byte(padded))
 		}
 		v.Write([]byte("\n"))
 	}
