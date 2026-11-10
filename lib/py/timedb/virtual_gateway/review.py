@@ -97,8 +97,8 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
                         "Description": [value],
                         "Number": [str(count)],
                         "Total": [str(total)],
-                        "Z %%": [
-                            f"{(str(as_progress.percentage()) + '%%').ljust(5)} {as_progress.bar()}"
+                        "Z %": [
+                            f"{(str(as_progress.percentage()) + '%').ljust(5)} {as_progress.bar()}"
                         ],
                     }
         return rows
@@ -128,10 +128,10 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
                 schema.active_statuses()
             ])
             success_rate = ((successes * 100) // total) if total > 0 else 100
-            success_rate_str = f"\033[32m{success_rate}%%\033[0m"  # green colored
+            success_rate_str = f"\033[32m{success_rate}%\033[0m"  # green colored
             if success_rate < 100:
                 # TODO would be good to color this based on a custom value for expected success rate
-                success_rate_str = f"\033[31m{success_rate}%%\033[0m"  # red colored
+                success_rate_str = f"\033[31m{success_rate}%\033[0m"  # red colored
             rows[habit_pk] = {
                 "_pk": [habit_pk],
                 "A Class": ["Habit"],
@@ -187,8 +187,8 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
                 "Description": [f"@{{tasks {project_pk}}}"],
                 "Progress": [str(progress.progress)],
                 "Total": [str(progress.total)],
-                "Z %%": [
-                    f"{(str(progress.percentage()) + '%%').ljust(5)} {progress.bar()}"
+                "Z %": [
+                    f"{(str(progress.percentage()) + '%').ljust(5)} {progress.bar()}"
                 ],
             }
         for goal_pk, project_pks in goal2projects.items():
@@ -204,8 +204,8 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
                 "Description": [f"@{{tasks {goal_pk}}}"],
                 "Progress": [str(progress.progress)],
                 "Total": [str(progress.total)],
-                "Z %%": [
-                    f"{(str(progress.percentage()) + '%%').ljust(5)} {progress.bar()}"
+                "Z %": [
+                    f"{(str(progress.percentage()) + '%').ljust(5)} {progress.bar()}"
                 ],
             }
         return entries
@@ -234,8 +234,8 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
                 "Description": [entry_description],
                 "Progress": [str(progress.progress)],
                 "Total": [str(progress.total)],
-                "Z %%": [
-                    f"{(str(progress.percentage()) + '%%').ljust(5)} {progress.bar()}"
+                "Z %": [
+                    f"{(str(progress.percentage()) + '%').ljust(5)} {progress.bar()}"
                 ],
             }
         return entries

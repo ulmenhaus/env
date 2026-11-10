@@ -178,10 +178,12 @@ func (tv *TableView) WriteContents(v io.Writer) error {
 			level := tv.selectionLevel(Coordinate{Row: i, Column: j})
 			rowString += fmt.Sprintf("%s%s%s%s%s", stringMult(">", level), stringMult(" ", 3-level), string(val), resetSuffix, stringMult(" ", 5))
 		}
-		content += stringSlice(strings.ReplaceAll(rowString, "%", "%%"), tv.XOffset)
+		content += stringSlice(rowString, tv.XOffset)
 		content += "\n"
 	}
-	_, err := fmt.Fprintf(v, content)
+	// written verbatim (not as a format string) so values containing
+	// "%" are displayed as-is
+	_, err := io.WriteString(v, content)
 	return err
 }
 

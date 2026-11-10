@@ -268,7 +268,9 @@ func runExecute() error {
 			return nil
 		}
 		req := &jqlpb.ListRowsRequest{
-			Table: "vt.review",
+			Table:   "vt.review",
+			OrderBy: "Z %",
+			Dec:     true,
 			GroupBy: &jqlpb.GroupBy{
 				Groupings: []*jqlpb.RequestedGrouping{
 					{Field: "A Class", Selected: "Stat"},
