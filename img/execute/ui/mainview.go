@@ -1932,6 +1932,35 @@ func (mv *MainView) GetSelectedReminderArg0(g *gocui.Gui) (string, error) {
 	return item.ReminderArg0, nil
 }
 
+// distinctActivitiesFirst reorders already sorted tasks into two groups,
+// each keeping the original (lexicographic) order: first the earliest task
+// for each distinct (Action, Direct, Indirect) activity, then all remaining
+// tasks. This surfaces to the top the items that are more likely to be
+// picked for today so that multiple instances from the same habit (e.g.
+// one task per remaining day of the week) don't all show at the top.
+func distinctActivitiesFirst(table *jqlpb.TableMeta, tasks []*jqlpb.Row) []*jqlpb.Row {
+	actionField := api.IndexOfField(table.Columns, timedb.FieldAction)
+	directField := api.IndexOfField(table.Columns, timedb.FieldDirect)
+	indirectField := api.IndexOfField(table.Columns, timedb.FieldIndirect)
+	type activity struct{ action, direct, indirect string }
+	seen := map[activity]bool{}
+	var distinct, rest []*jqlpb.Row
+	for _, task := range tasks {
+		key := activity{
+			action:   task.Entries[actionField].Formatted,
+			direct:   task.Entries[directField].Formatted,
+			indirect: task.Entries[indirectField].Formatted,
+		}
+		if seen[key] {
+			rest = append(rest, task)
+			continue
+		}
+		seen[key] = true
+		distinct = append(distinct, task)
+	}
+	return append(distinct, rest...)
+}
+
 func (mv *MainView) refreshView(g *gocui.Gui) error {
 	err := mv.refreshWeeklyDisplays()
 	if err != nil {
@@ -1992,6 +2021,7 @@ func (mv *MainView) refreshView(g *gocui.Gui) error {
 			return (iRes < jRes) || ((iRes == jRes) && iDesc < jDesc)
 		})
 	}
+	mv.tasks[timedb.SpanWeek] = distinctActivitiesFirst(tasksTable, mv.tasks[timedb.SpanWeek])
 
 	var cy, oy int
 	view, err := g.View(timedb.TasksView)
