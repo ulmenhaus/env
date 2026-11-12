@@ -107,6 +107,12 @@ type MainView struct {
 	// J/K cycle the vertical one (instead of re-ordering rows).
 	verticalGrouping bool
 
+	// showGroupingColumns indicates that columns which are part of the
+	// current query's groupings should still be shown in the table. By
+	// default they're hidden to save space since their values are
+	// already displayed in the groupings.
+	showGroupingColumns bool
+
 	switching     bool // on when transitioning modes has not yet been acknowleged by Layout
 	alert         string
 	promptText    string
@@ -431,7 +437,8 @@ func (mv *MainView) handleSearchInput(v *gocui.View, key gocui.Key, ch rune, mod
 	// When switching into search mode, the last filter added is the working
 	// search filter
 
-	field := mv.response.Columns[mv.TableView.Selections.Primary.Column].Name
+	_, col := mv.SelectedEntry()
+	field := mv.response.Columns[col].Name
 	if mv.searchAll {
 		field = "Any field"
 	}
@@ -632,8 +639,9 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		mv.switchMode(MainViewModeSearch)
 	case '/':
 		mv.searchAll = false
+		_, col := mv.SelectedEntry()
 		mv.request.Conditions[0].Requires = append(mv.request.Conditions[0].Requires, &jqlpb.Filter{
-			Column: mv.response.Columns[mv.TableView.Selections.Primary.Column].Name,
+			Column: mv.response.Columns[col].Name,
 			Match:  &jqlpb.Filter_ContainsMatch{ContainsMatch: &jqlpb.ContainsMatch{Value: ""}},
 		})
 		mv.appliedActions = append(mv.appliedActions, queryActionFilter)
@@ -692,6 +700,9 @@ func (mv *MainView) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifi
 		err = mv.shiftSelectedGrouping(mv.horizontalGroupingFromEnd(), -1)
 	case 't':
 		mv.verticalGrouping = !mv.verticalGrouping
+	case '-':
+		mv.showGroupingColumns = !mv.showGroupingColumns
+		err = mv.updateTableViewContents(false)
 	case 'm':
 		err = mv.promptForMacro()
 	default:
@@ -723,13 +734,37 @@ func (mv *MainView) headerContents() []byte {
 }
 
 func (mv *MainView) getColumnIndices() []int {
-	var indices []int
-	for i, col := range mv.response.Columns {
-		if !strings.HasPrefix(col.Name, "_") {
-			indices = append(indices, i)
+	return columnIndices(mv.response, mv.showGroupingColumns)
+}
+
+// columnIndices returns the indices into resp's columns of the columns
+// that should be displayed in the table
+func columnIndices(resp *jqlpb.ListRowsResponse, showGroupingColumns bool) []int {
+	grouped := map[string]bool{}
+	if !showGroupingColumns {
+		for _, grouping := range resp.GetGroupings() {
+			grouped[grouping.GetField()] = true
 		}
 	}
+	var indices []int
+	for i, col := range resp.GetColumns() {
+		if strings.HasPrefix(col.Name, "_") || grouped[col.Name] {
+			continue
+		}
+		indices = append(indices, i)
+	}
 	return indices
+}
+
+// displayIndexOfColumn returns the index in the table view of the named
+// column in mv.response or -1 if that column is not displayed
+func (mv *MainView) displayIndexOfColumn(name string) int {
+	for display, i := range mv.getColumnIndices() {
+		if mv.response.Columns[i].Name == name {
+			return display
+		}
+	}
+	return -1
 }
 
 func minInt(a, b int) int {
@@ -739,18 +774,36 @@ func minInt(a, b int) int {
 	return b
 }
 
+// selectColumn returns the index in the table view of the column to select
+// after transitioning from displaying respA to displaying respB
 func (mv *MainView) selectColumn(respA, respB *jqlpb.ListRowsResponse) int {
 	// If after changing the contents, the same column in the
 	// same table exists, then we select it
-	if respA != nil && respA.Table == respB.Table {
-		for i, col := range respB.GetColumns() {
-			if col.Name == respA.GetColumns()[mv.TableView.Selections.Primary.Column].Name {
-				return i
+	if respA != nil && respA.Table == respB.Table && mv.TableView != nil {
+		indicesA := columnIndices(respA, mv.showGroupingColumns)
+		prev := mv.TableView.Selections.Primary.Column
+		if prev >= 0 && prev < len(indicesA) {
+			name := respA.GetColumns()[indicesA[prev]].Name
+			indicesB := columnIndices(respB, mv.showGroupingColumns)
+			for display, i := range indicesB {
+				if respB.GetColumns()[i].Name == name {
+					return display
+				}
 			}
+			// The column is no longer displayed (e.g. it was just
+			// grouped on) so stay as close as possible to where we were
+			return maxInt(0, minInt(prev, len(indicesB)-1))
 		}
 	}
 	// Otherwise reset the column
 	return 0
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // shortPK strips any metadata that follows the first tab in a formatted
@@ -801,11 +854,8 @@ func (mv *MainView) updateTableViewContents(resetCursorRow bool) error {
 		// throwaway intermediate response (e.g. loadTable's unfiltered
 		// query) rather than the column layout the user was actually
 		// looking at. Restore by name from the real prior column instead.
-		for i, col := range mv.response.Columns {
-			if col.GetName() == mv.pendingCursorColumn {
-				selectedCol = i
-				break
-			}
+		if display := mv.displayIndexOfColumn(mv.pendingCursorColumn); display >= 0 {
+			selectedCol = display
 		}
 		mv.havePendingCursor = false
 	}
@@ -929,6 +979,7 @@ func (mv *MainView) promptExit(contents string, finish bool, err error) {
 
 func (mv *MainView) goToSelectedValue(tables map[string]*jqlpb.TableMeta, reverse bool) error {
 	row, col := mv.SelectedEntry()
+	start := col
 	var table string
 	var keys []string
 	// Look for the first column, starting at the primary
@@ -965,7 +1016,7 @@ loop:
 			delta = -1
 		}
 		col = (col + delta + len(mv.response.Columns)) % len(mv.response.Columns)
-		if col == mv.TableView.Selections.Primary.Column {
+		if col == start {
 			return fmt.Errorf("no foreign key found in entry")
 		}
 	}
