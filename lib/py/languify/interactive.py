@@ -175,7 +175,7 @@ class Reader:
             for line in self.wrapped[sentence_idx]:
                 if row >= rows - FOOTER_ROWS:
                     break
-                visual = to_visual(line, self.lang.needs_reshaping)
+                visual = to_visual(line, self.lang.needs_reshaping, self.lang.rtl)
                 text = visual[: cols - 2 * MARGIN]
                 x = MARGIN
                 if self.lang.rtl:

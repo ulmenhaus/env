@@ -19,15 +19,16 @@ DEFAULT_CONFIG_PATH = os.path.expanduser("~/.languify.json")
 LANGUAGE_ALIASES = {
     "farsi": "farsi", "fa": "farsi", "fas": "farsi", "persian": "farsi", "fa_ir": "farsi",
     "hebrew": "hebrew", "he": "hebrew", "heb": "hebrew", "he_il": "hebrew",
+    "english": "english", "en": "english", "eng": "english", "en_us": "english",
 }
 
 # Properties of each language's writing system, not of the configured
 # model -- so they live here rather than in ~/.languify.json.
-# RTL: both Hebrew and Farsi are right-to-left scripts.
-RTL = {"farsi": True, "hebrew": True}
+# RTL: both Hebrew and Farsi are right-to-left scripts; English is not.
+RTL = {"farsi": True, "hebrew": True, "english": False}
 # NEEDS_RESHAPING: whether letters need shaping (joining) before display --
-# Arabic-script Farsi does, Hebrew does not.
-NEEDS_RESHAPING = {"farsi": True, "hebrew": False}
+# Arabic-script Farsi does, Hebrew and English do not.
+NEEDS_RESHAPING = {"farsi": True, "hebrew": False, "english": False}
 
 
 def canonical_language(name: str) -> str:

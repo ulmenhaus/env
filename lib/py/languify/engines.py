@@ -42,7 +42,7 @@ class TTSEngine:
 
 
 class PiperEngine(TTSEngine):
-    """Farsi (and any other Piper voice) via the piper-tts Python package.
+    """Farsi, English (and any other Piper voice) via the piper-tts Python package.
 
     piper-tts changed maintainers (now OHF-Voice/piper1-gpl) and its
     Python API along with it: the old `synthesize_stream_raw(text,

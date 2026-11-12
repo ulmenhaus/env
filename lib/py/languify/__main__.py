@@ -8,14 +8,15 @@ from languify import ocr, tts
 def _add_language_arg(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "-l", "--language", required=True,
-        help="language to process: farsi or hebrew (aliases: fa/fas/persian, he/heb)",
+        help="language to process: farsi, hebrew, or english "
+             "(aliases: fa/fas/persian, he/heb, en/eng)",
     )
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="languify",
-        description="OCR and text-to-speech for Hebrew and Farsi, backed by "
+        description="OCR and text-to-speech for Hebrew, Farsi, and English, backed by "
                     "models configured in ~/.languify.json (see languify_setup.txt).",
     )
     parser.add_argument(

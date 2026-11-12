@@ -313,7 +313,7 @@ class Session:
         for line in self.wrapped:
             if row >= rows - FOOTER_ROWS:
                 break
-            visual = to_visual(line, self.lang.needs_reshaping)
+            visual = to_visual(line, self.lang.needs_reshaping, self.lang.rtl)
             text = visual[: cols - 2 * MARGIN]
             x = MARGIN
             if self.lang.rtl:
@@ -335,7 +335,7 @@ class Session:
                     self._addstr(row - 1, MARGIN, "...", cols, curses.A_DIM)
                     break
                 pct = int(round((1 - wr.phone_error_rate) * 100))
-                word_visual = to_visual(wr.word, self.lang.needs_reshaping)
+                word_visual = to_visual(wr.word, self.lang.needs_reshaping, self.lang.rtl)
                 ops = "".join(
                     {
                         Op.MATCH: ".",
@@ -393,7 +393,7 @@ class Session:
         ref_wr = ref_report[self.selected_word] if ref_report else None
         ref_anchored = _target_anchored(ref_wr.phones) if ref_wr else None
 
-        word_visual = to_visual(wr.word, self.lang.needs_reshaping)
+        word_visual = to_visual(wr.word, self.lang.needs_reshaping, self.lang.rtl)
         header = (
             f"languify accent -- ZOOM  word {self.selected_word + 1}/{len(report)}: "
             f"{word_visual}   phone {self.zoom_phone + 1}/{max(len(anchored), 1)}"

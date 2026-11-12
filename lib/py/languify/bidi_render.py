@@ -76,7 +76,10 @@ def _flip_attached_punctuation(token: str) -> str:
     return new_leading + core + new_trailing
 
 
-def to_visual(line: str, needs_reshaping: bool) -> str:
+def to_visual(line: str, needs_reshaping: bool, rtl: bool = True) -> str:
+    if not rtl:
+        # Left-to-right text (e.g. English) is already in visual order
+        return line
     if needs_reshaping:
         try:
             import arabic_reshaper
