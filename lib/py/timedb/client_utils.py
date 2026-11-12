@@ -361,8 +361,10 @@ def find_matching_auxiliaries(client, pks, kind):
     return _find_matching_auxiliaries_for_nouns(client, noun_pks, kind)
 
 
-def _all_auxes(client, kind):
-    all_auxes = client.ListRows(
+def nouns_with_class(client, cls):
+    """Returns the full pks ("<table> <pk>") of all items that have the
+    assertion .Class = @{nouns <cls>}"""
+    resp = client.ListRows(
         jql_pb2.ListRowsRequest(
             table=schema.Tables.Assertions,
             conditions=[
@@ -374,17 +376,17 @@ def _all_auxes(client, kind):
                     jql_pb2.Filter(
                         column=schema.Fields.Arg1,
                         equal_match=jql_pb2.EqualMatch(
-                            value=f'@{{nouns {kind}}}'),
+                            value=foreign_pk(schema.Tables.Nouns, cls)),
                     ),
                 ])
             ],
         ))
-    assn_primary, assn_cmap = list_rows_meta(all_auxes)
-    aux_paths = [
-        aux.entries[assn_cmap[schema.Fields.Arg0]].formatted
-        for aux in all_auxes.rows
-    ]
-    fields, _ = get_fields_for_items(client, "", aux_paths)
+    _, cmap = list_rows_meta(resp)
+    return [row.entries[cmap[schema.Fields.Arg0]].formatted for row in resp.rows]
+
+
+def _all_auxes(client, kind):
+    fields, _ = get_fields_for_items(client, "", nouns_with_class(client, kind))
     return fields
 
 

@@ -4,7 +4,7 @@ import json
 from timedb import pks, schema
 from timedb.virtual_gateway import common
 from timedb import client_utils
-from timedb.virtual_gateway import relative_utils
+from timedb.virtual_gateway import relative_utils, schema_values
 
 from jql import jql_pb2, jql_pb2_grpc
 
@@ -23,19 +23,17 @@ class ProfilesBackend(jql_pb2_grpc.JQLServicer):
         profiles = client_utils.find_matching_auxiliaries(self.client, targets,
                                                     "Schema")
         distinct_profiles = list(set().union(*profiles.values()))
-        profile_fields, _ = client_utils.get_fields_for_items(self.client,
-                                                        "",
-                                                        distinct_profiles,
-                                                        fields=['Dimension'])
+        profile_to_dimensions = schema_values.get_dimensions(
+            self.client, distinct_profiles)
         target_fields, target_assn_pks = client_utils.get_fields_for_items(
             self.client, "", targets)
         rows = {}
-        schema_values = self._get_values_for_schemas(profile_fields)
+        all_profile_fields = set().union(*profile_to_dimensions.values())
+        schema2values = schema_values.get_values_for_schemas(
+            self.client, all_profile_fields)
         invariant_attrs = ["A Date"]
         all_fields = set().union(*(target_fields.values()))
-        all_profile_fields = set().union(*(fields['Dimension'] for fields in profile_fields.values()))
         all_unprofiled_fields = all_fields - all_profile_fields
-        profile_to_dimensions = {profile: fields['Dimension'] for profile, fields in profile_fields.items()}
         profile_to_dimensions["unprofiled"] = list(all_unprofiled_fields)
         for target, matching_profiles in profiles.items():
             if set(target_fields[target].keys()) & all_unprofiled_fields:
@@ -60,73 +58,10 @@ class ProfilesBackend(jql_pb2_grpc.JQLServicer):
             'vt.profiles',
             rows,
             request,
-            values=schema_values,
+            values=schema2values,
             client=self.client,
             hide_grouping_fields=True,
         )
-
-    def _get_values_for_schemas(self, fields):
-        distinct_schemas = list(set().union(*(field['Dimension']
-                                              for field in fields.values())))
-        schema_full_pks = [
-            client_utils.strip_foreign(ds) for ds in distinct_schemas
-            if client_utils.is_foreign(ds)
-            and client_utils.parse_foreign(ds)[0] == schema.Tables.Nouns
-        ]
-        schema_attrs, _ = client_utils.get_fields_for_items(self.client,
-                                                      "",
-                                                      schema_full_pks,
-                                                      fields=['ValueSet'])
-        schema2values = {}
-        for schema_name, fields in schema_attrs.items():
-            value_set = fields['ValueSet']
-            schema_key = f"@{{{schema_name}}}"
-            schema2values[schema_key] = []
-            for value_def in value_set:
-                # NOTE if we have multiple @{nouns } style defs then getting them serially
-                # is a little inefficient, but is worth the tradeoff for cleaner code
-                schema2values[schema_key].extend(
-                    self._get_schema_values(value_def))
-        return schema2values
-
-    def _get_schema_values(self, schema_value_def):
-        table, pk = client_utils.parse_foreign(schema_value_def)
-        if table == "ratings":
-            total = int(pk)
-            return [f"@{{ratings {i} {total}}}" for i in range(total + 1)]
-        if table == "ints":
-            return []
-        if table == schema.Tables.Nouns:
-            nouns_request = jql_pb2.ListRowsRequest(
-                table=schema.Tables.Nouns,
-                conditions=[
-                    jql_pb2.Condition(requires=[
-                        jql_pb2.Filter(
-                            column=schema.Fields.Parent,
-                            equal_match=jql_pb2.EqualMatch(value=pk),
-                        ),
-                    ], )
-                ],
-            )
-            nouns_response = self.client.ListRows(nouns_request)
-            primary, _ = client_utils.list_rows_meta(nouns_response)
-            noun_pks = [
-                noun.entries[primary].formatted for noun in nouns_response.rows
-            ]
-            noun_references = [
-                f"@{{{schema.Tables.Nouns} {noun_pk}}}" for noun_pk in noun_pks
-            ]
-            # Merge the results with the members of the noun
-            #
-            # NOTE once we implement include_children=True for client_utils.get_fields_for_items
-            # we won't need to do this merging manually. To do this though we may need
-            # to audit direct children to ensure they have a parent relation set.
-            profile_fields, _ = client_utils.get_fields_for_items_by_pk(self.client,
-                                                            schema.Tables.Nouns,
-                                                            [pk],
-                                                            fields=['Member'])
-            noun_references.extend(profile_fields[pk]['Member'])
-            return noun_references
 
     def GetRow(self, request, context):
         row_id, assn_pks = client_utils.decode_pk(request.pk)

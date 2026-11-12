@@ -1,4 +1,4 @@
-from timedb.virtual_gateway import active_reminders, attributes, habituals, ideas, kits, practices, profiles, project_initiatives, relatives, reminders, review, tools
+from timedb.virtual_gateway import active_reminders, attributes, habituals, ideas, kits, practices, profiles, project_initiatives, relatives, reminders, review, templates, tools
 
 from jql import jql_pb2_grpc
 
@@ -20,6 +20,7 @@ class Gateway(jql_pb2_grpc.JQLServicer):
             "vt.relatives": relatives.RelativesBackend(client),
             "vt.reminders": reminders.RemindersBackend(client),
             "vt.review": review.ReviewBackend(client),
+            "vt.templates": templates.TemplatesBackend(client),
             "vt.tools": tools.ToolsBackend(client),
         }
 

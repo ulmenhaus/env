@@ -280,18 +280,18 @@ def get_row(list_resp, pk):
     raise ValueError("no such pk", pk)
 
 
-def possible_targets(client, request, table):
-    tgt_tables = [schema.Tables.Nouns, schema.Tables.Tasks]
-    entries = []
-    for tgt_table in tgt_tables:
-        tgt_request = jql_pb2.ListRowsRequest(table=tgt_table)
-        response = client.ListRows(tgt_request)
-        primary, = [i for i, c in enumerate(response.columns) if c.primary]
-        pks = [
-            f"{tgt_table} {row.entries[primary].formatted}"
-            for row in response.rows
-        ]
-        entries.extend({"_pk": [pk], "-> Item": [pk]} for pk in pks)
+def possible_targets(client, request, table, candidates=None):
+    """Returns a listing of items for the user to select from by filtering
+    on the "-> Item" column. By default all nouns and tasks are listed, but
+    callers may instead provide the full pks of the candidates to list."""
+    if candidates is None:
+        candidates = []
+        for tgt_table in [schema.Tables.Nouns, schema.Tables.Tasks]:
+            response = client.ListRows(jql_pb2.ListRowsRequest(table=tgt_table))
+            primary = get_primary(response)
+            candidates.extend(f"{tgt_table} {row.entries[primary].formatted}"
+                              for row in response.rows)
+    entries = [{"_pk": [pk], "-> Item": [pk]} for pk in candidates]
     filtered = apply_request_parameters(entries, request)
     final = apply_request_limits(filtered, request)
     return jql_pb2.ListRowsResponse(
