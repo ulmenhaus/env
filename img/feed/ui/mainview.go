@@ -793,7 +793,10 @@ func (mv *MainView) moveDownInPipe(g *gocui.Gui, v *gocui.View) error {
 	if err != nil {
 		return err
 	}
-	if oy+cy+1 < len(channel.status2items[stage2status[name]]) {
+	// The taxonomy view's backend swaps the item with its neighbor itself
+	// (keeping the order of the underlying project plan consistent), so
+	// only one request is needed there
+	if mv.DomainSet != MainViewInitiativesDomains && oy+cy+1 < len(channel.status2items[stage2status[name]]) {
 		successor := channel.status2items[stage2status[name]][oy+cy+1].Identifier
 		_, err = mv.dbms.IncrementEntry(ctx, &jqlpb.IncrementEntryRequest{
 			Table:  mv.renderTable(timedb.TableNouns),
@@ -833,7 +836,10 @@ func (mv *MainView) moveUpInPipe(g *gocui.Gui, v *gocui.View) error {
 	if err != nil {
 		return err
 	}
-	if oy+cy-1 >= 0 {
+	// The taxonomy view's backend swaps the item with its neighbor itself
+	// (keeping the order of the underlying project plan consistent), so
+	// only one request is needed there
+	if mv.DomainSet != MainViewInitiativesDomains && oy+cy-1 >= 0 {
 		predecessor := channel.status2items[stage2status[name]][oy+cy-1].Identifier
 		_, err = mv.dbms.IncrementEntry(ctx, &jqlpb.IncrementEntryRequest{
 			Table:  mv.renderTable(timedb.TableNouns),

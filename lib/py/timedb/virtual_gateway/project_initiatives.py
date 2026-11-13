@@ -114,6 +114,103 @@ class NounsBackend(jql_pb2_grpc.JQLServicer):
         return common.get_row(
             self.ListRows(jql_pb2.ListRowsRequest(), context), request.pk)
 
+    def IncrementEntry(self, request, context):
+        if request.column != schema.Fields.Coordinal:
+            raise ValueError("Only the coordinal can be incremented",
+                             request.column)
+        _swap_with_neighbor_in_area(self.client, request.pk, request.amount)
+        return jql_pb2.IncrementEntryResponse()
+
+
+def _coordinal_sort_key(noun):
+    pk, coordinal = noun
+    # Mirror the feed tool's ordering: items lacking a coordinal come last
+    return (coordinal == "", coordinal, pk)
+
+
+def _swap_with_neighbor_in_area(client, pk, amount):
+    """Moves the noun with the given pk past its neighbor in the taxonomy
+    view, i.e. the adjacent noun (in the direction of amount) that has the
+    same project plan, area, and status.
+
+    Coordinals of the real nouns are ordered across the whole project plan
+    (which is how the nouns view of the feed tool orders them), so we
+    reorder the plan's nouns by swapping the two and then renumber every
+    noun in the plan. This keeps the plan's ordering consistent between the
+    nouns view and the taxonomy view."""
+    if amount == 0:
+        return
+    noun_resp = client.ListRows(
+        jql_pb2.ListRowsRequest(
+            table=schema.Tables.Nouns,
+            conditions=[
+                jql_pb2.Condition(requires=[
+                    jql_pb2.Filter(
+                        column=schema.Fields.Identifier,
+                        equal_match=jql_pb2.EqualMatch(value=pk),
+                    ),
+                ]),
+            ],
+        ))
+    if not noun_resp.rows:
+        # e.g. an area which isn't a real noun
+        return
+    _, cmap = client_utils.list_rows_meta(noun_resp)
+    plan = noun_resp.rows[0].entries[cmap[schema.Fields.Parent]].formatted
+
+    siblings_resp = client.ListRows(
+        jql_pb2.ListRowsRequest(
+            table=schema.Tables.Nouns,
+            conditions=[
+                jql_pb2.Condition(requires=[
+                    jql_pb2.Filter(
+                        column=schema.Fields.Parent,
+                        equal_match=jql_pb2.EqualMatch(value=plan),
+                    ),
+                ]),
+            ],
+        ))
+    primary, cmap = client_utils.list_rows_meta(siblings_resp)
+    coordinals = {}
+    statuses = {}
+    for row in siblings_resp.rows:
+        sibling = row.entries[primary].formatted
+        coordinals[sibling] = row.entries[cmap[schema.Fields.Coordinal]].formatted
+        statuses[sibling] = row.entries[cmap[schema.Fields.Status]].formatted
+    fields, _ = client_utils.get_fields_for_items_by_pk(client,
+                                                        schema.Tables.Nouns,
+                                                        list(coordinals),
+                                                        fields=["Area"])
+    areas = {sibling: fields[sibling]["Area"][:1] for sibling in coordinals}
+
+    order = [
+        sibling for sibling, _ in sorted(coordinals.items(),
+                                         key=_coordinal_sort_key)
+    ]
+    peers = [
+        sibling for sibling in order if areas[sibling] == areas[pk]
+        and statuses[sibling] == statuses[pk]
+    ]
+    index = peers.index(pk)
+    neighbor_index = index + (1 if amount > 0 else -1)
+    if not (0 <= neighbor_index < len(peers)):
+        return
+    neighbor = peers[neighbor_index]
+    i, j = order.index(pk), order.index(neighbor)
+    order[i], order[j] = order[j], order[i]
+
+    for position, sibling in enumerate(order):
+        padded = str(position).zfill(3)
+        if coordinals[sibling] == padded:
+            continue
+        client.WriteRow(
+            jql_pb2.WriteRowRequest(
+                table=schema.Tables.Nouns,
+                pk=sibling,
+                fields={schema.Fields.Coordinal: padded},
+                update_only=True,
+            ))
+
 
 class AssertionsBackend(jql_pb2_grpc.JQLServicer):
 
