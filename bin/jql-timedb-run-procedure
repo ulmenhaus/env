@@ -111,6 +111,21 @@ def _client_args(iface):
     return args
 
 
+FORWARDED_ENV_VARS = ("PATH", "PYTHONPATH")
+
+
+def _forwarded_env_args():
+    """tmux pop-ups run with the tmux server's environment rather than ours,
+    so forward the variables jql needs to find and run macros (e.g.
+    jql-timedb-llm-review and the python libs it imports)"""
+    args = []
+    for var in FORWARDED_ENV_VARS:
+        value = os.environ.get(var)
+        if value:
+            args += ["-e", f"{var}={value}"]
+    return args
+
+
 def _template_reference(body):
     """If the body of a procedure (everything after its heading) is just a
     single reference to a template, e.g. @{vt.templates nouns Foo}, returns
@@ -156,6 +171,7 @@ def _open_template(iface, template_pk):
         "-E",
         "-e",
         "TERM=xterm-256color",
+    ] + _forwarded_env_args() + [
         jql,
     ] + _client_args(iface) + [
         "--query",

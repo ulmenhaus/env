@@ -18,6 +18,38 @@ from timedb import cycles, pks, schema, llm_utils
 from timedb import client_utils
 
 
+TEMPLATES_TABLE = "vt.templates"
+TEXT_COLUMN = "Text"
+
+
+def _open_prompt(prompt, site=""):
+    if site:
+        subprocess.run(
+            ["txtcopy"],
+            input=prompt.encode("utf-8"),
+        )
+        subprocess.check_call(
+            ["txtopen", site],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    else:
+        llm_utils.open_session(prompt, "chatgpt", "4o")
+
+
+def _prompt_from_template(iface):
+    """Uses the rendered Text of the first row of the current vt.templates
+    query as the prompt"""
+    dbms = iface.get_dbms()
+    request = iface.get_request()
+    request.limit = 0
+    response = dbms.ListRows(request)
+    if not response.rows:
+        raise ValueError("No rows found in vt.templates query")
+    _, cmap = client_utils.list_rows_meta(response)
+    return response.rows[0].entries[cmap[TEXT_COLUMN]].formatted
+
+
 def _generate_prompt_for_claimset(iface, learn=False, site=""):
     dbms = iface.get_dbms()
     request = iface.get_request()
@@ -45,18 +77,7 @@ def _generate_prompt_for_claimset(iface, learn=False, site=""):
     prompt = f"""Help me review the following fast facts sheet by giving me creative interactive scenario-driven quizzes (you are in situation x, what do you do?) where you have to actively use the knowledge from this facts sheet. Give me the questions one at a time and keep it brief and interactive. I want you to ask me challenging but simple questions that will help me make mental connections and reinforce the data in this table. Use research backed methods for accelerated learning. Feel free to use your knowledge or logical rules to test me beyond a simple look up of the entries themselves. Ask me questions one at a time and when I'm done I'll ask for a final score. The goal is still recall so don't give too much information in each prompt. Let's break it up into levels where level 1 is very basic and level 10 is professional. Give me corrections on each round and keep me at a level that's just at the edge of my abilities. So if you notice me making a lot of mistakes, bring it down a level. Tell me my current level at the start of each round.\n\n{table}"""
     if learn:
         prompt = f"""Help me learn the following fast facts sheet by giving me creative interactive scenario-driven quizzes (you are in situation x, what do you do?) where you have to actively use the knowledge from this facts sheet. Give me the questions one at a time and keep it brief and interactive. Use research backed methods for accelerated learning. Do so by incrementally introducing me to short bursts of knowledge from it as well as facts to help me understand and semantically encode it in memory so I can retain and apply it long term.\n\n{table}"""
-    if site:
-        subprocess.run(
-            ["txtcopy"],
-            input=prompt.encode("utf-8"),
-        )
-        subprocess.check_call(
-            ["txtopen", site],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-    else:
-        llm_utils.open_session(prompt, "chatgpt", "4o")
+    _open_prompt(prompt, site=site)
 
 
 @click.command()
@@ -65,8 +86,10 @@ def _generate_prompt_for_claimset(iface, learn=False, site=""):
 @click.option('--review/--no-review', type=click.BOOL, default=False)
 def run(site, learn, review):
     with macro.macro_interface(sys.stdin, sys.stdout) as iface:
-        dbms = iface.get_dbms()
-        _generate_prompt_for_claimset(iface, learn, site=site)
+        if iface.get_request().table == TEMPLATES_TABLE:
+            _open_prompt(_prompt_from_template(iface), site=site)
+        else:
+            _generate_prompt_for_claimset(iface, learn, site=site)
 
 def main():
     run()
