@@ -109,6 +109,40 @@ func (t *Table) unindexRow(pk string, row []Entry) {
 	}
 }
 
+// canonicalMatchesUserInput is true iff entries in the column are guaranteed to have the
+// same canonical and user-input formats, so that indexes keyed on one can serve the other
+func (t *Table) canonicalMatchesUserInput(col int) bool {
+	meta, ok := t.ColumnMeta[t.Columns[col]]
+	if !ok {
+		return false
+	}
+	return meta.Type == jqlpb.EntryType_STRING || meta.Type == jqlpb.EntryType_FOREIGN
+}
+
+// LookupExact returns the pks of the rows whose entry in the given column has the given
+// value (in both its canonical and user-input formats). It returns false if the lookup
+// cannot be served without a scan, i.e. the column is neither the primary key nor has an
+// exact index, or its entries may format differently for canonical and user input.
+func (t *Table) LookupExact(col int, values ...string) (map[string]struct{}, bool) {
+	if col < 0 || col >= len(t.Columns) || !t.canonicalMatchesUserInput(col) {
+		return nil, false
+	}
+	if col == t.primary {
+		ret := map[string]struct{}{}
+		for _, value := range values {
+			if _, ok := t.Entries[value]; ok {
+				ret[value] = struct{}{}
+			}
+		}
+		return ret, true
+	}
+	index, ok := t.indexes[col]
+	if !ok {
+		return nil, false
+	}
+	return index.Lookup(IndexHint{Column: col, Kind: MatchExact, Values: values})
+}
+
 // candidates returns the pks of a subset of rows that is guaranteed to contain every row
 // matching the filters, or false if no index can narrow down the search
 func (t *Table) candidates(filters []Filter) (map[string]struct{}, bool) {
@@ -123,11 +157,14 @@ func (t *Table) candidates(filters []Filter) (map[string]struct{}, bool) {
 		if !ok {
 			continue
 		}
-		index, ok := t.indexes[hint.Column]
-		if !ok {
-			continue
+		var pks map[string]struct{}
+		if hint.Column == t.primary && hint.Kind == MatchExact {
+			pks, ok = t.LookupExact(hint.Column, hint.Values...)
+		} else if index, exists := t.indexes[hint.Column]; exists {
+			pks, ok = index.Lookup(hint)
+		} else {
+			ok = false
 		}
-		pks, ok := index.Lookup(hint)
 		if !ok {
 			continue
 		}

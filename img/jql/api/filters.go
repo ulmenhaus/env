@@ -92,16 +92,8 @@ func newFilterShim(f *jqlpb.Filter, t *types.Table) *filterShim {
 }
 
 func shimForPathToMatch(f *jqlpb.Filter, match *jqlpb.Filter_PathToMatch, t *types.Table) *filterShim {
-	edges := map[string][]string{}
 	colix := t.IndexOfField(f.GetColumn())
-	for pk, row := range t.Entries {
-		key := row[colix].Format("")
-		if match.PathToMatch.Reverse {
-			edges[pk] = append(edges[pk], key) 
-		} else {
-			edges[key] = append(edges[key], pk)
-		}
-	}
+	neighbors := pathNeighbors(t, colix, match.PathToMatch.Reverse)
 	matchingPks := map[string]bool{}
 	traversal := []string{match.PathToMatch.Value}
 	var next string
@@ -111,15 +103,54 @@ func shimForPathToMatch(f *jqlpb.Filter, match *jqlpb.Filter_PathToMatch, t *typ
 			continue
 		}
 		matchingPks[next] = true
-		traversal = append(traversal, edges[next]...)
+		traversal = append(traversal, neighbors(next)...)
 	}
 
 	return newFilterShim(&jqlpb.Filter{
-			Column: t.Columns[t.Primary()],
-			// NOTE we convert to a slice, just to convert back to a map, but it's worth the slight
-			// performance hit to keep the code simple
-			Match:  &jqlpb.Filter_InMatch{&jqlpb.InMatch{Values: map2slice(matchingPks)}},
+		Column: t.Columns[t.Primary()],
+		// NOTE we convert to a slice, just to convert back to a map, but it's worth the slight
+		// performance hit to keep the code simple
+		Match: &jqlpb.Filter_InMatch{InMatch: &jqlpb.InMatch{Values: map2slice(matchingPks)}},
 	}, t)
+}
+
+// pathNeighbors returns a function giving the next keys to visit from a key when
+// traversing the graph whose edges go from each row's entry in the column to the row's
+// pk (or the reverse). Traversals use direct lookups where possible and otherwise fall
+// back to materializing every edge of the table.
+func pathNeighbors(t *types.Table, colix int, reverse bool) func(string) []string {
+	if reverse {
+		// The only edge out of a pk is to the entry in its own row
+		return func(pk string) []string {
+			row, ok := t.Entries[pk]
+			if !ok {
+				return nil
+			}
+			return []string{row[colix].Format("")}
+		}
+	}
+	if _, ok := t.LookupExact(colix); ok {
+		return func(key string) []string {
+			pks, _ := t.LookupExact(colix, key)
+			return set2slice(pks)
+		}
+	}
+	edges := map[string][]string{}
+	for pk, row := range t.Entries {
+		key := row[colix].Format("")
+		edges[key] = append(edges[key], pk)
+	}
+	return func(key string) []string {
+		return edges[key]
+	}
+}
+
+func set2slice(set map[string]struct{}) []string {
+	slice := make([]string, 0, len(set))
+	for s := range set {
+		slice = append(slice, s)
+	}
+	return slice
 }
 
 // PrimarySuggestion returns a suggestion for prefilling the primary key of a new

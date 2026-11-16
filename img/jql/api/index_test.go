@@ -201,3 +201,107 @@ func BenchmarkArg0EqualScan(b *testing.B)       { benchmarkQuery(b, false, bench
 func BenchmarkArg0EqualIndexed(b *testing.B)    { benchmarkQuery(b, true, benchArg0) }
 func BenchmarkArg1ContainsScan(b *testing.B)    { benchmarkQuery(b, false, benchArg1) }
 func BenchmarkArg1ContainsIndexed(b *testing.B) { benchmarkQuery(b, true, benchArg1) }
+
+// newTreeTable returns a nouns-like table of rows "n<i>" whose Parent forms a random forest
+func newTreeTable(t testing.TB, rows int, indexed bool) *types.Table {
+	columns := []string{"Parent", "_Identifier"}
+	constructors := map[string]types.FieldValueConstructor{}
+	meta := map[string]*types.ColumnMeta{}
+	features := map[string]map[string]interface{}{}
+	for _, col := range columns {
+		constructors[col] = types.NewString
+		meta[col] = &types.ColumnMeta{}
+		features[col] = map[string]interface{}{}
+	}
+	if indexed {
+		exact, err := types.ParseIndexSpec(map[string]interface{}{"type": "exact"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		meta["Parent"].Index = exact
+	}
+	table := types.NewTable(columns, map[string][]types.Entry{}, "_Identifier", constructors, features, meta)
+	r := rand.New(rand.NewSource(3))
+	for i := 0; i < rows; i++ {
+		parent := ""
+		if i > 0 && r.Intn(10) != 0 {
+			parent = fmt.Sprintf("n%d", r.Intn(i))
+		}
+		if err := table.InsertWithFields(fmt.Sprintf("n%d", i), map[string]string{"Parent": parent}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return table
+}
+
+func TestPathAndPrimaryQueriesMatchScans(t *testing.T) {
+	path := func(value string, reverse bool) *jqlpb.Filter {
+		return &jqlpb.Filter{Column: "Parent", Match: &jqlpb.Filter_PathToMatch{PathToMatch: &jqlpb.PathToMatch{Value: value, Reverse: reverse}}}
+	}
+	pkIn := func(vs ...string) *jqlpb.Filter {
+		return &jqlpb.Filter{Column: "_Identifier", Match: &jqlpb.Filter_InMatch{InMatch: &jqlpb.InMatch{Values: vs}}}
+	}
+	pkEq := func(v string) *jqlpb.Filter {
+		return &jqlpb.Filter{Column: "_Identifier", Match: &jqlpb.Filter_EqualMatch{EqualMatch: &jqlpb.EqualMatch{Value: v}}}
+	}
+	cases := [][]*jqlpb.Filter{
+		{path("n0", false)},
+		{path("n3", false)},
+		{path("n150", false)},
+		{path("missing", false)},
+		{path("", false)},
+		{path("n299", true)},
+		{path("n42", true)},
+		{path("missing", true)},
+		{pkIn("n1", "n2", "missing")},
+		{pkIn()},
+		{pkEq("n7")},
+		{pkEq("missing")},
+		{path("n3", false), pkIn("n10", "n20", "n30")},
+	}
+	indexed := newTreeTable(t, 300, true)
+	plain := newTreeTable(t, 300, false)
+	for _, filters := range cases {
+		want := queryTreePKs(t, plain, filters...)
+		got := queryTreePKs(t, indexed, filters...)
+		if fmt.Sprint(want) != fmt.Sprint(got) {
+			t.Fatalf("results differ for %s:\nwant %v\ngot  %v", Description(filters[0]), want, got)
+		}
+	}
+	// Sanity check that the traversals actually traverse
+	if got := queryTreePKs(t, indexed, path("n0", false)); len(got) < 2 {
+		t.Fatalf("expected descendants of n0, got %v", got)
+	}
+	if got := queryTreePKs(t, indexed, path("n299", true)); len(got) < 2 {
+		t.Fatalf("expected ancestors of n299, got %v", got)
+	}
+}
+
+func queryTreePKs(t testing.TB, table *types.Table, filters ...*jqlpb.Filter) []string {
+	var shims []types.Filter
+	for _, f := range filters {
+		shims = append(shims, newFilterShim(f, table))
+	}
+	resp, err := table.Query(types.QueryParams{Filters: shims})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pks []string
+	for _, row := range resp.Entries {
+		pks = append(pks, row[table.Primary()].Format(""))
+	}
+	sort.Strings(pks)
+	return pks
+}
+
+func benchmarkPath(b *testing.B, indexed bool) {
+	table := newTreeTable(b, 100000, indexed)
+	filter := &jqlpb.Filter{Column: "Parent", Match: &jqlpb.Filter_PathToMatch{PathToMatch: &jqlpb.PathToMatch{Value: "n5000"}}}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		queryTreePKs(b, table, filter)
+	}
+}
+
+func BenchmarkPathToMatchScan(b *testing.B)    { benchmarkPath(b, false) }
+func BenchmarkPathToMatchIndexed(b *testing.B) { benchmarkPath(b, true) }

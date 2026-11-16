@@ -18,9 +18,12 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
         actionable = self.query_practices()
         return common.list_rows('vt.practices', actionable, request)
 
-    def query_practices(self, hide_active=True):
+    def query_practices(self, hide_active=True, include_timing=True):
+        """Returns all practices keyed by pk. Computing the Days Since/Until timing
+        columns requires querying every task that references a practice's noun, so
+        callers that don't need them should pass include_timing=False."""
         feeds_resp = self._query_feeds()
-        return self._query_actionable_children(feeds_resp, hide_active)
+        return self._query_actionable_children(feeds_resp, hide_active, include_timing)
         
     def _query_feeds(self):
         nouns_request = jql_pb2.ListRowsRequest(
@@ -35,7 +38,7 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
         )
         return self.client.ListRows(nouns_request)
 
-    def _query_actionable_children(self, feeds_resp, hide_active):
+    def _query_actionable_children(self, feeds_resp, hide_active, include_timing=True):
         primary = client_utils.get_primary(feeds_resp)
         feeds = {row.entries[primary].formatted for row in feeds_resp.rows}
         feed_attrs, _ = client_utils.get_fields_for_items_by_pk(self.client,
@@ -176,6 +179,8 @@ class PracticesBackend(jql_pb2_grpc.JQLServicer):
                     "Towards": ['something regular'],
                     "Coordinal": [feed.entries[cmap[schema.Fields.Coordinal]].formatted],
                 }
+        if not include_timing:
+            return children
         # First pass: set Days Since and Days Until from each entry's own timing info
         all_noun_pks = set(row['Direct'][0] for row in children.values())
         noun2info = common.get_timing_info(self.client, all_noun_pks)

@@ -69,7 +69,8 @@ class ReviewBackend(jql_pb2_grpc.JQLServicer):
                 for field in task_fields:
                     value = initiative.entries[cmap[field]].formatted or "None"
                     stats[field][value] += count
-        all_practices = self.practices_backend.query_practices()
+        # Only attributes are needed here so skip the (expensive) timing columns
+        all_practices = self.practices_backend.query_practices(include_timing=False)
         for practice in all_practices.values():
             if practice['Towards'] != [schema.Values.TowardsSomethingRegular]:
                 continue
