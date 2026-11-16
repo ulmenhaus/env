@@ -120,34 +120,56 @@ func NewMainView(g *gocui.Gui, dbms api.JQL_DBMS, ignoredPath string, returnArgs
 	if err != nil {
 		return nil, err
 	}
-	if selected != "" {
-		// Search across all domains, not just the ones visible under the
-		// current DomainSet, since the selected channel may belong to a
-		// project domain even though MainViewFixtureDomains (the startup
-		// default) only renders non-project domains.
-		for _, domain := range mv.domains {
-			for _, channel := range domain.channels {
-				if channel == selected {
-					if domain.project {
-						mv.DomainSet = MainViewWorkstreamDomains
-					} else {
-						mv.DomainSet = MainViewFixtureDomains
-					}
-					mv.channelToSelect = channel
+	mv.selectChannel(selected)
+	return mv, mv.refreshView(g)
+}
+
+// selectChannel arranges for the given channel to be selected on the next layout. It
+// returns false if there is no such channel.
+func (mv *MainView) selectChannel(selected string) bool {
+	if selected == "" {
+		return false
+	}
+	// Search across all domains, not just the ones visible under the
+	// current DomainSet, since the selected channel may belong to a
+	// project domain even though MainViewFixtureDomains (the startup
+	// default) only renders non-project domains.
+	for _, domain := range mv.domains {
+		for _, channel := range domain.channels {
+			if channel == selected {
+				if domain.project {
+					mv.DomainSet = MainViewWorkstreamDomains
+				} else {
+					mv.DomainSet = MainViewFixtureDomains
 				}
-			}
-		}
-		if mv.channelToSelect != "" {
-			for i, domain := range mv.renderDomains() {
-				for _, channel := range domain.channels {
-					if channel == mv.channelToSelect {
-						mv.selectedDomain = i
-					}
-				}
+				mv.channelToSelect = channel
 			}
 		}
 	}
-	return mv, mv.refreshView(g)
+	if mv.channelToSelect == "" {
+		return false
+	}
+	for i, domain := range mv.renderDomains() {
+		for _, channel := range domain.channels {
+			if channel == mv.channelToSelect {
+				mv.selectedDomain = i
+			}
+		}
+	}
+	return true
+}
+
+// Reload re-fetches all data from the DBMS, e.g. after another tool may have modified it,
+// and selects the given channel if it exists. It returns true iff the channel was selected.
+func (mv *MainView) Reload(g *gocui.Gui, selected string) (bool, error) {
+	if err := mv.fetchResources(); err != nil {
+		return false, err
+	}
+	selectedChannel := mv.selectChannel(selected)
+	if n := len(mv.renderDomains()); mv.selectedDomain >= n {
+		mv.selectedDomain = 0
+	}
+	return selectedChannel, mv.refreshView(g)
 }
 
 func (mv *MainView) gatherDomains() (map[string]string, error) {

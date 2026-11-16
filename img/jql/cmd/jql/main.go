@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"net"
@@ -10,8 +9,8 @@ import (
 	"github.com/jroimartin/gocui"
 	"github.com/spf13/cobra"
 	"github.com/ulmenhaus/env/img/jql/api"
+	"github.com/ulmenhaus/env/img/jql/app"
 	"github.com/ulmenhaus/env/img/jql/cli"
-	"github.com/ulmenhaus/env/img/jql/ui"
 	"github.com/ulmenhaus/env/proto/jql/jqlpb"
 	"google.golang.org/grpc"
 )
@@ -104,112 +103,22 @@ func runDaemon(cfg *cli.JQLConfig, dbms api.JQL_DBMS) error {
 }
 
 func runUI(cfg *cli.JQLConfig, dbms api.JQL_DBMS) error {
-	var initialQuery *jqlpb.ListRowsRequest
-	if cfg.Query != "" {
-		q, err := cfg.GetQuery()
-		if err != nil {
-			return err
-		}
-		initialQuery = q
-		cfg.Table = q.Table
-		// Reset the query so that it won't be carried over in
-		// subsequent UI changes
-		cfg.Query = ""
-	}
-	mv, err := ui.NewMainView(dbms, cfg.Table)
+	tool, err := app.New(cfg, dbms, cfg.PK, cfg.GetFilters())
 	if err != nil {
 		return err
-	}
-	if cfg.PK != "" {
-		err = mv.GoToPrimaryKey(cfg.PK)
-		if err != nil {
-			return err
-		}
-	}
-	if initialQuery != nil {
-		err = mv.LoadQuery(initialQuery)
-		if err != nil {
-			return err
-		}
-	} else {
-		filters := cfg.GetFilters()
-		if len(filters) > 0 {
-			err = mv.AddFilters(filters)
-			if err != nil {
-				return err
-			}
-		}
-	}
-	if cfg.OrderBy != "" {
-		err = mv.SetOrderBy(cfg.OrderBy, cfg.OrderDec)
-		if err != nil {
-			return err
-		}
-		// Reset so that it won't be carried over in subsequent UI changes
-		cfg.OrderBy = ""
-		cfg.OrderDec = false
-	}
-	if cfg.GroupByField != "" {
-		err = mv.SetGroupBy(cfg.GroupByField, cfg.GroupBySelected)
-		if err != nil {
-			return err
-		}
-		// Reset so that it won't be carried over in subsequent UI changes
-		cfg.GroupByField = ""
-		cfg.GroupBySelected = ""
-	}
-	if cfg.VerticalGrouping {
-		// Applied after the query and groupings since setting either of
-		// those resets the vertical grouping mode
-		mv.SetVerticalGrouping(true)
-		// Reset so that it won't be carried over in subsequent UI changes
-		cfg.VerticalGrouping = false
-	}
-	if cfg.SelectPK != "" {
-		mv.SetSelectedPK(cfg.SelectPK)
 	}
 	g, err := gocui.NewGui(gocui.OutputNormal)
 	if err != nil {
 		return err
 	}
 	defer g.Close()
-	g.InputEsc = true
 
-	g.SetManagerFunc(mv.Layout)
-
-	if err := g.SetKeybinding("", gocui.KeyCtrlC, gocui.ModNone, quit); err != nil {
+	g.SetManagerFunc(tool.Layout)
+	if err := tool.Bind(g); err != nil {
 		return err
 	}
-
-	cycler := func(envvar, defaultVal string) func(g *gocui.Gui, v *gocui.View) error {
-		return func(g *gocui.Gui, v *gocui.View) error {
-			_, err := dbms.Persist(context.Background(), &jqlpb.PersistRequest{})
-			if err != nil {
-				return err
-			}
-			var tool string
-			tool = os.Getenv(envvar)
-			if tool == "" {
-				tool = defaultVal
-			}
-			return cfg.SwitchTool(tool, mv.GetPrimarySelection())
-		}
-	}
-
-	if err := g.SetKeybinding("", gocui.KeyTab, gocui.ModNone, cycler("JQL_FORWARD_TOOL", "feed")); err != nil {
-		return err
-	}
-
-	if err := g.SetKeybinding("", gocui.KeyEsc, gocui.ModNone, cycler("JQL_REVERSE_TOOL", "execute")); err != nil {
-		return err
-	}
-
 	if err := g.MainLoop(); err != nil && err != gocui.ErrQuit {
 		return err
 	}
 	return nil
-}
-
-func quit(g *gocui.Gui, v *gocui.View) error {
-	return gocui.ErrQuit
 }

@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -32,8 +33,26 @@ type Filter struct {
 	Value string
 }
 
+// A SwitchRequest asks for the UI to switch to another timedb tool
+type SwitchRequest struct {
+	Tool    string
+	PK      string
+	Filters []Filter
+	// Cycle is true when the user is simply cycling between tools (e.g. with Tab) rather
+	// than navigating to a specific item, so the target tool may keep its current state
+	Cycle bool
+}
+
+// ErrSwitchUnhandled may be returned by a Switcher to fall back to exec'ing the tool's binary
+var ErrSwitchUnhandled = errors.New("tool switch not handled in-process")
+
 type JQLConfig struct {
 	Mode string
+
+	// Switcher, when set, handles tool switches in-process rather than exec'ing a new binary.
+	// Tools set any relevant fields (Table, Query, OrderBy, ...) on the config before switching
+	// so the Switcher should read them from the config.
+	Switcher func(req SwitchRequest) error
 
 	Path           string
 	Table          string
@@ -130,7 +149,28 @@ func (c *JQLConfig) Register(f *flag.FlagSet) {
 	f.StringVarP(&c.TLSCA, "tls-ca", "", "", "Path to TLS CA certificate file")
 }
 
+// SwitchTool switches to the given tool, navigating to the provided pk and filters
 func (c *JQLConfig) SwitchTool(tool, pk string, filters ...Filter) error {
+	return c.switchTool(SwitchRequest{Tool: tool, PK: pk, Filters: filters})
+}
+
+// CycleTool switches to the given tool without navigating to anything in particular. The
+// pk is a hint for what the target tool may select if it has no state of its own.
+func (c *JQLConfig) CycleTool(tool, pk string) error {
+	return c.switchTool(SwitchRequest{Tool: tool, PK: pk, Cycle: true})
+}
+
+func (c *JQLConfig) switchTool(req SwitchRequest) error {
+	if c.Switcher != nil {
+		err := c.Switcher(req)
+		if err != ErrSwitchUnhandled {
+			return err
+		}
+	}
+	return c.execTool(req.Tool, req.PK, req.Filters...)
+}
+
+func (c *JQLConfig) execTool(tool, pk string, filters ...Filter) error {
 	binary, err := exec.LookPath(tool)
 	if err != nil {
 		return err

@@ -289,6 +289,15 @@ func NewMainView(g *gocui.Gui, dbms api.JQL_DBMS, preselectTask string, injectMa
 	return mv, mv.load(g)
 }
 
+// Reload re-fetches task data from the DBMS, e.g. after another tool may have modified it.
+// If preselectTask is non-empty that task is selected (and matching tasks are injected
+// if injectMatchingTasks is true) on the next layout.
+func (mv *MainView) Reload(g *gocui.Gui, preselectTask string, injectMatchingTasks bool) error {
+	mv.preselectTask = preselectTask
+	mv.injectMatchingTasks = injectMatchingTasks
+	return mv.refreshView(g)
+}
+
 func (mv *MainView) load(g *gocui.Gui) error {
 	mv.MainViewMode = MainViewModeListBar
 	mv.tasks = map[string]([]*jqlpb.Row){}

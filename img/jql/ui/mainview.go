@@ -1578,6 +1578,12 @@ func (mv *MainView) GoToPrimaryKey(pk string) error {
 	return mv.updateTableViewContents(true)
 }
 
+// Refresh re-runs the current query, e.g. after another tool may have modified the
+// data, keeping the cursor where it is
+func (mv *MainView) Refresh() error {
+	return mv.updateTableViewContents(false)
+}
+
 func (mv *MainView) SetSelectedPK(pk string) {
 	mv.selectedPK = pk
 }
