@@ -57,6 +57,26 @@ func (f *filterShim) Applies(e []types.Entry) bool {
 	return false
 }
 
+// IndexHint describes the filter to column indexes. Hints are only given for filters
+// whose matching rows are guaranteed to satisfy the hint.
+func (f *filterShim) IndexHint() (types.IndexHint, bool) {
+	if f.colix < 0 || f.filter.Negated {
+		return types.IndexHint{}, false
+	}
+	switch match := f.filter.Match.(type) {
+	case *jqlpb.Filter_EqualMatch:
+		return types.IndexHint{Column: f.colix, Kind: types.MatchExact, Values: []string{match.EqualMatch.Value}}, true
+	case *jqlpb.Filter_InMatch:
+		return types.IndexHint{Column: f.colix, Kind: types.MatchExact, Values: match.InMatch.Values}, true
+	case *jqlpb.Filter_ContainsMatch:
+		if match.ContainsMatch.Exact {
+			return types.IndexHint{}, false
+		}
+		return types.IndexHint{Column: f.colix, Kind: types.MatchContains, Values: []string{match.ContainsMatch.Value}}, true
+	}
+	return types.IndexHint{}, false
+}
+
 func newFilterShim(f *jqlpb.Filter, t *types.Table) *filterShim {
 	switch match := f.Match.(type) {
 	case *jqlpb.Filter_PathToMatch:

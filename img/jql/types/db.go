@@ -44,6 +44,7 @@ type ColumnMeta struct {
 	Values          []string
 	PrimaryShards   int
 	SecondaryShards int
+	Index           *IndexSpec // optional index used to accelerate queries on the column
 }
 
 // A Table is a model of an unordered two-dimensional array of data
@@ -56,6 +57,7 @@ type Table struct {
 	Constructors     map[string]FieldValueConstructor
 	ColumnMeta       map[string]*ColumnMeta // TODO add constructors, columns, features to this field and deprecate those
 	featuresByColumn map[string](map[string]interface{})
+	indexes          map[int]Index // column index -> index on that column
 }
 
 // NewTable returns a new table given a list of columns
@@ -79,7 +81,61 @@ func NewTable(columns []string, entries map[string][]Entry, primary string, cons
 	// - for inserts, take the max of the current value and the written value
 	// - for deletes, if the length is the max length, re-run the calculate method and short-circuit if there's a row with the current value
 	t.calculateMaxLengths()
+	t.buildIndexes()
 	return t
+}
+
+func (t *Table) buildIndexes() {
+	t.indexes = map[int]Index{}
+	for i, col := range t.Columns {
+		if meta, ok := t.ColumnMeta[col]; ok && meta.Index != nil {
+			t.indexes[i] = NewIndex(meta.Index)
+		}
+	}
+	for pk, row := range t.Entries {
+		t.indexRow(pk, row)
+	}
+}
+
+func (t *Table) indexRow(pk string, row []Entry) {
+	for col, index := range t.indexes {
+		index.Add(pk, row[col])
+	}
+}
+
+func (t *Table) unindexRow(pk string, row []Entry) {
+	for col, index := range t.indexes {
+		index.Remove(pk, row[col])
+	}
+}
+
+// candidates returns the pks of a subset of rows that is guaranteed to contain every row
+// matching the filters, or false if no index can narrow down the search
+func (t *Table) candidates(filters []Filter) (map[string]struct{}, bool) {
+	var best map[string]struct{}
+	found := false
+	for _, filter := range filters {
+		hinter, ok := filter.(Hinter)
+		if !ok {
+			continue
+		}
+		hint, ok := hinter.IndexHint()
+		if !ok {
+			continue
+		}
+		index, ok := t.indexes[hint.Column]
+		if !ok {
+			continue
+		}
+		pks, ok := index.Lookup(hint)
+		if !ok {
+			continue
+		}
+		if !found || len(pks) < len(best) {
+			best, found = pks, true
+		}
+	}
+	return best, found
 }
 
 // A Database is a collection of named tables
@@ -132,15 +188,23 @@ func IntMin(a, b uint) uint {
 // It returns a sub-table of just the filtered items
 func (t *Table) Query(params QueryParams) (*Response, error) {
 	entries := [][]Entry{}
-	for _, row := range t.Entries {
-		out := false
+	consider := func(row []Entry) {
 		for _, filter := range params.Filters {
 			if !filter.Applies(row) {
-				out = true
+				return
 			}
 		}
-		if !out {
-			entries = append(entries, row)
+		entries = append(entries, row)
+	}
+	if pks, ok := t.candidates(params.Filters); ok {
+		for pk := range pks {
+			if row, ok := t.Entries[pk]; ok {
+				consider(row)
+			}
+		}
+	} else {
+		for _, row := range t.Entries {
+			consider(row)
 		}
 	}
 	xor := func(b1, b2 bool) bool { return (b1 || b2) && !(b1 && b2) }
@@ -191,6 +255,7 @@ func (t *Table) Insert(pk string) error {
 		row = append(row, entry)
 	}
 	t.Entries[pk] = row
+	t.indexRow(pk, row)
 	return nil
 }
 
@@ -223,11 +288,37 @@ func (t *Table) Update(pk, field, value string) error {
 	if err != nil {
 		return err
 	}
-	current[col] = new
-	if col == t.primary {
-		delete(t.Entries, pk)
-		t.Entries[new.Format("")] = current
+	if col != t.primary {
+		return t.SetEntry(pk, col, new)
 	}
+	newPK := new.Format("")
+	t.unindexRow(pk, current)
+	if existing, ok := t.Entries[newPK]; ok && newPK != pk {
+		// NOTE renaming onto an existing pk overwrites that row
+		t.unindexRow(newPK, existing)
+	}
+	current[col] = new
+	delete(t.Entries, pk)
+	t.Entries[newPK] = current
+	t.indexRow(newPK, current)
+	return nil
+}
+
+// SetEntry replaces the entry in the given column of a row. It must not be used
+// to modify the primary key of a row -- use Update for that.
+func (t *Table) SetEntry(pk string, col int, entry Entry) error {
+	if col == t.primary {
+		return fmt.Errorf("SetEntry cannot modify the primary key of a row")
+	}
+	row, ok := t.Entries[pk]
+	if !ok {
+		return fmt.Errorf("Row does not exist with pk %s", pk)
+	}
+	if index, ok := t.indexes[col]; ok {
+		index.Remove(pk, row[col])
+		index.Add(pk, entry)
+	}
+	row[col] = entry
 	return nil
 }
 
@@ -238,10 +329,11 @@ func (t *Table) Primary() int {
 
 // Delete removes a row
 func (t *Table) Delete(pk string) error {
-	_, ok := t.Entries[pk]
+	row, ok := t.Entries[pk]
 	if !ok {
 		return fmt.Errorf("Row does not exist with pk %s", pk)
 	}
+	t.unindexRow(pk, row)
 	delete(t.Entries, pk)
 	return nil
 }

@@ -95,9 +95,7 @@ func (s *LocalDBMS) ListRows(ctx context.Context, in *jqlpb.ListRowsRequest, opt
 		Dec:     in.GetDec(),
 		Offset:  uint(in.GetOffset()),
 		Limit:   uint(in.GetLimit()),
-		// TODO now that we are filtering on the server-side with a fixed set of types
-		// we can support more sophisticated indexing rather than just applying
-		// filters in a linear fashion
+		// NOTE filters on indexed columns are accelerated by the table's indexes
 		Filters: filters,
 	})
 	if err != nil {
@@ -271,7 +269,9 @@ func (s *LocalDBMS) IncrementEntry(ctx context.Context, in *jqlpb.IncrementEntry
 		if err != nil {
 			return nil, err
 		}
-		row[colix] = new
+		if err := table.SetEntry(in.GetPk(), colix, new); err != nil {
+			return nil, err
+		}
 	}
 	return &jqlpb.IncrementEntryResponse{}, nil
 }

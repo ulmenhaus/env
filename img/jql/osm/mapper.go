@@ -268,12 +268,20 @@ func (osm *ObjectStoreMapper) loadEncodedDB(raw storage.EncodedDatabase) error {
 				return fmt.Errorf("invalid type for secondary shards: %T", shard)
 			}
 		}
+		var index *types.IndexSpec
+		if rawIndex, ok := schema["index"]; ok {
+			var err error
+			if index, err = types.ParseIndexSpec(rawIndex); err != nil {
+				return fmt.Errorf("invalid index for %s.%s: %s", table, column, err)
+			}
+		}
 		meta := &types.ColumnMeta{
 			Type:            entryType,
 			ForeignTable:    foreignTable,
 			Values:          values,
 			PrimaryShards:   primaryShards,
 			SecondaryShards: secondaryShards,
+			Index:           index,
 		}
 		if !ok {
 			fieldsByTable[table] = []string{column}
