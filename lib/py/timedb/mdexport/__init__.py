@@ -59,6 +59,10 @@ def _format_as_named_sections(entries):
     for entry in entries:
         title, _, body = entry.partition("\n")
         title = title.strip()
+        if title.startswith("```"):
+            # The entry starts with a code block (e.g. a diagram) so has no title
+            parts.append(entry)
+            continue
         if not title.startswith("### "):
             title = f"### {title}"
         parts.append(title)
@@ -110,7 +114,9 @@ def _generate_identity_markdown(dbms, item_full_pk):
     for attr, values in item_fields.items():
         if not values:
             continue
-        if len(values) == 1 and not values[0].startswith("### "):
+        # Multi-line values (e.g. those with diagrams or code blocks) can't be
+        # rendered in a table cell so get their own section
+        if len(values) == 1 and not values[0].startswith("### ") and "\n" not in values[0]:
             singletons[attr] = values[0]
         else:
             multitons[attr] = values

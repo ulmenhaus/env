@@ -1,5 +1,6 @@
 import hashlib
 import os
+import re
 import schemdraw
 import subprocess
 import time
@@ -58,6 +59,7 @@ def render_pic(src):
 
 
 def render_pics(grouped, meta):
+    os.makedirs("build", exist_ok=True)
     for i, group in enumerate(grouped):
         lines = group.split("\n")
         if lines[0] not in ["```pic.py", "```m4", "```plt.py", "```schem.py"]:
@@ -84,11 +86,9 @@ def render_pics(grouped, meta):
 def render_link(description, path):
     return f"[{description}]({path})"
 
-def inject_externals(default_project, markdown):
-    suffix_to_language = {
-        "py": "python",
-        "v": "verilog",
-    }
+def group_fences(markdown):
+    """Splits markdown into groups where each fenced code block is a single group and
+    every other line is its own group."""
     lines = markdown.split("\n")
     grouped = []
     while lines:
@@ -100,6 +100,21 @@ def inject_externals(default_project, markdown):
                 if to_add.startswith("```"):
                     break
         grouped.append(first)
+    return grouped
+
+
+def render_diagrams(markdown):
+    """Renders diagram fences (pic.py, m4, plt.py, schem.py) to images, leaving the rest
+    of the markdown untouched. Rendered sources and images are stored under build/."""
+    return "\n".join(render_pics(group_fences(markdown), {}))
+
+
+def inject_externals(default_project, markdown):
+    suffix_to_language = {
+        "py": "python",
+        "v": "verilog",
+    }
+    grouped = group_fences(markdown)
 
     final = []
     meta = {}
@@ -122,9 +137,9 @@ def inject_externals(default_project, markdown):
             filename = "snippets/{}".format(filename)
 
             for arg in args[1:]:
-                if match := re.match('until="(?P<until>.*)"\Z', arg):
+                if match := re.match(r'until="(?P<until>.*)"\Z', arg):
                     until = match.group("until")
-                elif match := re.match('after="(?P<after>.*)"\Z', arg):
+                elif match := re.match(r'after="(?P<after>.*)"\Z', arg):
                     after = match.group("after")
             with open(filename) as f:
                 body = f.read()

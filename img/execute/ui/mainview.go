@@ -784,6 +784,18 @@ func (mv *MainView) listTasksLayout(g *gocui.Gui) error {
 	return nil
 }
 
+// selectPreselectedTask places the cursor on the reminder for the preselected task
+func (mv *MainView) selectPreselectedTask(v *gocui.View) error {
+	for i, item := range mv.ix2item {
+		if info, ok := mv.reminderCache[item.ReminderArg0]; ok && info.taskPK == mv.preselectTask {
+			if err := v.SetCursor(0, i); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func (mv *MainView) tabulatedTasks(g *gocui.Gui, v *gocui.View) ([]string, error) {
 	if mv.span == timedb.Today {
 		wasNil := mv.cachedTodayTasks == nil
@@ -799,18 +811,29 @@ func (mv *MainView) tabulatedTasks(g *gocui.Gui, v *gocui.View) ([]string, error
 		}
 		mv.cachedTodayTasks = today
 		if mv.preselectTask != "" {
-			for i, item := range mv.ix2item {
-				if info, ok := mv.reminderCache[item.ReminderArg0]; ok && info.taskPK == mv.preselectTask {
-					err = v.SetCursor(0, i)
+			if err = mv.selectPreselectedTask(v); err != nil {
+				return nil, err
+			}
+			if mv.injectMatchingTasks {
+				added, err := mv.InjectTaskWithAllMatching(g, v, false)
+				if err != nil {
+					return nil, err
+				}
+				if added > 0 {
+					// The tasks above were tabulated before the injection so recompute them
+					// rather than rendering a stale today view until the next layout
+					if mv.treeMode {
+						today, err = mv.treeTasks()
+					} else {
+						today, err = mv.todayTasks()
+					}
 					if err != nil {
 						return nil, err
 					}
-				}
-			}
-			if mv.injectMatchingTasks {
-				_, err = mv.InjectTaskWithAllMatching(g, v, false)
-				if err != nil {
-					return nil, err
+					mv.cachedTodayTasks = today
+					if err = mv.selectPreselectedTask(v); err != nil {
+						return nil, err
+					}
 				}
 			}
 			mv.preselectTask = ""
