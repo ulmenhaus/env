@@ -122,3 +122,56 @@ func (d Integer) Add(i interface{}) (Entry, error) {
 func (s Integer) Encoded() storage.Primitive {
 	return int(s)
 }
+
+// A Number is a floating point numerical value
+type Number float64
+
+// NewNumber returns a new number from the encoded data
+func NewNumber(i interface{}, features map[string]interface{}) (Entry, error) {
+	if i == nil {
+		return Number(0), nil
+	}
+	d, ok := i.(float64)
+	if !ok {
+		return nil, fmt.Errorf("failed to unpack number from: %#v", i)
+	}
+	return Number(d), nil
+}
+
+// Format formats the number
+func (d Number) Format(ft string) string {
+	return strconv.FormatFloat(float64(d), 'f', -1, 64)
+}
+
+// Reverse creates a new number from the input
+func (d Number) Reverse(ft, input string) (Entry, error) {
+	value, err := strconv.ParseFloat(input, 64)
+	if err != nil {
+		return nil, err
+	}
+	return Number(value), nil
+}
+
+// Compare returns true iff the given object is a number and comes
+// after the argument
+func (d Number) Compare(i interface{}) bool {
+	entry, ok := i.(Number)
+	if !ok {
+		return false
+	}
+	return entry > d
+}
+
+// Add adds to the number
+func (d Number) Add(i interface{}) (Entry, error) {
+	addend, ok := i.(int)
+	if !ok {
+		return nil, fmt.Errorf("Numbers can only be added with integers")
+	}
+	return Number(float64(d) + float64(addend)), nil
+}
+
+// Encoded returns the Number encoded as a float
+func (d Number) Encoded() storage.Primitive {
+	return float64(d)
+}

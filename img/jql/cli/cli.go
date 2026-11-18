@@ -76,6 +76,10 @@ type JQLConfig struct {
 	TLSKey  string
 	TLSCA   string
 
+	// ImplicitSchema infers the schema of a plain JSON file rather than
+	// reading it from a _schemata table. The resulting database is read-only.
+	ImplicitSchema bool
+
 	filters []string
 }
 
@@ -93,6 +97,9 @@ func (c *JQLConfig) queryTable() string {
 func (c *JQLConfig) Validate() error {
 	if c.Query != "" && (c.Table != "" || len(c.filters) > 0) {
 		return fmt.Errorf("--query cannot be used with --table or --filter")
+	}
+	if c.ImplicitSchema && c.Mode != ModeStandalone {
+		return fmt.Errorf("--implicit-schema can only be used in standalone mode")
 	}
 	switch c.Mode {
 	case ModeDaemon:
@@ -119,7 +126,7 @@ func (c *JQLConfig) Validate() error {
 		if c.Path == "" {
 			return fmt.Errorf("Path must be provided for standalone mode")
 		}
-		if c.Table == "" && c.queryTable() == "" {
+		if c.Table == "" && c.queryTable() == "" && !c.ImplicitSchema {
 			return fmt.Errorf("Table must be provided for standalone mode")
 		}
 	default:
@@ -144,6 +151,7 @@ func (c *JQLConfig) Register(f *flag.FlagSet) {
 	f.StringVarP(&c.GroupByField, "group-by", "", "", "Column to group results by on startup")
 	f.StringVarP(&c.GroupBySelected, "group-by-selected", "", "", "Initially selected group value (requires --group-by)")
 	f.BoolVarP(&c.VerticalGrouping, "vertical-grouping", "", false, "Display the last grouping vertically in a side-bar")
+	f.BoolVarP(&c.ImplicitSchema, "implicit-schema", "", false, "Infer the schema of a plain JSON file (a list of objects or a map from type to list of objects). Standalone mode only; the database is read-only")
 	f.StringVarP(&c.TLSCert, "tls-cert", "", "", "Path to TLS certificate file")
 	f.StringVarP(&c.TLSKey, "tls-key", "", "", "Path to TLS key file")
 	f.StringVarP(&c.TLSCA, "tls-ca", "", "", "Path to TLS CA certificate file")
@@ -177,6 +185,9 @@ func (c *JQLConfig) execTool(tool, pk string, filters ...Filter) error {
 	}
 
 	args := []string{tool, "--mode", c.Mode, "--addr", c.Addr, "--path", c.Path, "--table", c.Table, "--pk", pk}
+	if c.ImplicitSchema {
+		args = append(args, "--implicit-schema")
+	}
 	if c.TLSCert != "" {
 		args = append(args, "--tls-cert", c.TLSCert)
 	}
@@ -243,13 +254,29 @@ func (c *JQLConfig) InitDBMS() (api.JQL_DBMS, error) {
 	clearTerminal()
 	switch c.Mode {
 	case ModeDaemon, ModeStandalone:
-		mapper, err := osm.NewObjectStoreMapper(c.Path)
+		var mapper *osm.ObjectStoreMapper
+		if c.ImplicitSchema {
+			mapper, err = osm.NewImplicitSchemaMapper(c.Path)
+		} else {
+			mapper, err = osm.NewObjectStoreMapper(c.Path)
+		}
 		if err != nil {
 			return nil, err
 		}
 		err = mapper.Load()
 		if err != nil {
 			return nil, err
+		}
+		if c.ImplicitSchema && c.Table == "" && c.queryTable() == "" {
+			// Default to the first table alphabetically
+			for name := range mapper.GetDB().Tables {
+				if c.Table == "" || name < c.Table {
+					c.Table = name
+				}
+			}
+			if c.Table == "" {
+				return nil, fmt.Errorf("no tables found in %s", c.Path)
+			}
 		}
 		dbms, err := api.NewLocalDBMS(mapper, c.Path)
 		if err != nil {

@@ -30,6 +30,7 @@ var (
 		"id":       types.NewID,
 		"time":     types.NewTime,
 		"moneyamt": types.NewMoneyAmount,
+		"number":   types.NewNumber,
 	} // maps field types to their corresponding constructor functions
 	fieldTypes = map[string]jqlpb.EntryType{
 		"string":   jqlpb.EntryType_STRING,
@@ -39,6 +40,7 @@ var (
 		"id":       jqlpb.EntryType_ID,
 		"time":     jqlpb.EntryType_TIME,
 		"moneyamt": jqlpb.EntryType_MONEYAMT,
+		"number":   jqlpb.EntryType_INT,
 	}
 )
 
@@ -61,6 +63,22 @@ type ObjectStoreMapper struct {
 	// Set of keys which have been updated
 	// if nil a snapshot was loaded and we update everything
 	updates map[update]bool
+
+	// implicitSchema is true when the schema was inferred from a plain
+	// JSON file rather than read from a _schemata table. Such databases
+	// are read-only.
+	implicitSchema bool
+}
+
+// NewImplicitSchemaMapper returns a read-only ObjectStoreMapper for a plain
+// JSON file whose schema will be inferred on Load
+func NewImplicitSchemaMapper(path string) (*ObjectStoreMapper, error) {
+	return &ObjectStoreMapper{
+		store:          &storage.JSONStore{},
+		path:           path,
+		updates:        map[update]bool{},
+		implicitSchema: true,
+	}, nil
 }
 
 // NewObjectStoreMapper returns a new ObjectStoreMapper given a storage driver
@@ -97,7 +115,20 @@ func (osm *ObjectStoreMapper) GetDB() *types.Database {
 }
 
 func (osm *ObjectStoreMapper) Load() error {
-	if strings.HasSuffix(osm.path, ".json") {
+	if osm.implicitSchema {
+		f, err := os.Open(osm.path)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		raw, err := inferEncodedDB(f, osm.path)
+		if err != nil {
+			return err
+		}
+		osm.mu.Lock()
+		defer osm.mu.Unlock()
+		return osm.loadEncodedDB(raw)
+	} else if strings.HasSuffix(osm.path, ".json") {
 		f, err := os.Open(osm.path)
 		if err != nil {
 			return err
@@ -398,6 +429,9 @@ func (osm *ObjectStoreMapper) encodedRow(table *types.Table, pk string) storage.
 func (osm *ObjectStoreMapper) StoreEntries() error {
 	osm.mu.Lock()
 	defer osm.mu.Unlock()
+	if osm.implicitSchema {
+		return fmt.Errorf("cannot save a database loaded with an implicit schema")
+	}
 	if strings.HasSuffix(osm.path, ".json") {
 		dst, err := os.OpenFile(osm.path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 		if err != nil {
